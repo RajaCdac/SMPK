@@ -1,0 +1,37 @@
+.footer {
+  background: #0b3d91;   /* ✅ same as navbar */
+  color: white;
+
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  padding: 8px 20px;     /* 👈 smaller height */
+  font-size: 13px;
+}
+
+/* LINKS */
+.footer a {
+  color: white;
+  text-decoration: none;
+  margin-left: 15px;
+}
+
+.footer a:hover {
+  text-decoration: underline;
+}
+
+
+
+/* 📱 MOBILE */
+@media (max-width: 768px) {
+  .footer {
+    flex-direction: column;
+    text-align: center;
+    gap: 5px;
+  }
+
+  .footer-right {
+    margin-top: 5px;
+  }
+}

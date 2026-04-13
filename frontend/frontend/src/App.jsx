@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import API from "./Api";
+import Header from "./components/Header/Header";
+import Navbar from "./components/Navbar/Navbar";
+import Footer from "./components/Footer/Footer";
+import Login from "./components/Login/login";
 
 function App() {
   const [message, setMessage] = useState("");
@@ -12,8 +16,14 @@ function App() {
 
   return (
     <div>
-      <h1>Frontend + Backend Connected 🚀</h1>
-      <p>{message}</p>
+      <Header />
+      <Navbar />
+     <main className="main-content">
+        <Login />
+      </main>
+
+      <Footer />
+      
     </div>
   );
 }

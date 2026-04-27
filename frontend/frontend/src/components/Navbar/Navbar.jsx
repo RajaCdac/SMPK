@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import "./Navbar.css";
+import { Link } from "react-router-dom";
 
 const Navbar = () => {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -15,16 +16,16 @@ const Navbar = () => {
       {/* MENU */}
       <ul className={`nav-menu ${menuOpen ? "active" : ""}`}>
 
-        <li><a href="#">Home</a></li>
+        <li><a href="/">Home</a></li>
 
         {/* LEVEL 1 */}
         <li className="dropdown">
-          <span>About ▾</span>
+          <span>Pension ▾</span>
 
           {/* LEVEL 2 */}
           <ul className="dropdown-menu">
-            <li><a href="#">Overview</a></li>
-            <li><a href="#">Vision & Mission</a></li>
+            <li><a href="#">First Pension Proposal</a></li>
+            <li><a href="#">Family Pension</a></li>
 
             {/* LEVEL 3 */}
             <li className="dropdown-sub">
@@ -54,7 +55,10 @@ const Navbar = () => {
 
       {/* RIGHT */}
       <div className="nav-right">
-        <button className="login-btn">Login</button>
+        {/* <button className="login-btn" href="/login">
+          Login
+        </button> */}
+        <Link to="/login" className="login-btn">Login</Link>
 
         <div
           className="hamburger"

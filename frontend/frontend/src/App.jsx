@@ -1,30 +1,32 @@
-import { useEffect, useState } from "react";
-import API from "./Api";
-import Header from "./components/Header/Header";
-import Navbar from "./components/Navbar/Navbar";
-import Footer from "./components/Footer/Footer";
-import Login from "./components/Login/login";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import MainLayout from "./components/Layout/MainLayout";
+import Home from "./pages/Home";
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    API.get("hello/")
-      .then((res) => setMessage(res.data.message))
-      .catch((err) => console.error(err));
-  }, []);
-
   return (
-    <div>
-      <Header />
-      <Navbar />
-     <main className="main-content">
-        <Login />
-      </main>
-
-      <Footer />
-      
-    </div>
+    <BrowserRouter>
+      <Routes>
+        {/* Public Home Page */}
+        <Route path="/" element={<MainLayout />}>
+          <Route index element={<Home />} />
+          {/* Login Page */}
+          <Route path="/login" element={<Login />} />
+        </Route>
+        {/* Protected Dashboard */}
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        
+      </Routes>
+    </BrowserRouter>
   );
 }
 

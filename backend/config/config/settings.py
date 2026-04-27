@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-g8#5k_t-3-o21#+am8nflt%q6sy&uvo)t#0%qe*p-5cht1qgv8
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -40,6 +40,10 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'api',
+    'accounts',
+    'employee',
+    'workflow',
+    'audit',
 ]
 
 MIDDLEWARE = [
@@ -87,7 +91,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'smpk',
+        'NAME': 'smpk_pension',
         'USER': 'root',
         'PASSWORD': 'root123',
         'HOST':'localhost',
@@ -118,6 +122,13 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+}
+
+AUTH_USER_MODEL = 'accounts.User'
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/

@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'employee',
     'workflow',
     'audit',
+    'first_pension',
 ]
 
 MIDDLEWARE = [
@@ -101,6 +102,14 @@ DATABASES = {
         }
     }
 } 
+
+ORACLE_DB = {
+    "HOST": "192.168.4.62",
+    "PORT": 1521,
+    "SERVICE_NAME": "kopttestfin",
+    "USER": "system",
+    "PASSWORD": "system",
+}
 
 
 

@@ -12,6 +12,9 @@ class Role(models.Model):
 
     def __str__(self):
         return self.name
+    
+    def delete(self, *args, **kwargs):
+        raise Exception("Roles cannot be deleted. Deactivate instead.")
 
 
 class UserRole(models.Model):
@@ -21,3 +24,13 @@ class UserRole(models.Model):
     
     def __str__(self):
         return f"{self.user} - {self.role}"
+    
+
+class DiesNon(models.Model):
+    start_dt = models.DateField()
+    end_date = models.DateField(default=None, null=True, blank=True)
+    description = models.CharField(max_length=255)
+    is_active = models.BooleanField(default=True)
+    
+    def __str__(self):
+        return self.description

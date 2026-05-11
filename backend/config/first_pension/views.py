@@ -165,20 +165,27 @@ class PensionProcessView(APIView):
         )
 
         # DA
-        da = (
-            basic * 0.1851
-        )
+        # da = (
+        #     basic * 0.1851
+        # )
+        emp_class = data.get("class")
+        if emp_class in ["I", "II"]:
+            da_percent = 54.32
+        else:
+            da_percent = 19.07
+        da = ( basic * da_percent / 100)
 
         # Rounded TCCS
         qualifying_years = tccs_years
 
         if tccs_months >= 6:
             qualifying_years += 1
-        print("QY= ,", qualifying_years)
+        
 
         gratuity_amount = (
             ((basic + da)*15* qualifying_years)/ 26
         )
+        print("Gratuity Amount: ", gratuity_amount)
 
         # Ceiling
         if gratuity_amount > 2000000:

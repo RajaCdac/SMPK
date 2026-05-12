@@ -12,14 +12,14 @@ export default function DashboardLayout() {
         <h3>Pension System</h3>
 
         <ul>
-          <li><Link to="/dashboard">Dashboard</Link></li>
-
+          <li><Link to="/dashboard" style={{color: "white", textDecoration: "none",}} >Dashboard</Link></li>
           {role === "User" && (
             <>
               <li>Users</li>
-              <li><Link to="/dashboard/roles">Role Management</Link></li>
+              <li><Link to="/dashboard/roles" style={{color: "white", textDecoration: "none",}}>Role Management</Link></li>
               <li>Workflow</li>
-              <li>Audit Logs</li>
+              <li> <Link to="/dashboard/logs" style={{color: "white", textDecoration: "none",}}>Audit Logs</Link></li>
+              <li><Link to="/dashboard/cases" style={{color: "white", textDecoration: "none",}}>Pension Cases</Link></li>
             </>
           )}
 

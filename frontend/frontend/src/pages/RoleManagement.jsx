@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import API from "../services/api";
+import API from "../services/Api";
 
 export default function RoleManagement() {
   const [roles, setRoles] = useState([]);

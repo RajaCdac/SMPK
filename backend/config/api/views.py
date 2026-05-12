@@ -69,6 +69,7 @@ class DashboardView(APIView):
             FROM FINANCE.FI_XX_MH_EMP_ADM
             WHERE EXTRACT(MONTH FROM EXP_RET_DT) = :month
               AND EXTRACT(YEAR FROM EXP_RET_DT) = :year
+               AND SEPARATION_TYPE IS NULL
         """, {"month": month, "year": year})
 
         retirement_count = cursor.fetchone()[0]

@@ -1,6 +1,6 @@
 import "../styles/Dashboard.css";
 import { useEffect, useState } from "react";
-import API from "../services/api";
+import API from "../services/Api";
 
 export default function Dashboard() {
   const [data, setData] = useState({
@@ -39,12 +39,16 @@ export default function Dashboard() {
        );
 
        console.log(res.data);
-
-       alert(
-         `Pension: ${res.data.pension_amount}
-          Commutation: ${res.data.commutation_amount}
-          Gratuity: ${res.data.gratuity_amount}`
+       window.open(
+         `/pension-report/${res.data.case_id}`,
+         "_blank"
        );
+
+      //  alert(
+      //    `Pension: ${res.data.pension_amount}
+      //     Commutation: ${res.data.commutation_amount}
+      //     Gratuity: ${res.data.gratuity_amount}`
+      //  );
 
        setSelectedEmp(null);
      } catch (err) {

@@ -10,6 +10,7 @@
   color: white;
   padding: 20px;
   border-radius: 10px;
+  text-decoration: none;
 }
 
 .sidebar ul {
@@ -20,6 +21,8 @@
 .sidebar li {
   margin: 15px 0;
   cursor: pointer;
+  color: white;
+  text-decoration: none;
 }
 
 /* Main area */

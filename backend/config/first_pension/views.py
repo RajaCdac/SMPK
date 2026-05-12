@@ -3,7 +3,7 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from datetime import timedelta
 from api.views import calculate_age
-
+from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
@@ -119,10 +119,9 @@ class PensionProcessView(APIView):
         )
 
         tccs_years = tccs_diff.years
-
         tccs_months = tccs_diff.months
-
         tccs_days = tccs_diff.days
+
         # =========================
         # TQS
         # =========================
@@ -178,13 +177,16 @@ class PensionProcessView(APIView):
         # Rounded TCCS
         qualifying_years = tccs_years
 
-        if tccs_months >= 6:
+        if tccs_months >= 6 or (tccs_months == 6 and tccs_days > 0):
             qualifying_years += 1
         
 
         gratuity_amount = (
             ((basic + da)*15* qualifying_years)/ 26
         )
+        # gratuity_amount_tqs = (
+        #     ((basic + da)*15* qualifying_years)/ 26
+        # )
         print("Gratuity Amount: ", gratuity_amount)
 
         # Ceiling
@@ -256,6 +258,7 @@ class PensionProcessView(APIView):
         return Response({
 
             "message": "Saved Successfully",
+            "case_id": obj.id,
 
             "pension_amount":
                 pension_amount,
@@ -267,3 +270,144 @@ class PensionProcessView(APIView):
                 gratuity_amount,
         })
 # Create your views here.
+
+class PensionReportView(APIView):
+
+    def get(self, request, id):
+
+        case = get_object_or_404(
+            PensionCase,
+            id=id
+        )
+        summary = case.summary
+        join_date = case.joining_date
+
+        ret_date = case.retirement_date
+
+        birth_date = case.birth_date
+
+        effective_ret_date = (
+            ret_date - timedelta(days=1)
+        )
+
+        # Age on Appointment
+        app_age = relativedelta(
+            join_date,
+            birth_date
+        )
+
+        age_on_appointment = (
+            f"{app_age.years}Y "
+            f"{app_age.months}M "
+            f"{app_age.days}D"
+        )
+
+        # Age on Retirement
+        ret_age = relativedelta(
+            effective_ret_date,
+            birth_date
+        )
+
+        age_on_retirement = (
+            f"{ret_age.years}Y "
+            f"{ret_age.months}M "
+            f"{ret_age.days}D"
+        )
+
+        # =========================
+        # DA CALCULATION
+        # =========================
+
+        if case.emp_class in ["I", "II"]:
+
+            da_percent = 54.32
+
+        else:
+
+            da_percent = 19.07
+
+        da_amount = round(
+            float(case.last_basic)
+            * da_percent / 100,
+            2
+        )
+
+        data = {
+
+            "case_no": case.id,
+
+            "name": case.name,
+
+            "joining_date": case.joining_date,
+
+            "retirement_date": case.retirement_date,
+
+            "birth_date": case.birth_date,
+
+            "last_basic": case.last_basic,
+
+            "no_pay_days": case.no_pay_days,
+
+            "dies_non_days": case.dies_non_days,
+
+            "pension_amount":
+                summary.pension_amount,
+
+            "commutation_amount":
+                summary.commutation_amount,
+
+            "gratuity_amount":
+                summary.gratuity_amount,
+
+            "total_service":
+                f"{summary.total_service_years}Y "
+                f"{summary.total_service_months}M "
+                f"{summary.total_service_days}D",
+
+            "tccs":
+                f"{summary.tccs_years}Y "
+                f"{summary.tccs_months}M "
+                f"{summary.tccs_days}D",
+
+            "tqs":
+                f"{summary.tqs_years}Y "
+                f"{summary.tqs_months}M "
+                f"{summary.tqs_days}D",
+
+            "da_amount": da_amount,
+
+            "da_percent": da_percent,
+
+            "age_on_appointment":
+                age_on_appointment,
+
+            "age_on_retirement":
+                age_on_retirement,
+        }
+
+        return Response(data)
+    
+class PensionCaseListView(APIView):
+
+    def get(self, request):
+
+        cases = PensionCase.objects.all().order_by("emp_code")
+
+        data = []
+
+        for case in cases:
+
+            data.append({
+
+                "id": case.id,
+                "emp_code": case.emp_code,
+                "name": case.name,
+                "designation": case.designation,
+                "retirement_date": case.retirement_date,
+                "status": case.status,
+                "last_basic": case.last_basic,
+            })
+
+        return Response(data)
+    
+

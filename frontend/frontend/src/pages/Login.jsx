@@ -1,5 +1,5 @@
 import { useState } from "react";
-import API from "../services/api";
+import API from "../services/Api";
 import "../styles/Login.css";
 
 export default function Login() {

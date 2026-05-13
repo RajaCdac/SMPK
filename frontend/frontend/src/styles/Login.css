@@ -1,66 +1,167 @@
 .login-wrapper {
+  width: 100%;
+  height: 100vh;
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
   align-items: center;
-  height: 70vh;
+  padding: 0 80px;
+  position: relative;
+  overflow: hidden;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
-
-.login-card {
-  width: 320px;
-  padding: 25px;
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
-  text-align: center;
+.light-effect {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  animation: floatLight 8s infinite ease-in-out;
 }
-
-.login-card h2 {
+.light1 {
+  width: 350px;
+  height: 350px;
+  background: rgba(25, 118, 210, 0.35);
+  top: -80px;
+  left: -100px;
+}
+.light2 {
+  width: 280px;
+  height: 280px;
+  background: rgba(66, 165, 245, 0.28);
+  bottom: -80px;
+  right: -50px;
+}
+.light3 {
+  width: 220px;
+  height: 220px;
+  background: rgba(255, 255, 255, 0.15);
+  top: 40%;
+  left: 40%;
+}
+.side-content {
+  width: 45%;
+  color: white;
+  z-index: 2;
+}
+.side-content h1 {
+  font-size: 70px;
   margin-bottom: 20px;
-  color: #1976d2;
+  font-weight: bold;
+  line-height: 1.1;
+  text-shadow: 0 5px 20px rgba(0, 0, 0, 0.4);
 }
-
+.login-card {
+  width: 420px;
+  padding: 40px 35px;
+  background: #ffffff;
+  border-radius: 24px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  text-align: center;
+  position: relative;
+  z-index: 10;
+  animation: fadeIn 0.8s ease;
+}
+.login-card h2 {
+  margin-bottom: 10px;
+  color: #111827;
+  font-size: 36px;
+  font-weight: bold;
+}
+.login-subtitle {
+  color: #6b7280;
+  margin-bottom: 30px;
+  font-size: 15px;
+}
 .login-card input {
   width: 100%;
-  padding: 10px;
-  margin: 10px 0;
-  border: 1px solid #ccc;
-  border-radius: 6px;
+  padding: 15px 16px;
+  margin: 12px 0;
+  border: 1px solid #d1d5db;
+  border-radius: 14px;
+  background: #f9fafb;
+  color: #111827;
+  font-size: 15px;
+  outline: none;
+  transition: 0.3s;
 }
-
-.login-btn {
-  width: 100%;
-  padding: 10px;
-  background: #1976d2;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
+.login-card input::placeholder {
+  color: #9ca3af;
 }
-
-.login-btn:hover {
-  background: #125ea2;
+.login-card input:focus {
+  border-color: #1976d2;
+  background: #ffffff;
+  box-shadow: 0 0 10px rgba(25, 118, 210, 0.2);
 }
-
-/* CAPTCHA */
 .captcha-box {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin: 10px 0;
+  margin: 15px 0;
+  gap: 10px;
 }
-
 .captcha-text {
+  flex: 1;
+  background: #f3f4f6;
+  color: #111827;
+  padding: 12px;
+  border-radius: 12px;
+  font-size: 22px;
   font-weight: bold;
-  font-size: 18px;
-  background: #eee;
-  padding: 5px 10px;
-  letter-spacing: 2px;
+  letter-spacing: 4px;
+  text-decoration: line-through;
 }
-
-.captcha-box button {
+.captcha-refresh {
+  width: 54px;
+  height: 54px;
   border: none;
-  background: #1976d2;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #1976d2, #42a5f5);
   color: white;
-  padding: 5px 10px;
+  font-size: 22px;
   cursor: pointer;
+  transition: 0.3s;
 }
+.captcha-refresh:hover {
+  transform: rotate(180deg) scale(1.08);
+}
+.login-btn {
+  width: 100%;
+  padding: 15px;
+  margin-top: 18px;
+  border: none;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #1976d2, #42a5f5);
+  color: white;
+  font-size: 17px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: 0.3s;
+}
+.login-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(25, 118, 210, 0.35);
+}
+.login-footer {
+  margin-top: 22px;
+  color: #6b7280;
+  font-size: 13px;
+}
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes floatLight {
+  0% {transform: translateY(0px);}
+  50% {transform: translateY(20px);}
+  100% {transform: translateY(0px);}}
+@media (max-width: 1000px) {.login-wrapper {justify-content: center;padding: 20px;}.side-content {display: none;}}
+@media (max-width: 500px) {
+.login-card {width: 100%;padding: 30px 22px;}
+.login-card h2 {font-size: 30px;}}

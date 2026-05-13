@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'workflow',
     'audit',
     'first_pension',
+    'methodology2',
 ]
 
 MIDDLEWARE = [

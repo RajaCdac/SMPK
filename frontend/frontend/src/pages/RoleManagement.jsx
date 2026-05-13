@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import API from "../services/Api";
 
+
 export default function RoleManagement() {
   const [roles, setRoles] = useState([]);
   const [name, setName] = useState("");
@@ -37,11 +38,14 @@ export default function RoleManagement() {
       <h2>Role Management</h2>
 
       {/* Create */}
-      <input
-        placeholder="Role name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
+      <div className="form-group">
+        <input
+          placeholder="Role name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="form-control"
+        />
+      </div>
       <button onClick={createRole}>Add Role</button>
 
       {/* List */}

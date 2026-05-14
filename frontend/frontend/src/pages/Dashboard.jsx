@@ -3,199 +3,519 @@ import { useEffect, useState } from "react";
 import API from "../services/Api";
 
 export default function Dashboard() {
+
   const [data, setData] = useState({
     total_employees: 0,
     retirement_count: 0,
     retirement_list: [],
   });
 
+  const [filteredData, setFilteredData] = useState([]);
+
+  const [searchMonth, setSearchMonth] = useState("");
+  const [searchYear, setSearchYear] = useState("");
+
   const [selectedEmp, setSelectedEmp] = useState(null);
-    const [formData, setFormData] = useState({
+
+  const [formData, setFormData] = useState({
     noPayDays: "",
     diesNonDays: "",
     commutationPercent: "",
     commutationReason: "",
   });
 
-  const handleProcess = (emp) => {
-    setSelectedEmp(emp);
-    // temporary
-    alert(`Processing ${emp.emp_code}`);
-    };
-
-   const handleSubmit = async () => {
-     try {
-       const payload = {
-         ...selectedEmp,
-         no_pay_days: formData.noPayDays || 0,
-         dies_non_days: formData.diesNonDays || 0,
-         commutation_percent: formData.commutationPercent || 0,
-         commutation_reason: formData.commutationReason || "",
-       };
-       console.log(payload);
-       const res = await API.post(
-         "first-pension/process/",
-         payload
-       );
-
-       console.log(res.data);
-       window.open(
-         `/pension-report/${res.data.case_id}`,
-         "_blank"
-       );
-
-      //  alert(
-      //    `Pension: ${res.data.pension_amount}
-      //     Commutation: ${res.data.commutation_amount}
-      //     Gratuity: ${res.data.gratuity_amount}`
-      //  );
-
-       setSelectedEmp(null);
-     } catch (err) {
-       console.error(err);
-       alert("Error while saving");
-     }
-  };
-
   useEffect(() => {
     API.get("dashboard/")
       .then((res) => {
-        console.log(res.data);   // 🔍 debug
+        console.log(res.data);
         setData(res.data);
+        setFilteredData(res.data.retirement_list);
       })
       .catch((err) => console.error(err));
   }, []);
 
+  const handleSearch = () => {
+
+    let filtered = data.retirement_list;
+
+    filtered = filtered.filter((emp) => {
+
+      if (!emp.retirement_date) return false;
+
+      let month = "";
+      let year = "";
+
+      const parts = emp.retirement_date.split("-");
+      if (parts[0].length === 4) {
+        year = parts[0];
+        month = parts[1];
+      }
+      else {
+        month = parts[1];
+        year = parts[2];
+      }
+
+      const monthMatch =
+        searchMonth === "" ||
+        Number(month) === Number(searchMonth);
+
+      const yearMatch =
+        searchYear === "" ||
+        Number(year) === Number(searchYear);
+
+      return monthMatch && yearMatch;
+
+    });
+
+    setFilteredData(filtered);
+
+  };
+
+  const handleReset = () => {
+    setSearchMonth("");
+    setSearchYear("");
+    setFilteredData(data.retirement_list);
+  };
+
+  const handleProcess = (emp) => {
+    setSelectedEmp(emp);
+  };
+
+  const handleSubmit = async () => {
+
+    try {
+
+      const payload = {
+        ...selectedEmp,
+        no_pay_days: formData.noPayDays || 0,
+        dies_non_days: formData.diesNonDays || 0,
+        commutation_percent: formData.commutationPercent || 0,
+        commutation_reason: formData.commutationReason || "",
+      };
+
+      console.log(payload);
+
+      const res = await API.post(
+        "first-pension/process/",
+        payload
+      );
+
+      console.log(res.data);
+
+      window.open(
+        `/pension-report/${res.data.case_id}`,
+        "_blank"
+      );
+
+      setSelectedEmp(null);
+
+    } catch (err) {
+
+      console.error(err);
+
+      alert("Error while saving");
+
+    }
+
+  };
+
   return (
-    <div>
 
-      {/* 🔹 CARDS */}
-      <div style={{ display: "flex", gap: "20px" }}>
-        
-        <div style={cardStyle}>
-          <h3>Total Employees</h3>
-          <h2>{data.total_employees}</h2>
+    <div className="dashboard-page"><div className="dashboard-header">
+
+        <div>
+
+          <h1 className="dashboard-heading" style={{color: "black"}}>
+            Pension Dashboard
+          </h1>
         </div>
 
-        <div style={cardStyle}>
-          <h3>This Month Retirements</h3>
-          <h2>{data.retirement_count}</h2>
+      </div><div className="cards-container">
+
+        <div className="dashboard-card blue-card">
+
+          <div className="card-icon">
+            👨‍💼
+          </div>
+
+          <div>
+
+            <h3>Total Employees</h3>
+
+            <h2>
+              {data.total_employees}
+            </h2>
+
+          </div>
+
         </div>
 
-      </div>
+        <div className="dashboard-card green-card">
 
-      {/* 🔹 TABLE */}
-      <h3 style={{ marginTop: "20px" }}>
-        Employees Retiring This Month
-      </h3>
+          <div className="card-icon">
+            📋
+          </div>
 
-      <table border="1" width="100%">
-        <thead>
-          <tr>
-            <th>Emp Code</th>
-            <th>Name</th>
-            <th>Class</th>
-            <th>Joining Date</th>
-            <th>Retirement Date</th>
-            <th>Birth Date</th>
-            <th>Age on Appointment</th>
-            <th>Age on Retirement</th>
-            <th>Designation</th>
-            <th>Scale</th>
-            <th>Last Basic</th>
-            <th>Action</th>
-            
-          </tr>
-        </thead>
+          <div>
 
-        <tbody>
-          {data.retirement_list.map((e, i) => (
-            <tr key={i}>
-              <td>{e.emp_code}</td>
-              <td>{e.name}</td>
-              <td>{e.class}</td>
-              <td>{e.joining_date}</td>
-              <td>{e.retirement_date}</td>
-              <td>{e.birth_date}</td>
-              <td>{e.age_on_appointment?.years !== null ? `${e.age_on_appointment.years} yrs` : 'N/A'}{e.age_on_appointment?.months !== null ? ` ${e.age_on_appointment.months} mn` : ''}{e.age_on_appointment?.days !== null ? ` ${e.age_on_appointment.days} days` : ''}  </td>
-              <td>{e.age_on_retirement?.years !== null ? `${e.age_on_retirement.years} yrs` : 'N/A'}{e.age_on_retirement?.months !== null ? ` ${e.age_on_retirement.months} mn` : ''}{e.age_on_retirement?.days !== null ? ` ${e.age_on_retirement.days} days` : ''}  </td>
-              <td>{e.designation}</td>
-              <td>{e.scale}</td>
-              <td>{e.last_basic}</td>
-              <td><button className="process-btn" onClick={() => handleProcess(e)}> Process</button></td>
+            <h3>
+              This Month Retirements
+            </h3>
+
+            <h2>
+              {data.retirement_count}
+            </h2>
+
+          </div>
+
+        </div>
+
+      </div><div className="search-container">
+
+        <h3 className="search-title" style={{color:"black"}}>
+          Search Retirement Employees
+        </h3>
+
+        <div className="search-box">
+
+          <select
+            value={searchMonth}
+            onChange={(e) =>
+              setSearchMonth(e.target.value)
+            }
+          >
+
+            <option value="">
+              Select Month
+            </option>
+
+            <option value="1">January</option>
+            <option value="2">February</option>
+            <option value="3">March</option>
+            <option value="4">April</option>
+            <option value="5">May</option>
+            <option value="6">June</option>
+            <option value="7">July</option>
+            <option value="8">August</option>
+            <option value="9">September</option>
+            <option value="10">October</option>
+            <option value="11">November</option>
+            <option value="12">December</option>
+
+          </select>
+
+          <input
+            type="number"
+            placeholder="Enter Year"
+            value={searchYear}
+            onChange={(e) =>
+              setSearchYear(e.target.value)
+            }
+          />
+
+          <button
+            className="search-btn"
+            onClick={handleSearch}
+          >
+            Search
+          </button>
+
+          <button
+            className="reset-btn"
+            onClick={handleReset}
+          >
+            Reset
+          </button>
+
+        </div>
+
+      </div><div className="table-container" style={{color:"black"}}>
+
+        <h3 className="table-title">
+          Employees Retiring This Month
+        </h3>
+
+        <table className="employee-table">
+
+          <thead>
+
+            <tr>
+
+              <th>Emp Code</th>
+              <th>Name</th>
+              <th>Class</th>
+              <th>Joining Date</th>
+              <th>Retirement Date</th>
+              <th>Birth Date</th>
+              <th>Age on Appointment</th>
+              <th>Age on Retirement</th>
+              <th>Designation</th>
+              <th>Scale</th>
+              <th>Last Basic</th>
+              <th>Action</th>
+
             </tr>
-          ))}
-        </tbody>
-      </table>
 
-      {selectedEmp && (
+          </thead>
+
+          <tbody>
+
+            {filteredData.length > 0 ? (
+
+              filteredData.map((e, i) => (
+
+                <tr key={i}>
+
+                  <td>{e.emp_code}</td>
+
+                  <td>{e.name}</td>
+
+                  <td>{e.class}</td>
+
+                  <td>{e.joining_date}</td>
+
+                  <td>{e.retirement_date}</td>
+
+                  <td>{e.birth_date}</td>
+
+                  <td>
+
+                    {e.age_on_appointment?.years !== null
+                      ? `${e.age_on_appointment.years} yrs`
+                      : "N/A"}
+
+                    {e.age_on_appointment?.months !== null
+                      ? ` ${e.age_on_appointment.months} mn`
+                      : ""}
+
+                    {e.age_on_appointment?.days !== null
+                      ? ` ${e.age_on_appointment.days} days`
+                      : ""}
+
+                  </td>
+
+                  <td>
+
+                    {e.age_on_retirement?.years !== null
+                      ? `${e.age_on_retirement.years} yrs`
+                      : "N/A"}
+
+                    {e.age_on_retirement?.months !== null
+                      ? ` ${e.age_on_retirement.months} mn`
+                      : ""}
+
+                    {e.age_on_retirement?.days !== null
+                      ? ` ${e.age_on_retirement.days} days`
+                      : ""}
+
+                  </td>
+
+                  <td>{e.designation}</td>
+
+                  <td>{e.scale}</td>
+
+                  <td>
+                    ₹ {e.last_basic}
+                  </td>
+
+                  <td>
+
+                    <button
+                      className="process-btn"
+                      onClick={() =>
+                        handleProcess(e)
+                      }
+                    >
+                      Process
+                    </button>
+
+                  </td>
+
+                </tr>
+
+              ))
+
+            ) : (
+
+              <tr>
+
+                <td
+                  colSpan="12"
+                  style={{
+                    textAlign: "center",
+                    padding: "20px",
+                    fontWeight: "bold",
+                    color: "black",
+                  }}
+                >
+                  No Employee Found
+                </td>
+
+              </tr>
+
+            )}
+
+          </tbody>
+
+        </table>
+
+      </div>{selectedEmp && (
 
         <div className="modal-overlay">
 
           <div className="modal-box">
 
-            <h2>Pension Processing</h2>
+            <div className="modal-header">
 
-            <div className="modal-section">
-
-              <h3>Employee Information</h3>
-
-              <p><b>Emp Code:</b> {selectedEmp.emp_code}</p>
-
-              <p><b>Name:</b> {selectedEmp.name}</p>
-
-              <p><b>Class:</b> {selectedEmp.class}</p>
-
-              <p><b>DOB:</b> {selectedEmp.birth_date}</p>
-
-              <p><b>DOR:</b> {selectedEmp.retirement_date}</p>
-
-              <p><b>Basic:</b> {selectedEmp.last_basic}</p>
-
-              <p><b>Scale:</b> {selectedEmp.scale}</p>
+              <h2 style={{color:"black"}}> 
+                Pension Processing
+              </h2>
 
             </div>
 
             <div className="modal-section">
 
-              <h3>Pension Inputs</h3>
+              <div className="info-grid">
 
-              <input type="number" placeholder="No Pay Days" value={formData.noPayDays} onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  noPayDays: e.target.value,
-                })
-              } />
+                <div className="info-card">
 
-              <input type="number" placeholder="Dies Non Days" value={formData.diesNonDays} onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  diesNonDays: e.target.value,
-                })
-              } />
+                  <span style={{color:"black"}}>Emp Code</span>
 
-              <input type="number" placeholder="Commutation %" value={formData.commutationPercent} onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  commutationPercent: e.target.value,
-                })
-              } />
+                  <h4 style={{color:"black"}}>
+                    {selectedEmp.emp_code}
+                  </h4>
 
-              <input type="text" placeholder="Commutation Reason" value={formData.commutationReason} onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    commutationReason: e.target.value,
-                  })
-                }
-              />
+                </div>
+
+                <div className="info-card">
+
+                  <span style={{color:"black"}}>Name</span>
+
+                  <h4 style={{color:"black"}}>
+                    {selectedEmp.name}
+                  </h4>
+
+                </div>
+
+                <div className="info-card">
+
+                  <span style={{color:"black"}}>Class</span>
+
+                  <h4 style={{color:"black"}}>
+                    {selectedEmp.class}
+                  </h4>
+
+                </div>
+
+                <div className="info-card">
+
+                  <span style={{color:"black"}}>DOB</span>
+
+                  <h4 style={{color:"black"}}>
+                    {selectedEmp.birth_date}
+                  </h4>
+
+                </div>
+
+                <div className="info-card">
+
+                  <span style={{color:"black"}}>DOR</span>
+
+                  <h4 style={{color:"black"}}>
+                    {selectedEmp.retirement_date}
+                  </h4>
+
+                </div>
+
+                <div className="info-card">
+
+                  <span style={{color:"black"}}>Last Basic</span>
+
+                  <h4 style={{color:"black"}}>
+                    ₹ {selectedEmp.last_basic}
+                  </h4>
+
+                </div>
+
+              </div>
+
+            </div>
+
+            <div className="modal-section">
+
+              <h3 style={{color:"black"}}>
+                Pension Inputs
+              </h3>
+
+              <div className="form-grid">
+
+                <input
+                  type="number"
+                  placeholder="No Pay Days"
+                  value={formData.noPayDays}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      noPayDays: e.target.value,
+                    })
+                  }
+                />
+
+                <input
+                  type="number"
+                  placeholder="Dies Non Days"
+                  value={formData.diesNonDays}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      diesNonDays: e.target.value,
+                    })
+                  }
+                />
+
+                <input
+                  type="number"
+                  placeholder="Commutation %"
+                  value={formData.commutationPercent}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      commutationPercent: e.target.value,
+                    })
+                  }
+                />
+
+                <input
+                  type="text"
+                  placeholder="Commutation Reason"
+                  value={formData.commutationReason}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      commutationReason: e.target.value,
+                    })
+                  }
+                />
+
+              </div>
 
             </div>
 
             <div className="modal-buttons">
 
-              <button onClick={handleSubmit}> Submit</button>
+              <button
+                className="submit-btn"
+                onClick={handleSubmit}
+              >
+                Submit
+              </button>
 
-              <button onClick={() => setSelectedEmp(null)}>
+              <button
+                className="close-btn"
+                onClick={() =>
+                  setSelectedEmp(null)
+                }
+              >
                 Close
               </button>
 
@@ -208,17 +528,7 @@ export default function Dashboard() {
       )}
 
     </div>
-    
+
   );
-  
+
 }
-
-const cardStyle = {
-  background: "#1976d2",
-  color: "white",
-  padding: "20px",
-  borderRadius: "10px",
-  width: "220px",
-  textAlign: "center",
-};
-

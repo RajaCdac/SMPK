@@ -1,0 +1,125 @@
+.case-page {
+  padding: 25px;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #eef2ff, #f8fafc);
+  font-family: "Segoe UI", sans-serif;
+}.case-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 25px;
+  background: white;
+  padding: 25px;
+  border-radius: 18px;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+}
+
+.case-header h1 {
+  color: #0f172a;
+  font-size: 32px;
+  margin-bottom: 6px;
+}
+
+.case-header p {
+  color: #64748b;
+  font-size: 15px;
+}
+
+.case-count {
+  background: linear-gradient(135deg, #1976d2, #0d47a1);
+  color: white;
+  padding: 18px 28px;
+  border-radius: 16px;
+  text-align: center;
+  min-width: 170px;
+}
+
+.case-count span {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.case-count h2 {
+  margin-top: 8px;
+  font-size: 34px;
+}.case-table-container {
+  background: white;
+  border-radius: 18px;
+  overflow-x: auto;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+}
+
+.case-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.case-table thead {
+  background: linear-gradient(135deg, #1976d2, #0d47a1);
+}
+
+.case-table th {
+  color: white;
+  padding: 16px;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.case-table td {
+  padding: 16px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #1e293b;
+  font-size: 14px;
+}
+
+.case-table tbody tr:hover {
+  background: #f8fbff;
+  transition: 0.2s;
+}.status-badge {
+  background: #dcfce7;
+  color: #15803d;
+  padding: 6px 14px;
+  border-radius: 30px;
+  font-size: 13px;
+  font-weight: 600;
+}.details-btn {
+  background: linear-gradient(135deg, #1976d2, #0d47a1);
+  color: white;
+  text-decoration: none;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-block;
+  transition: 0.3s;
+}
+
+.details-btn:hover {
+  transform: translateY(-2px);
+  background: linear-gradient(135deg, #1565c0, #08306b);
+}.no-data {
+  text-align: center;
+  padding: 30px;
+  color: #64748b;
+  font-size: 16px;
+}
+@media screen and (max-width: 768px) {
+
+  .case-header {
+    flex-direction: column;
+    gap: 18px;
+    align-items: flex-start;
+  }
+
+  .case-count {
+    width: 100%;
+  }
+
+  .case-table th,
+  .case-table td {
+    padding: 12px;
+    font-size: 13px;
+  }
+
+}

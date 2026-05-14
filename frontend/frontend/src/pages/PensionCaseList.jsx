@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import API from "../services/Api";
+import "../styles/PensionCaseList.css";
 
 export default function PensionCaseList() {
 
@@ -17,50 +18,122 @@ export default function PensionCaseList() {
   }, []);
 
   return (
-    <div>
 
-      <h2>Pension Cases</h2>
+    <div className="case-page">
+      <div className="case-header">
 
-      <table border="1" width="100%">
+        <div>
 
-        <thead>
-          <tr>
-            <th>Emp Code</th>
-            <th>Name</th>
-            <th>Designation</th>
-            <th>Retirement Date</th>
-            <th>Status</th>
-            <th>Last Basic</th>
-            <th>Action</th>
-          </tr>
-        </thead>
+          <h1>Pension Cases</h1>
 
-        <tbody>
+          <p>
+            View and manage all processed pension cases
+          </p>
 
-          {cases.map((c) => (
+        </div>
 
-            <tr key={c.id}>
+        <div className="case-count">
 
-              <td>{c.emp_code}</td>
-              <td>{c.name}</td>
-              <td>{c.designation}</td>
-              <td>{c.retirement_date}</td>
-              <td>{c.status}</td>
-              <td>{c.last_basic}</td>
+          <span>Total Cases</span>
 
-              <td>
-                <Link to={`/pension-report/${c.id}`}>
-                  Details
-                </Link>
-              </td>
+          <h2>{cases.length}</h2>
+
+        </div>
+
+      </div>
+
+      <div className="case-table-container">
+
+        <table className="case-table">
+
+          <thead>
+
+            <tr>
+
+              <th>Emp Code</th>
+
+              <th>Name</th>
+
+              <th>Designation</th>
+
+              <th>Retirement Date</th>
+
+              <th>Status</th>
+
+              <th>Last Basic</th>
+
+              <th>Action</th>
 
             </tr>
-          ))}
 
-        </tbody>
+          </thead>
 
-      </table>
+          <tbody>
+
+            {cases.length > 0 ? (
+
+              cases.map((c) => (
+
+                <tr key={c.id}>
+
+                  <td>{c.emp_code}</td>
+
+                  <td>{c.name}</td>
+
+                  <td>{c.designation}</td>
+
+                  <td>{c.retirement_date}</td>
+
+                  <td>
+
+                    <span className="status-badge">
+                      {c.status}
+                    </span>
+
+                  </td>
+
+                  <td>
+                    ₹ {c.last_basic}
+                  </td>
+
+                  <td>
+
+                    <Link
+                      to={`/pension-report/${c.id}`}
+                      className="details-btn"
+                    >
+                      View Details
+                    </Link>
+
+                  </td>
+
+                </tr>
+
+              ))
+
+            ) : (
+
+              <tr>
+
+                <td
+                  colSpan="7"
+                  className="no-data"
+                >
+                  No Pension Cases Found
+                </td>
+
+              </tr>
+
+            )}
+
+          </tbody>
+
+        </table>
+
+      </div>
 
     </div>
+
   );
+
 }

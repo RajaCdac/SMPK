@@ -80,8 +80,7 @@ export default function Dashboard() {
   const handleProcess = (emp) => {
     setSelectedEmp(emp);
   };
-
-  const handleSubmit = async () => {
+const handleSubmit = async () => {
 
     try {
 
@@ -180,8 +179,9 @@ export default function Dashboard() {
 
           <select
             value={searchMonth}
+            style={{color:"black"}}
             onChange={(e) =>
-              setSearchMonth(e.target.value)
+              setSearchMonth(e.target.value) 
             }
           >
 
@@ -208,6 +208,7 @@ export default function Dashboard() {
             type="number"
             placeholder="Enter Year"
             value={searchYear}
+            style={{color:"black"}}
             onChange={(e) =>
               setSearchYear(e.target.value)
             }
@@ -361,171 +362,145 @@ export default function Dashboard() {
 
       </div>{selectedEmp && (
 
-        <div className="modal-overlay">
+  <div className="modal-overlay">
 
-          <div className="modal-box">
+    <div className="modal-box">
 
-            <div className="modal-header">
+      <div className="modal-header">
 
-              <h2 style={{color:"black"}}> 
-                Pension Processing
-              </h2>
+        <h2>
+          Pension Processing
+        </h2>
 
-            </div>
+      </div>
 
-            <div className="modal-section">
+      <div className="modal-body">
 
-              <div className="info-grid">
+        <div className="info-grid">
 
-                <div className="info-card">
+          <div className="info-card">
+            <span>Employee Code</span>
+            <h4>{selectedEmp.emp_code}</h4>
+          </div>
 
-                  <span style={{color:"black"}}>Emp Code</span>
+          <div className="info-card">
+            <span>Employee Name</span>
+            <h4>{selectedEmp.name}</h4>
+          </div>
 
-                  <h4 style={{color:"black"}}>
-                    {selectedEmp.emp_code}
-                  </h4>
+          <div className="info-card">
+            <span>Class</span>
+            <h4>{selectedEmp.class}</h4>
+          </div>
 
-                </div>
+          <div className="info-card">
+            <span>Date of Birth</span>
+            <h4>{selectedEmp.birth_date}</h4>
+          </div>
 
-                <div className="info-card">
+          <div className="info-card">
+            <span>Retirement Date</span>
+            <h4>{selectedEmp.retirement_date}</h4>
+          </div>
 
-                  <span style={{color:"black"}}>Name</span>
+          <div className="info-card">
+            <span>Last Basic</span>
+            <h4>₹ {selectedEmp.last_basic}</h4>
+          </div>
 
-                  <h4 style={{color:"black"}}>
-                    {selectedEmp.name}
-                  </h4>
+        </div>
 
-                </div>
+        <div className="form-section">
 
-                <div className="info-card">
+          <h3>
+            Pension Inputs
+          </h3>
 
-                  <span style={{color:"black"}}>Class</span>
+          <div className="form-grid">
 
-                  <h4 style={{color:"black"}}>
-                    {selectedEmp.class}
-                  </h4>
+            <input
+              type="number"
+              placeholder="No Pay Days"
+              value={formData.noPayDays}
+              style={{color:"black"}}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  noPayDays: e.target.value,
+                })
+              }
+            />
 
-                </div>
+            <input
+              type="number"
+              placeholder="Dies Non Days"
+              value={formData.diesNonDays}
+              style={{color:"black"}}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  diesNonDays: e.target.value,
+                })
+              }
+            />
 
-                <div className="info-card">
+            <input
+              type="number"
+              placeholder="Commutation %"
+              value={formData.commutationPercent}
+              style={{color:"black"}}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  commutationPercent: e.target.value,
+                })
+              }
+            />
 
-                  <span style={{color:"black"}}>DOB</span>
+            <input
+              type="text"
+              placeholder="Commutation Reason"
+              value={formData.commutationReason}
+              style={{color:"black"}}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  commutationReason: e.target.value,
+                })
+              }
+            />
 
-                  <h4 style={{color:"black"}}>
-                    {selectedEmp.birth_date}
-                  </h4>
+          </div>
 
-                </div>
+          <div className="modal-buttons">
 
-                <div className="info-card">
+            <button
+              className="submit-btn"
+              onClick={handleSubmit}
+            >
+              Submit
+            </button>
 
-                  <span style={{color:"black"}}>DOR</span>
-
-                  <h4 style={{color:"black"}}>
-                    {selectedEmp.retirement_date}
-                  </h4>
-
-                </div>
-
-                <div className="info-card">
-
-                  <span style={{color:"black"}}>Last Basic</span>
-
-                  <h4 style={{color:"black"}}>
-                    ₹ {selectedEmp.last_basic}
-                  </h4>
-
-                </div>
-
-              </div>
-
-            </div>
-
-            <div className="modal-section">
-
-              <h3 style={{color:"black"}}>
-                Pension Inputs
-              </h3>
-
-              <div className="form-grid">
-
-                <input
-                  type="number"
-                  placeholder="No Pay Days"
-                  value={formData.noPayDays}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      noPayDays: e.target.value,
-                    })
-                  }
-                />
-
-                <input
-                  type="number"
-                  placeholder="Dies Non Days"
-                  value={formData.diesNonDays}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      diesNonDays: e.target.value,
-                    })
-                  }
-                />
-
-                <input
-                  type="number"
-                  placeholder="Commutation %"
-                  value={formData.commutationPercent}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      commutationPercent: e.target.value,
-                    })
-                  }
-                />
-
-                <input
-                  type="text"
-                  placeholder="Commutation Reason"
-                  value={formData.commutationReason}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      commutationReason: e.target.value,
-                    })
-                  }
-                />
-
-              </div>
-
-            </div>
-
-            <div className="modal-buttons">
-
-              <button
-                className="submit-btn"
-                onClick={handleSubmit}
-              >
-                Submit
-              </button>
-
-              <button
-                className="close-btn"
-                onClick={() =>
-                  setSelectedEmp(null)
-                }
-              >
-                Close
-              </button>
-
-            </div>
+            <button
+              className="close-btn"
+              onClick={() =>
+                setSelectedEmp(null)
+              }
+            >
+              Close
+            </button>
 
           </div>
 
         </div>
 
-      )}
+      </div>
+
+    </div>
+
+  </div>
+
+)}
 
     </div>
 

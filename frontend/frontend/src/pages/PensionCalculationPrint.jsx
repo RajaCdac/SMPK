@@ -1,8 +1,10 @@
-
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import API from "../services/Api";
 import "../styles/PensionPrint.css";
+
+import goiLogo from "../assets/images/goi_logo.png";
+import smpLogo from "../assets/images/SMP_Logo.png";
 
 export default function PensionCalculationPrint() {
 
@@ -25,159 +27,232 @@ export default function PensionCalculationPrint() {
   };
 
   if (!data) {
-    return <div>Loading...</div>;
+    return <div className="loading-text">Loading...</div>;
   }
 
   return (
+
     <div className="print-page">
 
       <div className="no-print">
+
         <button onClick={handlePrint}>
-          Print
+          🖨 Print Report
         </button>
+
       </div>
 
       <div className="sheet">
 
-        <div className="header">
-          <h2>Kolkata Port Trust</h2>
-          <h3>CALCULATION SHEET</h3>
-        </div>
+        {/* HEADER */}
 
-        <div className="row">
-          <div>
-            <b>Name :</b> {data.name}
+        <div className="top-header">
+
+          <div className="logo-box">
+            <img
+              src={goiLogo}
+              alt="GOI Logo"
+              className="top-logo"
+            />
           </div>
 
-          <div>
-            <b>Case No :</b> {data.case_no}
-          </div>
-        </div>
+          <div className="header-text">
 
-        <div className="row">
-          <div>
-            <b>Date of Appointment :</b>
-            {data.joining_date}
-          </div>
+            <h1>Syama Prasad Mookerjee Port</h1>
 
-          <div>
-            <b>Age on Appointment :</b>
-            {data.age_on_appointment}
-          </div>
-        </div>
+            <h2>Kolkata Port Trust</h2>
 
-        <div className="row">
-          <div>
-            <b>Date of Retirement :</b>
-            {data.retirement_date}
+            <h3>PENSION CALCULATION SHEET</h3>
+
           </div>
 
-          <div>
-            <b>Age on Retirement :</b>
-            {data.age_on_retirement}
+          <div className="logo-box">
+            <img
+              src={smpLogo}
+              alt="SMP Logo"
+              className="top-logo"
+            />
           </div>
-        </div>
-
-        <div className="row">
-          <div>
-            <b>Date of Birth :</b>
-            {data.birth_date}
-          </div>
-
-          <div>
-            <b>Reason for Retirement :</b>
-            Superannuation
-          </div>
-        </div>
-
-        <div className="row">
-          <div>
-            <b>No Pay :</b>
-            {data.no_pay_days}
-          </div>
-
-          <div>
-            <b>Dies Non :</b>
-            {data.dies_non_days}
-          </div>
-        </div>
-
-        <hr />
-
-        <div className="calc-section">
-
-          <p>
-            <b>Last Basic Pay :</b>
-            Rs. {data.last_basic}
-          </p>
-
-          <p>
-            <b>Pension :</b>
-            50% of Pay = Rs. {data.pension_amount}
-          </p>
-
-          <p>
-            <b>Commutation :</b>
-            40% of Pension
-          </p>
-
-          <p>
-            <b>Commutation Payable :</b>
-            Rs. {data.commutation_amount}
-          </p>
 
         </div>
 
-        <div className="service-box">
+        {/* EMPLOYEE DETAILS */}
 
-          <p>
-            <b>Total Service :</b>
-            {data.total_service}
-          </p>
+        <div className="section-title">
+          Employee Information
+        </div>
 
-          <p>
-            <b>TCCS :</b>
-            {data.tccs}
-          </p>
+        <div className="details-grid">
 
-          <p>
-            <b>TQS :</b>
-            {data.tqs}
-          </p>
+          <div className="detail-card">
+            <span>Name</span>
+            <h4>{data.name}</h4>
+          </div>
+
+          <div className="detail-card">
+            <span>Case No</span>
+            <h4>{data.case_no}</h4>
+          </div>
+
+          <div className="detail-card">
+            <span>Date of Appointment</span>
+            <h4>{data.joining_date}</h4>
+          </div>
+
+          <div className="detail-card">
+            <span>Age on Appointment</span>
+            <h4>{data.age_on_appointment}</h4>
+          </div>
+
+          <div className="detail-card">
+            <span>Date of Retirement</span>
+            <h4>{data.retirement_date}</h4>
+          </div>
+
+          <div className="detail-card">
+            <span>Age on Retirement</span>
+            <h4>{data.age_on_retirement}</h4>
+          </div>
+
+          <div className="detail-card">
+            <span>Date of Birth</span>
+            <h4>{data.birth_date}</h4>
+          </div>
+
+          <div className="detail-card">
+            <span>Retirement Reason</span>
+            <h4>Superannuation</h4>
+          </div>
+
+          <div className="detail-card">
+            <span>No Pay Days</span>
+            <h4>{data.no_pay_days}</h4>
+          </div>
+
+          <div className="detail-card">
+            <span>Dies Non Days</span>
+            <h4>{data.dies_non_days}</h4>
+          </div>
 
         </div>
 
-        <hr />
+        {/* PENSION SECTION */}
 
-        <div className="gratuity-section">
-
-          <h3>GRATUITY CALCULATION</h3>
-
-          <p>
-            <b>Last Basic Pay :</b>
-            Rs. {data.last_basic}
-          </p>
-
-          <p>
-            <b>DA :</b>
-            Rs. {data.da_amount}
-          </p>
-
-          <p>
-            <b>Gratuity Amount :</b>
-            Rs. {data.gratuity_amount}
-          </p>
-
+        <div className="section-title">
+          Pension Calculation
         </div>
 
-        <div className="signature">
-          <p>Prepared By</p>
-          <p>Checked By</p>
-          <p>Sanctioning Authority</p>
+        <table className="calc-table">
+
+          <tbody>
+
+            <tr>
+              <td>Last Basic Pay</td>
+              <td>₹ {data.last_basic}</td>
+            </tr>
+
+            <tr>
+              <td>Pension Amount</td>
+              <td>₹ {data.pension_amount}</td>
+            </tr>
+
+            <tr>
+              <td>Commutation Percentage</td>
+              <td>40%</td>
+            </tr>
+
+            <tr>
+              <td>Commutation Payable</td>
+              <td>₹ {data.commutation_amount}</td>
+            </tr>
+
+          </tbody>
+
+        </table>
+
+        {/* SERVICE DETAILS */}
+
+        <div className="section-title">
+          Service Details
+        </div>
+
+        <table className="calc-table">
+
+          <tbody>
+
+            <tr>
+              <td>Total Service</td>
+              <td>{data.total_service}</td>
+            </tr>
+
+            <tr>
+              <td>TCCS</td>
+              <td>{data.tccs}</td>
+            </tr>
+
+            <tr>
+              <td>TQS</td>
+              <td>{data.tqs}</td>
+            </tr>
+
+          </tbody>
+
+        </table>
+
+        {/* GRATUITY */}
+
+        <div className="section-title">
+          Gratuity Calculation
+        </div>
+
+        <table className="calc-table">
+
+          <tbody>
+
+            <tr>
+              <td>Last Basic Pay</td>
+              <td>₹ {data.last_basic}</td>
+            </tr>
+
+            <tr>
+              <td>DA Amount</td>
+              <td>₹ {data.da_amount}</td>
+            </tr>
+
+            <tr>
+              <td>Gratuity Amount</td>
+              <td>₹ {data.gratuity_amount}</td>
+            </tr>
+
+          </tbody>
+
+        </table>
+
+        {/* SIGNATURE */}
+
+        <div className="signature-section">
+
+          <div className="sign-box">
+            <div className="sign-line"></div>
+            <p>Prepared By</p>
+          </div>
+
+          <div className="sign-box">
+            <div className="sign-line"></div>
+            <p>Checked By</p>
+          </div>
+
+          <div className="sign-box">
+            <div className="sign-line"></div>
+            <p>Sanctioning Authority</p>
+          </div>
+
         </div>
 
       </div>
 
     </div>
+
   );
+
 }

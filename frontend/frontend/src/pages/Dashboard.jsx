@@ -1,6 +1,9 @@
 import "../styles/Dashboard.css";
+import "bootstrap/dist/css/bootstrap.min.css";
+import "bootstrap/dist/js/bootstrap.bundle.min.js";
 import { useEffect, useState } from "react";
 import API from "../services/Api";
+import EmployeeProcessTabs from "../components/EmployeeProcessTabs";
 
 export default function Dashboard() {
 
@@ -16,13 +19,8 @@ export default function Dashboard() {
   const [searchYear, setSearchYear] = useState("");
 
   const [selectedEmp, setSelectedEmp] = useState(null);
-
-  const [formData, setFormData] = useState({
-    noPayDays: "",
-    diesNonDays: "",
-    commutationPercent: "",
-    commutationReason: "",
-  });
+  const [employeeDetail, setEmployeeDetail] = useState(null);
+  const [loadingEmployee, setLoadingEmployee] = useState(false);
 
   useEffect(() => {
     API.get("dashboard/")
@@ -34,88 +32,53 @@ export default function Dashboard() {
       .catch((err) => console.error(err));
   }, []);
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
 
-    let filtered = data.retirement_list;
+  try {
 
-    filtered = filtered.filter((emp) => {
+    const res = await API.get(
+      `dashboard/?month=${searchMonth}&year=${searchYear}`
+    );
 
-      if (!emp.retirement_date) return false;
+    setData(res.data);
 
-      let month = "";
-      let year = "";
+    setFilteredData(res.data.retirement_list);
 
-      const parts = emp.retirement_date.split("-");
-      if (parts[0].length === 4) {
-        year = parts[0];
-        month = parts[1];
-      }
-      else {
-        month = parts[1];
-        year = parts[2];
-      }
+  } catch (err) {
 
-      const monthMatch =
-        searchMonth === "" ||
-        Number(month) === Number(searchMonth);
+    console.error(err);
 
-      const yearMatch =
-        searchYear === "" ||
-        Number(year) === Number(searchYear);
+  }
 
-      return monthMatch && yearMatch;
+};
 
-    });
-
-    setFilteredData(filtered);
-
-  };
-
+  
   const handleReset = () => {
     setSearchMonth("");
     setSearchYear("");
     setFilteredData(data.retirement_list);
   };
 
-  const handleProcess = (emp) => {
-    setSelectedEmp(emp);
+  const closeModal = () => {
+    setSelectedEmp(null);
+    setEmployeeDetail(null);
   };
-const handleSubmit = async () => {
+
+  const handleProcess = async (emp) => {
+    setSelectedEmp(emp);
+    setEmployeeDetail(null);
+    setLoadingEmployee(true);
 
     try {
-
-      const payload = {
-        ...selectedEmp,
-        no_pay_days: formData.noPayDays || 0,
-        dies_non_days: formData.diesNonDays || 0,
-        commutation_percent: formData.commutationPercent || 0,
-        commutation_reason: formData.commutationReason || "",
-      };
-
-      console.log(payload);
-
-      const res = await API.post(
-        "first-pension/process/",
-        payload
-      );
-
-      console.log(res.data);
-
-      window.open(
-        `/pension-report/${res.data.case_id}`,
-        "_blank"
-      );
-
-      setSelectedEmp(null);
-
+      const res = await API.get(`first-pension/employees/${emp.emp_code}/`);
+      setEmployeeDetail(res.data);
     } catch (err) {
-
       console.error(err);
-
-      alert("Error while saving");
-
+      alert("Failed to load employee details");
+      closeModal();
+    } finally {
+      setLoadingEmployee(false);
     }
-
   };
 
   return (
@@ -364,132 +327,41 @@ const handleSubmit = async () => {
 
   <div className="modal-overlay">
 
-    <div className="modal-box">
+    <div className="modal-box modal-box-wide">
 
       <div className="modal-header">
 
         <h2>
-          Pension Processing
+          Pension Processing — {selectedEmp.name}
         </h2>
 
       </div>
 
       <div className="modal-body">
 
-        <div className="info-grid">
-
-          <div className="info-card">
-            <span>Employee Code</span>
-            <h4>{selectedEmp.emp_code}</h4>
-          </div>
-
-          <div className="info-card">
-            <span>Employee Name</span>
-            <h4>{selectedEmp.name}</h4>
-          </div>
-
-          <div className="info-card">
-            <span>Class</span>
-            <h4>{selectedEmp.class}</h4>
-          </div>
-
-          <div className="info-card">
-            <span>Date of Birth</span>
-            <h4>{selectedEmp.birth_date}</h4>
-          </div>
-
-          <div className="info-card">
-            <span>Retirement Date</span>
-            <h4>{selectedEmp.retirement_date}</h4>
-          </div>
-
-          <div className="info-card">
-            <span>Last Basic</span>
-            <h4>₹ {selectedEmp.last_basic}</h4>
-          </div>
-
-        </div>
-
         <div className="form-section">
-
-          <h3>
-            Pension Inputs
-          </h3>
-
-          <div className="form-grid">
-
-            <input
-              type="number"
-              placeholder="No Pay Days"
-              value={formData.noPayDays}
-              style={{color:"black"}}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  noPayDays: e.target.value,
-                })
-              }
+          {loadingEmployee ? (
+            <p style={{ color: "black", textAlign: "center" }}>
+              Loading employee details...
+            </p>
+          ) : employeeDetail ? (
+            <EmployeeProcessTabs
+              employee={employeeDetail}
+              idPrefix="dashboard-emp"
             />
-
-            <input
-              type="number"
-              placeholder="Dies Non Days"
-              value={formData.diesNonDays}
-              style={{color:"black"}}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  diesNonDays: e.target.value,
-                })
-              }
-            />
-
-            <input
-              type="number"
-              placeholder="Commutation %"
-              value={formData.commutationPercent}
-              style={{color:"black"}}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  commutationPercent: e.target.value,
-                })
-              }
-            />
-
-            <input
-              type="text"
-              placeholder="Commutation Reason"
-              value={formData.commutationReason}
-              style={{color:"black"}}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  commutationReason: e.target.value,
-                })
-              }
-            />
-
-          </div>
+          ) : (
+            <p style={{ color: "black", textAlign: "center" }}>
+              Unable to load employee details.
+            </p>
+          )}
 
           <div className="modal-buttons">
-
-            <button
-              className="submit-btn"
-              onClick={handleSubmit}
-            >
-              Submit
-            </button>
-
             <button
               className="close-btn"
-              onClick={() =>
-                setSelectedEmp(null)
-              }
+              onClick={closeModal}
             >
               Close
             </button>
-
           </div>
 
         </div>

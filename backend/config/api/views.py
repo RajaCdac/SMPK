@@ -54,8 +54,11 @@ class DashboardView(APIView):
         cursor = conn.cursor()
 
         today = datetime.today()
-        month = today.month
-        year = today.year
+        month = request.GET.get("month")
+        year = request.GET.get("year")
+        if not month or not year:
+                month = today.month
+                year = today.year
 
         # Total employees
         cursor.execute("""
@@ -113,34 +116,6 @@ class DashboardView(APIView):
 
         cursor.close()
         conn.close()
-
-        # data.append({
-        #     "emp_code": "46002",
-        #     "name": "Sankar Kurmi",
-        #     "class": "III",
-        #     "joining_date": "1991-09-09",
-        #     "retirement_date": "2026-04-01",
-        #     "birth_date": "1966-03-03",
-
-        #     "designation": "Leading Fireman",
-
-        #     "scale": "2017/RE/012",
-
-        #     "last_basic": '86300',
-
-        #     "age_on_appointment": {
-        #         "years": 25,
-        #         "months": 6,
-        #         "days": 6
-        #     },
-
-        #     "age_on_retirement": {
-        #         "years": 60,
-        #         "months": 0,
-        #         "days": 28
-        #     }
-        # })
-
         return Response({
             "total_employees": total,
             "retirement_count": retirement_count,

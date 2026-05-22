@@ -10,6 +10,8 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import PensionCalculationPrint from "./pages/PensionCalculationPrint";
 import PensionCaseList from "./pages/PensionCaseList";
 import AuditLogs from "./pages/AuditLogs";
+import Methodology2 from "./pages/Methodology2";
+import FirstPensionCase from "./pages/FirstPensionCase";
 
 
 function App() {
@@ -37,7 +39,9 @@ function App() {
           <Route path="roles" element={<RoleManagement />} />
           <Route path="cases" element={<PensionCaseList />} />
           <Route path="logs" element={<AuditLogs />} />
-
+          <Route path="methodology2" element={<Methodology2 />} />
+          <Route path="firstpensioncases" element={<FirstPensionCase />} />
+          
         </Route>
         <Route path="/pension-report/:id" element={<PensionCalculationPrint />} />
       </Routes>

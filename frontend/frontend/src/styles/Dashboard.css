@@ -344,7 +344,7 @@ body {
   align-items: center;
 
   z-index: 999;
-  padding: 20px;
+  padding: 12px;
 }
 
 .modal-box {
@@ -361,6 +361,44 @@ body {
     0 10px 20px rgba(37, 99, 235, 0.08);
 
   animation: modalOpen 0.3s ease;
+}
+
+.modal-box-wide {
+  width: 96vw;
+  max-width: 1520px;
+  max-height: 94vh;
+}
+
+.modal-box-wide .modal-header {
+  padding: 20px 28px;
+}
+
+.modal-box-wide .modal-header h2 {
+  font-size: 1.35rem;
+}
+
+.modal-box-wide .modal-body {
+  max-height: calc(94vh - 88px);
+  overflow-y: auto;
+  padding: 24px 28px;
+}
+
+.modal-box-wide .form-section {
+  padding: 20px;
+}
+
+.modal-body .nav-tabs .nav-link {
+  color: #334155;
+  font-weight: 600;
+}
+
+.modal-body .nav-tabs .nav-link.active {
+  color: #2563eb;
+}
+
+.modal-body .table th {
+  background: #f1f5f9;
+  color: #0f172a;
 }
 
 .modal-header {

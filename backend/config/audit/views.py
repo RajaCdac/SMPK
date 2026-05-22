@@ -20,11 +20,13 @@ class AuditLogListView(APIView):
                 "table_name": log.table_name,
                 "record_id": log.record_id,
                 "action": log.action,
-                "changed_by": log.changed_by.username,
+                "changed_by": log.changed_by.username if log.changed_by else None,
                 "timestamp": log.changed_at,
                 "ip_address": log.ip_address,
                 "user_agent": log.user_agent,
                 "module": log.module,
+                "old_data": log.old_data,
+                "new_data": log.new_data,
             })
 
         return Response(data)

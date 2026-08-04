@@ -1,111 +1,139 @@
 .pension-proposal-form {
-  font-size: 0.92rem;
   min-width: 0;
 }
 
 .pp-title-bar {
-  background: linear-gradient(180deg, #1e3a6e, #2c5282);
+  background: linear-gradient(135deg, #1565c0, #0d47a1);
   color: #fff;
   text-align: center;
   font-weight: 700;
-  padding: 10px 14px;
-  margin: 0 0 12px 0;
-  letter-spacing: 0.5px;
-  border-radius: 6px;
-  flex-shrink: 0;
+  font-size: clamp(0.9rem, 2vw, 1.05rem);
+  padding: 0.65rem 1rem;
+  border-radius: 10px 10px 0 0;
+  margin-bottom: 0;
+}
+
+.pp-form-scroll {
+  max-height: min(58vh, 620px);
+  overflow: auto;
+  overflow-x: hidden;
+  padding: 1rem;
+  border: 1px solid #e2e8f0;
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  background: #fafbfc;
+  -webkit-overflow-scrolling: touch;
 }
 
 .pp-section {
-  border: 1px solid #cbd5e1;
-  padding: 12px;
-  margin-bottom: 12px;
-  background: #f8fafc;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1rem;
 }
 
 .pp-section-title {
+  display: block;
   font-weight: 700;
-  color: #1e293b;
-  margin-bottom: 10px;
-  font-size: 0.8rem;
-  text-transform: uppercase;
+  color: #1e40af;
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
 }
 
 .pp-label {
+  font-size: 0.8rem;
   font-weight: 600;
-  color: #334155;
-  margin-bottom: 2px;
-  font-size: 0.78rem;
+  color: #475569;
+  margin-bottom: 0.25rem;
 }
 
-.pp-readonly {
-  background-color: #e2e8f0 !important;
+.pp-tccs-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.pp-tccs-field {
+  flex: 1 1 4.5rem;
+  min-width: 4.5rem;
+  max-width: 6rem;
+}
+
+.pp-earn-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
 }
 
 .pp-earn-table {
   width: 100%;
+  min-width: 600px;
+  margin-bottom: 0;
   border-collapse: collapse;
-  font-size: 0.8rem;
 }
 
 .pp-earn-table th,
 .pp-earn-table td {
-  border: 1px solid #cbd5e1;
-  padding: 4px 6px;
+  padding: 0.5rem;
   vertical-align: middle;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .pp-earn-table th {
-  background: #e2e8f0;
+  background: #f1f5f9;
+  font-size: 0.8rem;
   font-weight: 600;
+  white-space: nowrap;
 }
 
-.pp-form-scroll {
-  max-height: 68vh;
-  overflow-x: auto;
-  overflow-y: auto;
-  padding: 12px 10px 16px 10px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-}
-
-.pension-proposal-form {
-  padding-top: 4px;
-}
-
-.pension-proposal-form .form-control-sm,
-.pension-proposal-form .form-select-sm {
-  padding: 0.35rem 0.55rem;
+.pp-earn-table .form-control,
+.pp-earn-table .form-select {
+  min-height: 2.5rem;
   font-size: 0.9rem;
-  min-height: 2rem;
 }
 
-.pension-proposal-form .pp-label {
-  font-size: 0.82rem;
+.pp-earn-table .pp-earn-actions-col {
+  width: 5.5rem;
+  white-space: nowrap;
 }
 
-.pension-proposal-form .pp-earn-table {
-  font-size: 0.88rem;
+.pp-earn-delete-btn {
+  min-width: 4.5rem;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.78rem;
 }
 
-.pension-proposal-form .pp-earn-table th,
-.pension-proposal-form .pp-earn-table td {
-  padding: 6px 8px;
+@media (max-width: 767.98px) {
+  .pp-form-scroll {
+    max-height: none;
+    padding: 0.75rem;
+  }
+
+  .smpk-process-modal .pp-form-scroll,
+  .modal-box-wide .pp-form-scroll {
+    max-height: min(50vh, 480px);
+  }
 }
 
-.pension-proposal-card,
-.pension-proposal-card .card-body {
-  overflow: visible;
+.pp-held-recovery {
+  padding: 0.75rem 1rem;
+  border: 1px solid #dbe4ee;
+  border-radius: 10px;
+  background: #f1f5f9;
+  margin-bottom: 1rem;
 }
 
-.pension-proposal-card-body {
-  padding: 16px 18px !important;
+.pp-held-recovery .pp-section-title {
+  margin-bottom: 0.5rem;
 }
 
-.modal-box-wide .tab-content {
-  overflow: visible;
-}
-
-.modal-box-wide .tab-pane {
-  overflow: visible;
+.pp-held-recovery-hint {
+  font-size: 0.78rem;
+  color: #64748b;
+  line-height: 1.4;
 }

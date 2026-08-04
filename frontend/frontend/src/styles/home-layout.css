@@ -1,0 +1,74 @@
+/* Full-viewport home: header + bar + carousel + footer — no page scroll */
+body.page-home {
+  overflow: hidden;
+}
+
+body.page-home #root {
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+}
+
+body.page-home .header {
+  flex-shrink: 0;
+}
+
+body.page-home .navbar {
+  flex-shrink: 0;
+}
+
+body.page-home .footer {
+  flex-shrink: 0;
+}
+
+body.page-home .main-content--home {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+body.page-home .home-page {
+  height: 100%;
+  min-height: 0;
+}
+
+body.page-home .carousel {
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 0;
+}
+
+/* Shorter viewports: compact header so carousel keeps more room */
+@media (max-height: 720px) {
+  body.page-home .header {
+    min-height: 0;
+    padding: 6px 12px;
+  }
+
+  body.page-home .left img,
+  body.page-home .right img {
+    height: clamp(40px, 8vh, 72px);
+  }
+
+  body.page-home .center h1 {
+    font-size: clamp(0.75rem, 2.2vh, 1.1rem);
+  }
+
+  body.page-home .center .header-tagline,
+  body.page-home .center .header-goi {
+    font-size: clamp(0.6rem, 1.6vh, 0.8rem);
+  }
+}
+
+@media (max-height: 560px) {
+  body.page-home .navbar-bar-only {
+    height: 8px;
+    min-height: 8px;
+  }
+
+  body.page-home .footer {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+}

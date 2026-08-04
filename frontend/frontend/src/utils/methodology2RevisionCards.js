@@ -16,17 +16,21 @@ export const REVISION_CARD_GROUPS = [
   { revisionKey: "1988(607 CPI)", rows: [36, 37, 38, 39, 40, 41] },
   { revisionKey: "1993(1030 CPI)", rows: [42, 43, 44, 45, 46, 47] },
   { revisionKey: "1997(1708 CPI)", rows: [48, 49, 50, 51] },
-  { revisionKey: "2007(126 CPI)", rows: [52, 53, 54, 55] },
-  { revisionKey: "2012(198 CPI)", rows: [56, 57, 58, 59] },
-  { revisionKey: "2017(277 CPI)", rows: [60, 61, 62, 63] },
-  { revisionKey: "2022(359 CPI)", rows: [64, 65] },
+  { revisionKey: "2007(126 CPI)", rows: [200701, 200702, 200703, 200704, 200705] },
+  { revisionKey: "2012(198 CPI)", rows: [201201, 201202, 201203, 201204, 201205, 201206] },
+  { revisionKey: "2017(277 CPI)", rows: [201701, 201702, 201703, 201704, 201705, 201706] },
+  { revisionKey: "2022(359 CPI)", rows: [202201] },
 ];
 
 /** "1997(1708 CPI)" → "1997 (1708 CPI)" */
 export function formatRevisionCardTitle(revisionKey) {
-  const match = revisionKey.match(/^(\d{4})\((.+)\)$/);
+  const match = revisionKey.match(/^(\d{4})\((\d+)\s*CPI\)$/i);
   if (match) {
-    return `${match[1]} (${match[2]})`;
+    return `Detailed Calculation Breakdown Year ${match[1]} - CPI ${match[2]}`;
+  }
+  const generic = revisionKey.match(/^(\d{4})\((.+)\)$/);
+  if (generic) {
+    return `${generic[1]} (${generic[2]})`;
   }
   return revisionKey;
 }

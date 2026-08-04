@@ -1,23 +1,24 @@
 import { useState, useEffect } from "react";
 import API from "../services/Api";
+import NoPayLeaveDetailsModal from "./NoPayLeaveDetailsModal";
 
 const emptyForm = {
   id: null,
-  emp_code: "",
   no_pay_days: "",
   dies_non_days: "",
   no_pay_more_than_240_days: "",
   suspension_days: "",
+  boys_serv_days: "",
 };
 
-function applyNoPayData(setForm, data, empId) {
+function applyNoPayData(setForm, data) {
   setForm({
     id: data.id,
-    emp_code: data.emp_code || empId,
     no_pay_days: data.no_pay_days ?? 0,
     dies_non_days: data.dies_non_days ?? 0,
     no_pay_more_than_240_days: data.no_pay_more_than_240_days ?? 0,
     suspension_days: data.suspension_days ?? 0,
+    boys_serv_days: data.boys_serv_days ?? 0,
   });
 }
 
@@ -26,12 +27,14 @@ export default function NoPayEntry({ employee }) {
   const [recordExists, setRecordExists] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showLeaveDetails, setShowLeaveDetails] = useState(false);
 
   useEffect(() => {
     if (!employee) return;
 
     const loadFromDb = async () => {
       setLoading(true);
+      setShowLeaveDetails(false);
 
       let data = null;
       let exists = false;
@@ -52,16 +55,25 @@ export default function NoPayEntry({ employee }) {
       }
 
       if (exists && data) {
-        applyNoPayData(setForm, data, employee.emp_id);
+        applyNoPayData(setForm, data);
         setRecordExists(true);
         setIsEditing(false);
+      } else if (employee.no_pay_defaults) {
+        const d = employee.no_pay_defaults;
+        setForm({
+          id: null,
+          no_pay_days: d.no_pay_days ?? 0,
+          dies_non_days: d.dies_non_days ?? 0,
+          no_pay_more_than_240_days: d.no_pay_more_than_240_days ?? 0,
+          suspension_days: d.suspension_days ?? 0,
+          boys_serv_days: d.boys_serv_days ?? 0,
+        });
+        setRecordExists(false);
+        setIsEditing(true);
       } else {
         setRecordExists(false);
         setIsEditing(true);
-        setForm({
-          ...emptyForm,
-          emp_code: employee.emp_id,
-        });
+        setForm({ ...emptyForm });
       }
 
       setLoading(false);
@@ -89,6 +101,7 @@ export default function NoPayEntry({ employee }) {
     dies_non_days: form.dies_non_days || 0,
     no_pay_more_than_240_days: form.no_pay_more_than_240_days || 0,
     suspension_days: form.suspension_days || 0,
+    boys_serv_days: form.boys_serv_days || 0,
   });
 
   const handleSubmit = async (e) => {
@@ -100,6 +113,7 @@ export default function NoPayEntry({ employee }) {
       dies_non_days: form.dies_non_days || 0,
       no_pay_more_than_240_days: form.no_pay_more_than_240_days || 0,
       suspension_days: form.suspension_days || 0,
+      boys_serv_days: form.boys_serv_days || 0,
     };
 
     try {
@@ -114,7 +128,7 @@ export default function NoPayEntry({ employee }) {
       alert(message);
 
       if (response.data.no_pay_data) {
-        applyNoPayData(setForm, response.data.no_pay_data, employee.emp_id);
+        applyNoPayData(setForm, response.data.no_pay_data);
       }
 
       setRecordExists(true);
@@ -141,72 +155,50 @@ export default function NoPayEntry({ employee }) {
   const saveDisabled = recordExists && !isEditing;
 
   return (
-    <form onSubmit={handleSubmit}>
-      <div className="row">
-        <div className="col-md-3 mb-3">
-          <label className="form-label fw-bold">Employee Code</label>
-          <input
-            type="text"
-            className="form-control"
-            name="emp_code"
-            value={form.emp_code}
-            readOnly
-          />
+    <form onSubmit={handleSubmit} className="smpk-form">
+      {!recordExists && employee?.no_pay_defaults?.legacy && (
+        <div className="alert alert-info py-2 mb-3">
+          Prefill from Oracle oldbill ({employee.no_pay_defaults.source || "legacy"}).
+          Review and click Save to store in SMPK.
         </div>
-        <div className="col-md-3 mb-3">
-          <label className="form-label fw-bold">No Pay Days</label>
-          <input
-            type="number"
-            min="0"
-            className="form-control"
-            name="no_pay_days"
-            placeholder="Enter No Pay Days"
-            value={form.no_pay_days}
-            onChange={handleChange}
-            disabled={fieldsDisabled}
-          />
+      )}
+      {recordExists && employee?.no_pay_data?.legacy_prefill && (
+        <div className="alert alert-info py-2 mb-3">
+          Values filled from Oracle oldbill ({employee.no_pay_data.legacy_source || "legacy"}).
+          Click Edit / Save to keep them in SMPK.
         </div>
-        <div className="col-md-3 mb-3">
-          <label className="form-label fw-bold">Dies Non Days</label>
-          <input
-            type="number"
-            min="0"
-            className="form-control"
-            name="dies_non_days"
-            placeholder="Enter Dies Non Days"
-            value={form.dies_non_days}
-            onChange={handleChange}
-            disabled={fieldsDisabled}
-          />
+      )}
+      <div className="row g-3">
+        <div className="col-6 col-sm-6 col-md-3">
+          <label className="form-label">No Pay Days (Prior to 10 Mnths)</label>
+          <input type="number"  min="0"  className="form-control" name="no_pay_days" placeholder="Enter No Pay Days" value={form.no_pay_days} onChange={handleChange} disabled={fieldsDisabled} />
         </div>
-        <div className="col-md-3 mb-3">
-          <label className="form-label fw-bold">No Pay More Than 240 Days</label>
-          <input
-            type="number"
-            min="0"
-            className="form-control"
-            name="no_pay_more_than_240_days"
-            placeholder="Enter days"
-            value={form.no_pay_more_than_240_days}
-            onChange={handleChange}
-            disabled={fieldsDisabled}
-          />
+        <div className="col-6 col-sm-6 col-md-3">
+          <label className="form-label">Dies Non Days</label>
+          <input type="number" min="0" className="form-control" name="dies_non_days" placeholder="Enter Dies Non Days" value={form.dies_non_days} onChange={handleChange} disabled={fieldsDisabled} />
         </div>
-        <div className="col-md-3 mb-3">
-          <label className="form-label fw-bold">Suspension Days</label>
-          <input
-            type="number"
-            min="0"
-            className="form-control"
-            name="suspension_days"
-            placeholder="Enter Suspension Days"
-            value={form.suspension_days}
-            onChange={handleChange}
-            disabled={fieldsDisabled}
-          />
+        <div className="col-6 col-sm-6 col-md-2">
+          <label className="form-label">No Pay More Than 240 Days</label>
+          <input type="number" min="0" className="form-control" name="no_pay_more_than_240_days" placeholder="No Pay More Than 240 Days" value={form.no_pay_more_than_240_days} onChange={handleChange} disabled={fieldsDisabled}  />
+        </div>        
+        <div className="col-6 col-sm-6 col-md-2">
+          <label className="form-label">Suspension Days</label>
+          <input type="number" min="0" className="form-control" name="suspension_days" placeholder="Enter Suspension Days" value={form.suspension_days} onChange={handleChange} disabled={fieldsDisabled} />
+        </div>
+        <div className="col-6 col-sm-6 col-md-2">
+          <label className="form-label">Boys Serv Days</label>
+          <input type="number" min="0" className="form-control" name="boys_serv_days" placeholder="Enter Boys Serv Days" value={form.boys_serv_days} onChange={handleChange} disabled={fieldsDisabled} />
         </div>
       </div>
-      <div className="text-end">
+      <div className="smpk-form-actions justify-content-end">
+        <button
+          type="button"
+          className="btn btn-outline-primary me-2"
+          onClick={() => setShowLeaveDetails(true)}
+          disabled={!employee?.emp_id}
+        >
+          Details
+        </button>
         {recordExists && (
           <button
             type="button"
@@ -225,6 +217,12 @@ export default function NoPayEntry({ employee }) {
           Save
         </button>
       </div>
+
+      <NoPayLeaveDetailsModal
+        empId={employee?.emp_id}
+        open={showLeaveDetails}
+        onClose={() => setShowLeaveDetails(false)}
+      />
     </form>
   );
 }

@@ -1,0 +1,223 @@
+/* Pension workflow tabs — First Pension & dashboard modal */
+
+.employee-process-tabs {
+  --ppt-accent: #1976d2;
+  --ppt-accent-dark: #0d47a1;
+  --ppt-surface: #ffffff;
+  --ppt-muted: #64748b;
+  --ppt-border: #e2e8f0;
+  --ppt-nav-bg: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+
+  background: var(--ppt-surface);
+  border: 1px solid var(--ppt-border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 24px rgba(15, 23, 42, 0.06);
+  text-align: left;
+}
+
+.employee-process-tabs__nav {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+  padding: 0.65rem 0.65rem 0;
+  margin: 0;
+  list-style: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+  background: var(--ppt-nav-bg);
+  border-bottom: 1px solid var(--ppt-border);
+}
+
+.employee-process-tabs__nav::-webkit-scrollbar {
+  height: 5px;
+}
+
+.employee-process-tabs__nav::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.employee-process-tabs__item {
+  flex: 0 0 auto;
+}
+
+.employee-process-tabs__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem 0.75rem;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  color: var(--ppt-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+.employee-process-tabs__btn:hover {
+  color: var(--ppt-accent-dark);
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.employee-process-tabs__btn:focus-visible {
+  outline: 2px solid var(--ppt-accent);
+  outline-offset: 2px;
+}
+
+.employee-process-tabs__btn.active {
+  color: var(--ppt-accent-dark);
+  background: var(--ppt-surface);
+  border-color: var(--ppt-border);
+  box-shadow:
+    0 -3px 0 var(--ppt-accent) inset,
+    0 4px 14px rgba(25, 118, 210, 0.12);
+  transform: translateY(1px);
+}
+
+.employee-process-tabs__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: #e2e8f0;
+  color: #475569;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.employee-process-tabs__btn.active .employee-process-tabs__step {
+  background: linear-gradient(135deg, var(--ppt-accent), var(--ppt-accent-dark));
+  color: #fff;
+}
+
+.employee-process-tabs__label-full {
+  display: inline;
+}
+
+.employee-process-tabs__label-short {
+  display: none;
+}
+
+.employee-process-tabs__panel {
+  padding: 1.25rem 1.35rem 1.35rem;
+  background: var(--ppt-surface);
+  border-top: none;
+}
+
+.employee-process-tabs__panel .tab-pane {
+  animation: ppt-tab-fade-in 0.25s ease;
+}
+
+@keyframes ppt-tab-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.employee-process-tabs__section-title {
+  margin: 0 0 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #e8f0fe;
+  color: var(--ppt-accent-dark);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+/* Override Bootstrap tab button defaults */
+.employee-process-tabs__nav .nav-link {
+  margin-bottom: 0;
+}
+
+.employee-process-tabs .employee-info-item {
+  border-radius: 12px;
+  border-color: #e8f0fe;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.employee-process-tabs .employee-info-item:hover {
+  border-color: #bfdbfe;
+  box-shadow: 0 4px 12px rgba(25, 118, 210, 0.08);
+}
+
+/* Per-tab accent on active step (optional variety) */
+.employee-process-tabs__btn[data-tab="proposal"].active .employee-process-tabs__step,
+.employee-process-tabs__btn[data-tab="amount"].active .employee-process-tabs__step {
+  background: linear-gradient(135deg, #15803d, #166534);
+}
+
+.employee-process-tabs__btn[data-tab="proposal"].active,
+.employee-process-tabs__btn[data-tab="amount"].active {
+  box-shadow:
+    0 -3px 0 #16a34a inset,
+    0 4px 14px rgba(22, 163, 74, 0.15);
+}
+
+@media (max-width: 767.98px) {
+  .employee-process-tabs__nav {
+    padding: 0.5rem 0.5rem 0;
+  }
+
+  .employee-process-tabs__btn {
+    padding: 0.55rem 0.75rem 0.65rem;
+    font-size: 0.8rem;
+    gap: 0.35rem;
+  }
+
+  .employee-process-tabs__label-full {
+    display: none;
+  }
+
+  .employee-process-tabs__label-short {
+    display: inline;
+  }
+
+  .employee-process-tabs__panel {
+    padding: 1rem;
+  }
+}
+
+@media (min-width: 992px) {
+  .employee-process-tabs__nav {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    justify-content: flex-start;
+    padding: 0.75rem 0.85rem 0;
+    gap: 0.5rem;
+  }
+
+  .employee-process-tabs__item {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 11rem;
+  }
+
+  .employee-process-tabs__btn {
+    width: 100%;
+    justify-content: center;
+    padding: 0.7rem 0.65rem 0.8rem;
+  }
+}

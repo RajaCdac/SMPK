@@ -1,0 +1,1913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>SMPK First Pension — Code Handover</title>
+  <style>
+@page { size: A4; margin: 18mm 16mm 20mm 16mm; }
+body {
+  font-family: "Segoe UI", Calibri, Arial, sans-serif;
+  font-size: 10.5pt;
+  line-height: 1.45;
+  color: #1a1a1a;
+  max-width: 100%;
+}
+.cover {
+  page-break-after: always;
+  text-align: center;
+  padding-top: 80px;
+}
+.cover h1 { font-size: 26pt; color: #0d3b66; margin-bottom: 8px; }
+.cover .subtitle { font-size: 13pt; color: #555; margin-bottom: 40px; }
+.cover .meta { font-size: 11pt; color: #666; line-height: 1.8; }
+h1 { color: #0d3b66; font-size: 18pt; border-bottom: 2px solid #0d3b66; padding-bottom: 4px; margin-top: 28px; page-break-after: avoid; }
+h2 { color: #145da0; font-size: 14pt; margin-top: 22px; page-break-after: avoid; }
+h3 { color: #333; font-size: 12pt; margin-top: 16px; }
+h4 { color: #444; font-size: 11pt; }
+a { color: #145da0; text-decoration: none; }
+code, pre { font-family: Consolas, "Courier New", monospace; font-size: 9pt; background: #f4f6f8; }
+pre { padding: 10px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; page-break-inside: avoid; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 9.5pt; page-break-inside: avoid; }
+th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; vertical-align: top; }
+th { background: #e8eef4; font-weight: 600; }
+tr:nth-child(even) td { background: #fafbfc; }
+ul, ol { margin: 8px 0; padding-left: 22px; }
+li { margin: 3px 0; }
+.checklist li { list-style: none; margin-left: -18px; }
+.checklist li:before { content: "☐ "; font-size: 12pt; }
+blockquote { border-left: 4px solid #145da0; margin: 12px 0; padding: 8px 14px; background: #f0f6fc; color: #333; }
+.toc { page-break-after: always; }
+.toc ul { list-style: none; padding-left: 0; }
+.toc li { margin: 6px 0; border-bottom: 1px dotted #ccc; padding-bottom: 4px; }
+.toc a { display: flex; justify-content: space-between; }
+.section-quick { page-break-before: always; }
+hr { border: none; border-top: 1px solid #ddd; margin: 20px 0; }
+@media print {
+  h1, h2, h3 { page-break-after: avoid; }
+  table, pre, blockquote { page-break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>SMPK First Pension</h1>
+  <div class="subtitle">Code Handover &amp; Quick Start Guide</div>
+  <div class="meta">
+    <p><strong>Audience:</strong> Junior developer / maintenance team</p>
+    <p><strong>Module:</strong> Django backend + React frontend</p>
+    <p><strong>API prefix:</strong> <code>first-pension/</code></p>
+    <p><strong>Generated from:</strong> docs/FIRST_PENSION_*.md</p>
+  </div>
+</div>
+
+<div class="toc section-quick">
+  <h1 id="quick-start-index">Document index</h1>
+  <ul>
+    <li><a href="#quick-start"><span>Part A — Quick Start Checklist</span></span></a></li>
+    <li><a href="#full-handover"><span>Part B — Full Code Handover</span></span></a></li>
+    <li><a href="#section-1"><span>1. What this system does</span></a></li>
+    <li><a href="#section-2"><span>2. End-to-end workflow</span></a></li>
+    <li><a href="#section-3"><span>3. Architecture</span></a></li>
+    <li><a href="#section-4"><span>4. Normal RT vs VR</span></a></li>
+    <li><a href="#section-5"><span>5. Oracle Forms mapping</span></a></li>
+    <li><a href="#section-6"><span>6. Database models</span></a></li>
+    <li><a href="#section-7"><span>7. Backend functions</span></a></li>
+    <li><a href="#section-8"><span>8. Frontend functions</span></a></li>
+    <li><a href="#section-9"><span>9. API endpoint index</span></a></li>
+    <li><a href="#section-10"><span>10. Run &amp; test locally</span></a></li>
+    <li><a href="#section-11"><span>11. Known gaps</span></a></li>
+  </ul>
+</div>
+
+<div class="section-quick" id="quick-start">
+  <h1>Part A — Quick Start Checklist</h1>
+  <h1 id="quick-start-checklist-first-pension-module">Quick Start Checklist — First Pension Module</h1>
+<p>Use this checklist on Day 1 and when processing a new employee.</p>
+<hr />
+<h2 id="day-1-environment-setup">Day 1 — Environment setup</h2>
+<ul class="checklist">
+<li>[ ] Clone repo and open <code>SMPK/backend/config</code> + <code>SMPK/frontend/frontend</code></li>
+<li>[ ] Backend: activate venv → <code>python manage.py runserver</code></li>
+<li>[ ] Frontend: <code>npm install</code> → <code>npm run dev</code></li>
+<li>[ ] Confirm API base URL in <code>frontend/src/services/Api.js</code> points to Django</li>
+<li>[ ] Read <strong>§1–4</strong> of the full handover doc (what / workflow / VR vs RT)</li>
+<li>[ ] Open Oracle <code>.fmb</code> reference folder at repo root (optional)</li>
+</ul>
+<hr />
+<h2 id="key-files-read-these-first">Key files — read these first</h2>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>File</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>first_pension/urls.py</code></td>
+<td>All API routes</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>first_pension/pension_calculation.py</code></td>
+<td>Pension / gratuity / commutation math</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>first_pension/services/commutation_rate_service.py</code></td>
+<td>Age rate table lookup</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>first_pension/services/pension_bill_service.py</code></td>
+<td>PPN bill + LIC report</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>first_pension/services/sepcom_commutation_generation_service.py</code></td>
+<td>VR separate commutation step 2</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>first_pension/services/ppc_commutation_bill_service.py</code></td>
+<td>VR separate commutation step 3</td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>components/EmployeeProcessTabs.jsx</code></td>
+<td>UI workflow shell</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="normal-retirement-rt-processing-checklist">Normal retirement (RT) — processing checklist</h2>
+<p>Employee example: <strong>42230</strong></p>
+<ul>
+<li>[ ] <strong>No-Pay tab</strong> — Save no-pay / dies-non days → <code>POST no-pay/</code></li>
+<li>[ ] <strong>Proposal tab</strong> — Save proposal (separation RT, bank, CA) → <code>POST pension-proposal/</code></li>
+<li>[ ] <strong>Commutation tab</strong> — Save application with <strong>PEN</strong> (with pension) → <code>POST commutation/</code></li>
+<li>[ ] <strong>Amount tab</strong> — Calculate → <code>POST amount/calculate/</code> (check pension + commutation + gratuity)</li>
+<li>[ ] <strong>Amount tab</strong> — First-month generate → <code>POST amount/first-month-generate/</code></li>
+<li>[ ] <strong>Bill → PPN</strong> — Generate bill for correct month/year</li>
+<li>[ ] <strong>Bill → Journal Voucher</strong> — Generate JV for PPN bill</li>
+<li>[ ] <strong>Reports</strong> — LIC report, Pension Sanction, Bill Abstract, Journal Summary</li>
+</ul>
+<p><strong>Verify:</strong> <code>PensionSummary.pension_amount</code> = Oracle <code>PEN_AMT</code>; commutation lump sum uses age from <code>fi_pn_md_commrate_rupee</code>.</p>
+<hr />
+<h2 id="voluntary-retirement-vr-two-phase-checklist">Voluntary retirement (VR) — two-phase checklist</h2>
+<p>Employee example: <strong>43186</strong></p>
+<h3 id="phase-a-first-pension-no-commutation">Phase A — First pension (no commutation)</h3>
+<ul>
+<li>[ ] Proposal: separation type <strong>VR</strong></li>
+<li>[ ] Commutation application can wait OR save early with <strong>COM</strong> for later</li>
+<li>[ ] Amount: pension + gratuity only (commutation shows <strong>Deferred</strong>)</li>
+<li>[ ] Bill → <strong>PPN only</strong> (no commutation line)</li>
+<li>[ ] Reports: LIC + Pension Sanction</li>
+</ul>
+<h3 id="phase-b-separate-commutation-later">Phase B — Separate commutation (later)</h3>
+<ul>
+<li>[ ] <strong>Commutation tab</strong> — Application saved, <strong>COM</strong> (Separate Commutation), bank, dates, comm %</li>
+<li>[ ] <strong>Commutation tab</strong> — <strong>Generate SEPCOM</strong> for correct month/year (e.g. 01/2024)</li>
+<li>[ ] <strong>Bill → PPC</strong> — Use <strong>same month/year as SEPCOM</strong> (not current year)</li>
+<li>[ ] <strong>Reports → Commutation Sanction</strong> — Uses <code>sep-comm-report</code> after SEPCOM</li>
+</ul>
+<p><strong>Watch out:</strong> SEPCOM amount must use <strong>disbursed pension</strong> (Oracle pensioner), not a recalculated higher summary — see Known Gaps in full doc.</p>
+<hr />
+<h2 id="debug-cheat-sheet">Debug cheat sheet</h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Amount won't calculate</td>
+<td>No-pay saved? Commutation % saved? (not required for VR)</td>
+</tr>
+<tr>
+<td>Commutation report fails</td>
+<td>SEPCOM generated? Backend error log (earn/dedn field names)</td>
+</tr>
+<tr>
+<td>PPC shows no candidates</td>
+<td>Bill month/year must match SEPCOM (e.g. 1/2024 not 2026)</td>
+</tr>
+<tr>
+<td>Wrong commutation lump sum</td>
+<td>Compare <code>PensionSummary.pension_amount</code> vs Oracle <code>PEN_AMT</code></td>
+</tr>
+<tr>
+<td>Wrong age rate</td>
+<td>DOB + application received / MO cert date → <code>fi_pn_md_commrate_rupee</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Hub API:</strong> <code>GET first-pension/employees/&lt;emp_id&gt;/</code> — shows which tabs are complete.</p>
+<hr />
+<h2 id="api-quick-index-most-used">API quick index (most used)</h2>
+<pre><code>GET  employees/&lt;id&gt;/              Workflow hub
+POST no-pay/                        No-pay save
+POST pension-proposal/              Proposal save
+POST commutation/                   Commutation application
+GET  amount/employee/&lt;id&gt;/          Amount tab load
+POST amount/calculate/              Run calculation
+POST amount/first-month-generate/   Post FMPEN
+POST pension-bill/generate/         PPN bill
+GET  pension-bill/sepcom/status/    SEPCOM status
+POST pension-bill/sepcom/generate/  SEPCOM create
+POST pension-bill/ppc/generate/     PPC bill
+GET  pension-bill/sep-comm-report/  VR commutation report
+GET  pension-bill/commutation-report/  RT commutation report
+GET  pension-bill/lic-report/       LIC report
+</code></pre>
+<hr />
+<h2 id="oracle-form-code-map-memorize">Oracle form → code map (memorize)</h2>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Oracle</th>
+<th>SMPK service / UI</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Application</td>
+<td>FI_PN_MH_APPLICATION</td>
+<td>CommutationApplicationEntry</td>
+</tr>
+<tr>
+<td>Amount / FMPEN</td>
+<td>FI_PN_FIRST_PENSION_PROCESS</td>
+<td>pension_calculation + first_month_pension_service</td>
+</tr>
+<tr>
+<td>SEPCOM</td>
+<td>FI_PN_COMUTATION_GENERATION</td>
+<td>sepcom_commutation_generation_service</td>
+</tr>
+<tr>
+<td>PPC bill</td>
+<td>FI_PN_TH_Commutation_Bill_Gen</td>
+<td>ppc_commutation_bill_service</td>
+</tr>
+<tr>
+<td>Sep report</td>
+<td>SEP_COMM_REP1</td>
+<td>sep_comm_report_service</td>
+</tr>
+<tr>
+<td>PPN bill</td>
+<td>Bill generate FMB</td>
+<td>pension_bill_service</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>Full function-by-function reference: see FIRST_PENSION_CODE_HANDOVER.md</em></p>
+</div>
+
+<div id="full-handover">
+  <h1>Part B — Full Code Handover</h1>
+  <h1 id="smpk-first-pension-code-handover-document">SMPK First Pension — Code Handover Document</h1>
+<p><strong>Audience:</strong> Junior developer taking over maintenance and enhancements<br />
+<strong>Module:</strong> First Pension processing (Django backend + React frontend)<br />
+<strong>Last updated:</strong> June 2026<br />
+<strong>Backend root:</strong> <code>SMPK/backend/config/first_pension/</code><br />
+<strong>Frontend root:</strong> <code>SMPK/frontend/frontend/src/components/</code> (pension UI)<br />
+<strong>API prefix:</strong> <code>first-pension/</code> (mounted in Django <code>config/api/urls.py</code>)</p>
+<hr />
+<h2 id="table-of-contents">Table of contents</h2>
+<ol>
+<li><a href="#1-what-this-system-does">What this system does</a></li>
+<li><a href="#2-end-to-end-business-workflow">End-to-end business workflow</a></li>
+<li><a href="#3-architecture-overview">Architecture overview</a></li>
+<li><a href="#4-normal-retirement-vs-vr-voluntary-retirement">Normal retirement vs VR (Voluntary Retirement)</a></li>
+<li><a href="#5-oracle-forms-mapping">Oracle Forms mapping</a></li>
+<li><a href="#6-database-models-business-meaning">Database models (business meaning)</a></li>
+<li><a href="#7-backend--function-reference-by-file">Backend — function reference by file</a></li>
+<li><a href="#8-frontend--function-reference-by-file">Frontend — function reference by file</a></li>
+<li><a href="#9-complete-api-endpoint-index">Complete API endpoint index</a></li>
+<li><a href="#10-how-to-run-and-test-locally">How to run and test locally</a></li>
+<li><a href="#11-known-gaps-and-pending-work">Known gaps and pending work</a></li>
+</ol>
+<hr />
+<h2 id="section-1">1. What this system does</h2>
+<p>SMPK First Pension is a port of the Oracle Forms pension workflow used at Syama Prasad Mookerjee Port, Kolkata. It lets finance/pension staff:</p>
+<ol>
+<li>Record employee separation and service adjustments (no-pay, dies-non)</li>
+<li>Enter pension proposal and commutation application</li>
+<li>Calculate pension, commutation lump sum, and gratuity</li>
+<li>Generate first-month pension (FMPEN) and bank bills (PPN)</li>
+<li>For <strong>separate commutation</strong> (mainly VR): generate SEPCOM → PPC bill → reports</li>
+<li>Print sanction reports, LIC reports, bill abstracts, and journal summaries</li>
+</ol>
+<p><strong>Design principle:</strong> Business rules follow Oracle Forms (<code>.fmb</code>) behaviour. MySQL tables prefixed <code>fi_pn_*</code> mirror Oracle <code>FINANCE.FI_PN_*</code> tables.</p>
+<hr />
+<h2 id="section-2">2. End-to-end business workflow</h2>
+<h3 id="ui-tab-order-employeeprocesstabsjsx">UI tab order (<code>EmployeeProcessTabs.jsx</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>Tab</th>
+<th>Business step</th>
+<th>Must complete before</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Basic Info</td>
+<td>Read-only employee snapshot</td>
+<td>—</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Commutation</td>
+<td>Commutation application (+ SEPCOM for COM)</td>
+<td>Proposal recommended</td>
+</tr>
+<tr>
+<td>3</td>
+<td>No-Pay</td>
+<td>Service adjustment days</td>
+<td>Employee selected</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Proposal</td>
+<td>Pension proposal header + earn/dedn</td>
+<td>No-pay saved</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Amount</td>
+<td>Calculate pension / gratuity / commutation</td>
+<td>Proposal + commutation %</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Bill &amp; Journal</td>
+<td>PPN bill, PPC bill, JV</td>
+<td>Amount + first-month generate</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Reports</td>
+<td>LIC, sanction, commutation, abstract, JV summary</td>
+<td>Relevant bill generated</td>
+</tr>
+</tbody>
+</table>
+<h3 id="typical-path-normal-retirement-rt">Typical path — normal retirement (RT)</h3>
+<pre><code>No-Pay → Proposal → Commutation (PEN) → Amount → First-month generate → PPN Bill → JV → Reports
+</code></pre>
+<ul>
+<li>Commutation is <strong>with first pension</strong> (<code>impl_fpen_combill = PEN</code>).</li>
+<li>Lump sum calculated on Amount tab using age rate table.</li>
+</ul>
+<h3 id="typical-path-voluntary-retirement-vr">Typical path — voluntary retirement (VR)</h3>
+<pre><code>No-Pay → Proposal (VR) → Amount (pension + gratuity only) → PPN Bill → Reports
+        ↓ (later, when employee applies)
+Commutation (COM) → SEPCOM → PPC Bill → Commutation Sanction report
+</code></pre>
+<ul>
+<li>First bill has <strong>no commutation line</strong>.</li>
+<li>Separate commutation uses 4 Oracle steps (application → SEPCOM → PPC → report).</li>
+</ul>
+<hr />
+<h2 id="section-3">3. Architecture overview</h2>
+<pre><code>┌─────────────────┐     REST JSON      ┌──────────────────────────────┐
+│  React UI       │ ◄──────────────► │  Django first_pension app     │
+│  (components/)  │   first-pension/ │  views / *_api.py             │
+└─────────────────┘                  │  services/*.py (business logic)│
+                                     │  pension_calculation.py       │
+                                     └──────────────┬───────────────┘
+                                                    │
+                    ┌───────────────────────────────┼───────────────────────────────┐
+                    ▼                               ▼                               ▼
+            SMPK local tables              Oracle mirror tables              master_data app
+            (PensionCase, etc.)            (fi_pn_th_*, fi_pn_mh_*)         (banks, fin ctrl)
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Responsibility</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><code>*_api.py</code> / <code>views.py</code></strong></td>
+<td>HTTP validation, auth, audit logging, call services</td>
+</tr>
+<tr>
+<td><strong><code>services/*.py</code></strong></td>
+<td>Oracle-equivalent business processes (bills, SEPCOM, reports)</td>
+</tr>
+<tr>
+<td><strong><code>pension_calculation.py</code></strong></td>
+<td>Pure financial formulas (TCCS, TQS, pension, gratuity)</td>
+</tr>
+<tr>
+<td><strong><code>oracle_mirror.py</code></strong></td>
+<td>Django models → existing MySQL Oracle mirror tables</td>
+</tr>
+<tr>
+<td><strong><code>models.py</code></strong></td>
+<td>SMPK workflow tables (case, proposal, commutation application)</td>
+</tr>
+<tr>
+<td><strong>React components</strong></td>
+<td>One tab or sub-workflow per component; call API via <code>services/Api.js</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="section-4">4. Normal retirement vs VR (Voluntary Retirement)</h2>
+<table>
+<thead>
+<tr>
+<th>Topic</th>
+<th>Normal (RT)</th>
+<th>VR</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Separation type</td>
+<td><code>RT</code></td>
+<td><code>VR</code></td>
+</tr>
+<tr>
+<td>Commutation timing</td>
+<td>With first pension (<code>PEN</code>)</td>
+<td>Deferred (<code>COM</code> = separate)</td>
+</tr>
+<tr>
+<td>Amount tab commutation</td>
+<td>Calculated and saved</td>
+<td>Shows <strong>Deferred</strong>; amount = 0</td>
+</tr>
+<tr>
+<td>SEPCOM / PPC</td>
+<td>Not used</td>
+<td>Required for commutation payment</td>
+</tr>
+<tr>
+<td>Pension for commutation lump sum</td>
+<td>Same as Amount tab summary</td>
+<td>Should use <strong>disbursed pension</strong> from pensioner/application (Oracle); SMPK currently uses summary — see §11</td>
+</tr>
+<tr>
+<td>Age rate table</td>
+<td><code>fi_pn_md_commrate_rupee</code></td>
+<td>Same table</td>
+</tr>
+<tr>
+<td>Age reference date</td>
+<td>MO cert date if application &gt;12 months after separation; else application received date</td>
+<td>Same rule</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Key functions:</strong> <code>is_voluntary_retirement()</code>, <code>build_amount_lookup_payload()</code> in <code>pension_calculation.py</code>.</p>
+<hr />
+<h2 id="section-5">5. Oracle Forms mapping</h2>
+<table>
+<thead>
+<tr>
+<th>Oracle Form</th>
+<th>SMPK implementation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FI_PN_MH_APPLICATION.fmb</code></td>
+<td><code>CommutationApplicationEntry.jsx</code> + <code>CommutationCreateAPIView</code></td>
+</tr>
+<tr>
+<td><code>FI_PN_FIRST_PENSION_PROCESS.fmb</code></td>
+<td><code>pension_calculation.py</code> + <code>first_month_pension_service.py</code></td>
+</tr>
+<tr>
+<td><code>FI_PN_COMUTATION_GENERATION.fmb</code></td>
+<td><code>sepcom_commutation_generation_service.py</code> + <code>PensionSepcomGeneration.jsx</code></td>
+</tr>
+<tr>
+<td><code>FI_PN_TH_Commutation_Bill_Gen.fmb</code></td>
+<td><code>ppc_commutation_bill_service.py</code> + <code>PensionPpcBillGeneration.jsx</code></td>
+</tr>
+<tr>
+<td><code>SEP_COMM_REP1.fmb</code></td>
+<td><code>sep_comm_report_service.py</code></td>
+</tr>
+<tr>
+<td>First pension bill generation</td>
+<td><code>pension_bill_service.generate_pension_bills</code></td>
+</tr>
+<tr>
+<td>LIC report</td>
+<td><code>pension_bill_service.build_lic_report</code></td>
+</tr>
+<tr>
+<td>JV generation</td>
+<td><code>voucher_generation_service.py</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="section-6">6. Database models (business meaning)</h2>
+<h3 id="smpk-local-modelspy">SMPK local (<code>models.py</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Business purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PensionCase</code></td>
+<td>Employee snapshot + no-pay inputs + separation; one row per employee</td>
+</tr>
+<tr>
+<td><code>PensionSummary</code></td>
+<td>Calculated service (TCCS/TQS) and amounts after Amount tab calculate</td>
+</tr>
+<tr>
+<td><code>CommutationApplication</code></td>
+<td>Commutation application form data (one per employee)</td>
+</tr>
+<tr>
+<td><code>PensionProposal</code></td>
+<td>Pension proposal header (CA number, bank, separation, holds)</td>
+</tr>
+<tr>
+<td><code>PensionProposalEarndedn</code></td>
+<td>Proposal earn/deduction grid lines</td>
+</tr>
+</tbody>
+</table>
+<h3 id="oracle-mirrors-oracle_mirrorpy">Oracle mirrors (<code>oracle_mirror.py</code>)</h3>
+<table>
+<thead>
+<tr>
+<th>Model</th>
+<th>Oracle table</th>
+<th>Business purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>FiPnMhApplication</code></td>
+<td><code>FI_PN_MH_APPLICATION</code></td>
+<td>Commutation application mirror</td>
+</tr>
+<tr>
+<td><code>FiPnMhPensionProposal</code></td>
+<td><code>FI_PN_MH_PENSION_PROPOSAL</code></td>
+<td>Proposal header mirror</td>
+</tr>
+<tr>
+<td><code>FiPnMhPensioner</code></td>
+<td><code>FI_PN_MH_PENSIONER</code></td>
+<td>Active pensioner (pension, commuted portion)</td>
+</tr>
+<tr>
+<td><code>FiPnThFirstMonthPension</code></td>
+<td><code>FI_PN_TH_FIRST_MONTH_PENSION</code></td>
+<td>First-month bill header (FMPEN_ID)</td>
+</tr>
+<tr>
+<td><code>FiPnTdFirstMonthPension</code></td>
+<td><code>FI_PN_TD_FIRST_MONTH_PENSION</code></td>
+<td>First-month earn/dedn lines</td>
+</tr>
+<tr>
+<td><code>FiPnThPensionBill</code></td>
+<td><code>FI_PN_TH_PENSION_BILL</code></td>
+<td>Bank bill header (PPN or PPC)</td>
+</tr>
+<tr>
+<td><code>FiPnThSepcom</code> / <code>FiPnTdSepcom</code></td>
+<td><code>FI_PN_TH/TD_SEPCOM</code></td>
+<td>Separate commutation generation</td>
+</tr>
+<tr>
+<td><code>FiPnMdCommrateRupee</code></td>
+<td><code>FI_PN_MD_COMMRATE_RUPEE</code></td>
+<td>Commutation rate by age</td>
+</tr>
+<tr>
+<td><code>FiPnThJv</code> / <code>FiPnTdJv</code></td>
+<td>Journal voucher header/detail</td>
+<td></td>
+</tr>
+<tr>
+<td><code>FiPnMhPmthsetup</code></td>
+<td>Month open/close control per bill type</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="section-7">7. Backend — function reference by file</h2>
+<blockquote>
+<p><strong>Convention:</strong> Each entry = <strong>Function</strong> → <strong>Business logic</strong> → <strong>Called from</strong></p>
+</blockquote>
+<hr />
+<h3 id="urlspy"><code>urls.py</code></h3>
+<p>Route definitions only. All paths under <code>first-pension/</code>. See <a href="#9-complete-api-endpoint-index">§9 API index</a>.</p>
+<hr />
+<h3 id="viewspy"><code>views.py</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function / Class</th>
+<th>Business logic</th>
+<th>Called from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>_format_date_for_api</code></td>
+<td>Formats date for JSON (<code>YYYY-MM-DD</code>)</td>
+<td>Serializers</td>
+</tr>
+<tr>
+<td><code>_parse_optional_date</code></td>
+<td>Parses optional date from request</td>
+<td>Commutation save</td>
+</tr>
+<tr>
+<td><code>_apply_commutation_fields</code></td>
+<td>Maps POST body → <code>CommutationApplication</code>; sets restoration = commutation + 15 years; VR defaults <code>impl_fpen_combill=COM</code></td>
+<td>Commutation API</td>
+</tr>
+<tr>
+<td><code>serialize_no_pay_data</code></td>
+<td>Builds no-pay GET response</td>
+<td>NoPayLookupAPIView</td>
+</tr>
+<tr>
+<td><code>_get_pension_case_for_employee</code></td>
+<td>Finds <code>PensionCase</code> by emp code variants</td>
+<td>Multiple views</td>
+</tr>
+<tr>
+<td><code>_parse_dd_mm_yyyy</code></td>
+<td>Parses <code>DD-MM-YYYY</code> dates</td>
+<td>Legacy process</td>
+</tr>
+<tr>
+<td><code>serialize_commutation_application</code></td>
+<td>Full commutation form JSON</td>
+<td>Commutation API</td>
+</tr>
+<tr>
+<td><code>_enrich_commutation_data_from_proposal</code></td>
+<td>Fills CA/bank from proposal if missing</td>
+<td>Employee search</td>
+</tr>
+<tr>
+<td><strong><code>PensionProcessView</code></strong></td>
+<td><strong>Legacy:</strong> one-shot create case + inline calculation (prefer Amount tab flow)</td>
+<td>POST <code>process/</code></td>
+</tr>
+<tr>
+<td><strong><code>PensionReportView</code></strong></td>
+<td>Legacy single-case report</td>
+<td>GET <code>report/&lt;id&gt;/</code></td>
+</tr>
+<tr>
+<td><strong><code>PensionCaseListView</code></strong></td>
+<td>Lists all pension cases</td>
+<td>GET <code>cases/</code></td>
+</tr>
+<tr>
+<td><strong><code>_build_employee_db_context</code></strong></td>
+<td>Assembles flags: intake, no-pay, proposal, commutation, amount done</td>
+<td>Employee search</td>
+</tr>
+<tr>
+<td><strong><code>EmployeeSearchAPIView</code></strong></td>
+<td>Hub: Oracle employee + all tab completion state</td>
+<td>GET <code>employees/&lt;id&gt;/</code></td>
+</tr>
+<tr>
+<td><strong><code>NoPayLookupAPIView</code></strong></td>
+<td>Load no-pay days for employee</td>
+<td>GET <code>no-pay/employee/</code></td>
+</tr>
+<tr>
+<td><strong><code>NoPayEntryAPIView</code></strong></td>
+<td>Create/update <code>PensionCase</code> with service adjustments</td>
+<td>POST/PUT <code>no-pay/</code></td>
+</tr>
+<tr>
+<td><strong><code>CommutationCreateAPIView</code></strong></td>
+<td>Create/update commutation application; allocate <code>appcn_no</code></td>
+<td>POST/PUT <code>commutation/</code></td>
+</tr>
+<tr>
+<td><code>_sync_commutation_to_oracle</code></td>
+<td>Push to Oracle mirror (may be disabled)</td>
+<td>Commutation save</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="pension_calculationpy"><code>pension_calculation.py</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PensionCalculationError</code></td>
+<td>Exception for calculation failures</td>
+<td></td>
+</tr>
+<tr>
+<td><code>round_up_to_rupee</code></td>
+<td><code>ceil()</code> — used for SEPCOM lump sum</td>
+<td>Oracle <code>Ceil</code></td>
+</tr>
+<tr>
+<td><code>highest_side_round</code></td>
+<td>Floor +1 if fraction &gt; 0.009</td>
+<td>Oracle <code>FFUNC_HIGHEST_SIDE_ROUND</code>; used for integrated commutation</td>
+</tr>
+<tr>
+<td><code>calculate_normal_pension</code></td>
+<td>Government: 50% of emoluments; Port: emoluments × min(TQS,30) / 80; floor Rs 1850</td>
+<td>Port of <code>FFUNC_NORMAL_PENSION</code></td>
+</tr>
+<tr>
+<td><code>get_pension_option_for_employee</code></td>
+<td>Reads G/P from proposal</td>
+<td></td>
+</tr>
+<tr>
+<td><code>get_commutation_application_for_employee</code></td>
+<td>Finds <code>CommutationApplication</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>get_commutation_percent_for_employee</code></td>
+<td>Reads commutation %; errors if not saved when required</td>
+<td></td>
+</tr>
+<tr>
+<td><code>reload_pension_case_from_db</code></td>
+<td>Fresh <code>PensionCase</code> + related data</td>
+<td>Always use before calculate</td>
+</tr>
+<tr>
+<td><code>get_separation_type_for_employee</code></td>
+<td>RT / VR / etc. from proposal or case</td>
+<td></td>
+</tr>
+<tr>
+<td><code>is_voluntary_retirement</code></td>
+<td>True if separation type = VR</td>
+<td>Defers commutation</td>
+</tr>
+<tr>
+<td><code>fetch_calculation_inputs_from_db</code></td>
+<td>Merges case, commutation %, Oracle oldbill overrides for no-pay</td>
+<td></td>
+</tr>
+<tr>
+<td><strong><code>calculate_pension_financials</code></strong></td>
+<td><strong>Core math:</strong> TCCS/TQS from join/retire dates; pension; commutation via rate table; gratuity (cap 20 lakh)</td>
+<td>Pure function</td>
+</tr>
+<tr>
+<td><code>serialize_amount_data</code></td>
+<td>Amount tab display structure</td>
+<td></td>
+</tr>
+<tr>
+<td><strong><code>run_pension_calculation_for_case</code></strong></td>
+<td><strong>Runs calculate + saves <code>PensionSummary</code></strong></td>
+<td>Amount Calculate API</td>
+</tr>
+<tr>
+<td><code>format_total_service</code> / <code>format_service_tenure_years_only</code></td>
+<td>Display helpers</td>
+<td>Proposal UI</td>
+</tr>
+<tr>
+<td><code>get_service_components_for_case</code></td>
+<td>Service Y/M/D for display</td>
+<td></td>
+</tr>
+<tr>
+<td><strong><code>build_amount_lookup_payload</code></strong></td>
+<td>GET amount tab: inputs + summary + VR flags + first-month status</td>
+<td>Amount Lookup API</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Commutation formula (integrated):</strong></p>
+<pre><code>monthly_commuted = trunc(pension × comm% / 100)
+lump_sum = highest_side_round(monthly_commuted × rate_per_rupee)
+</code></pre>
+<p><strong>Gratuity:</strong> <code>(basic + DA) × 15 × qualifying_years / 26</code>, cap Rs 20,00,000.</p>
+<hr />
+<h3 id="pension_amount_apipy"><code>pension_amount_api.py</code></h3>
+<table>
+<thead>
+<tr>
+<th>Class</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PensionAmountLookupAPIView</code></td>
+<td>GET fresh amount tab state via <code>build_amount_lookup_payload</code></td>
+</tr>
+<tr>
+<td><code>PensionAmountCalculateAPIView</code></td>
+<td>POST → <code>run_pension_calculation_for_case</code> + audit</td>
+</tr>
+<tr>
+<td><code>FirstMonthPensionGenerateAPIView</code></td>
+<td>POST → <code>generate_first_month_pension</code> (creates FMPEN + pensioner)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="pension_bill_apipy"><code>pension_bill_api.py</code></h3>
+<p>Thin DRF wrappers. Each POST logs audit via <code>audit.services.log_audit</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Class</th>
+<th>Delegates to</th>
+<th>Business step</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PensionBillStatusAPIView</code></td>
+<td><code>get_employee_bill_status</code></td>
+<td>Employee bill pipeline state</td>
+</tr>
+<tr>
+<td><code>PensionBillCandidatesAPIView</code></td>
+<td><code>list_bill_candidates</code></td>
+<td>Who can be billed this month</td>
+</tr>
+<tr>
+<td><code>PensionBillGenerateAPIView</code></td>
+<td><code>generate_pension_bills</code></td>
+<td>Create PPN bills</td>
+</tr>
+<tr>
+<td><code>PensionBillMonthStatusAPIView</code></td>
+<td><code>get_month_setup_status</code></td>
+<td>Month open/closed</td>
+</tr>
+<tr>
+<td><code>PensionBillReprocessCandidatesAPIView</code></td>
+<td><code>list_reprocess_candidates</code></td>
+<td>Bills needing regeneration</td>
+</tr>
+<tr>
+<td><code>PensionBillReprocessAPIView</code></td>
+<td><code>reprocess_pension_bills</code></td>
+<td>Regenerate bill totals</td>
+</tr>
+<tr>
+<td><code>PensionBillCloseMonthAPIView</code></td>
+<td><code>close_pension_bill_month</code></td>
+<td>Close pension bill month</td>
+</tr>
+<tr>
+<td><code>PensionBillPpnListAPIView</code></td>
+<td><code>list_ppn_bills</code></td>
+<td>PPN list for LOV</td>
+</tr>
+<tr>
+<td><code>PensionLicReportAPIView</code></td>
+<td><code>build_lic_report</code></td>
+<td>LIC treasurer report</td>
+</tr>
+<tr>
+<td><code>PensionBillAbstractReportAPIView</code></td>
+<td><code>build_bill_abstract_report</code></td>
+<td>Payment abstract</td>
+</tr>
+<tr>
+<td><code>PensionJournalSummaryReportAPIView</code></td>
+<td><code>build_journal_summary_report</code></td>
+<td>JV summary print</td>
+</tr>
+<tr>
+<td><code>PensionJournalSummaryBillsAPIView</code></td>
+<td><code>list_bills_for_journal_report</code></td>
+<td>Bills for JV LOV</td>
+</tr>
+<tr>
+<td><code>PensionProposalSanctionReportAPIView</code></td>
+<td><code>build_proposal_sanction_report</code></td>
+<td>Pension sanction letter</td>
+</tr>
+<tr>
+<td><code>PensionSepcomStatusAPIView</code></td>
+<td><code>get_sepcom_status</code></td>
+<td>SEPCOM readiness</td>
+</tr>
+<tr>
+<td><code>PensionSepcomGenerateAPIView</code></td>
+<td><code>generate_sepcom_for_employees</code></td>
+<td>Create SEPCOM rows</td>
+</tr>
+<tr>
+<td><code>PensionSepCommReportAPIView</code></td>
+<td><code>build_sep_comm_report</code></td>
+<td>Separate commutation report</td>
+</tr>
+<tr>
+<td><code>PensionPpcBillStatusAPIView</code></td>
+<td><code>get_ppc_employee_status</code></td>
+<td>PPC pipeline state</td>
+</tr>
+<tr>
+<td><code>PensionPpcBillCandidatesAPIView</code></td>
+<td><code>list_ppc_candidates</code></td>
+<td>SEPCOM rows ready for PPC</td>
+</tr>
+<tr>
+<td><code>PensionPpcBillGenerateAPIView</code></td>
+<td><code>generate_ppc_bills</code></td>
+<td>Create PPC bills</td>
+</tr>
+<tr>
+<td><code>PensionPpcBillListAPIView</code></td>
+<td><code>list_ppc_bills</code></td>
+<td>PPC bills for month</td>
+</tr>
+<tr>
+<td><code>PensionCommutationBillReportAPIView</code></td>
+<td><code>build_commutation_bill_report</code></td>
+<td>Commutation sanction (PEN path)</td>
+</tr>
+<tr>
+<td><code>PensionVoucherStatusAPIView</code></td>
+<td><code>get_voucher_status</code></td>
+<td>JV exists for bill?</td>
+</tr>
+<tr>
+<td><code>PensionVoucherPreviewAPIView</code></td>
+<td><code>preview_ppn_voucher</code></td>
+<td>Dry-run JV lines</td>
+</tr>
+<tr>
+<td><code>PensionVoucherGenerateAPIView</code></td>
+<td><code>generate_ppn_voucher</code></td>
+<td>Post JV</td>
+</tr>
+<tr>
+<td><code>PensionManualJournalTemplateAPIView</code></td>
+<td><code>blank_manual_journal_template</code></td>
+<td>Empty manual JV form</td>
+</tr>
+<tr>
+<td><code>PensionManualJournalSummaryAPIView</code></td>
+<td><code>get_journal_summary</code></td>
+<td>JV summary lookup</td>
+</tr>
+<tr>
+<td><code>PensionManualJournalListAPIView</code></td>
+<td><code>list_journals</code></td>
+<td>List JVs for period</td>
+</tr>
+<tr>
+<td><code>PensionManualJournalSaveAPIView</code></td>
+<td><code>save_manual_journal</code></td>
+<td>Save manual JV with balance check</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="servicescommutation_rate_servicepy"><code>services/commutation_rate_service.py</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CommutationRateError</code></td>
+<td>Missing DOB, age, or rate in master</td>
+</tr>
+<tr>
+<td><code>age_next_birthday</code></td>
+<td>Oracle <code>FFUNC_AGE_NEXT_BIRTHDAY</code> — age for rate table lookup</td>
+</tr>
+<tr>
+<td><code>resolve_age_reference_date</code></td>
+<td>If application received &gt;12 months after separation → MO certification date; else application received date</td>
+</tr>
+<tr>
+<td><code>get_rate_per_rupee</code></td>
+<td>Reads <code>fi_pn_md_commrate_rupee</code> by <code>AGE_YRS</code>, latest <code>WEF_DT</code> ≤ reference date</td>
+</tr>
+<tr>
+<td><code>resolve_commutation_context</code></td>
+<td>Collects DOB, dates, computed age for an employee</td>
+</tr>
+<tr>
+<td><strong><code>compute_commutation_amounts</code></strong></td>
+<td><code>trunc(pension×comm%/100) × rate × share%/100</code>, rounded</td>
+</tr>
+<tr>
+<td><strong><code>compute_commutation_for_employee</code></strong></td>
+<td>End-to-end commutation math for one emp_cd</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="servicescommutation_defaults_servicepy"><code>services/commutation_defaults_service.py</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>load_commutation_defaults</code></td>
+<td>Prefill commutation form from Oracle <code>FiPnMhApplication</code>; sets VR flag and default <code>COM</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="servicessepcom_commutation_generation_servicepy"><code>services/sepcom_commutation_generation_service.py</code></h3>
+<p>Oracle step 2 — <code>FI_PN_COMUTATION_GENERATION.fmb</code></p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SepcomGenerationError</code></td>
+<td>SEPCOM-specific errors</td>
+</tr>
+<tr>
+<td><code>_format_sepcom_id</code></td>
+<td><code>SEP/MM/YYYY/serial</code></td>
+</tr>
+<tr>
+<td><code>_allocate_sepcom_serial</code></td>
+<td>Next serial from fin control or max+1</td>
+</tr>
+<tr>
+<td><code>_get_comm_app</code></td>
+<td>Find commutation application</td>
+</tr>
+<tr>
+<td><code>_commutation_period</code></td>
+<td>Bill month/year from commutation or application date</td>
+</tr>
+<tr>
+<td><code>_resolve_bank_cd</code></td>
+<td>Bank from commutation app or proposal</td>
+</tr>
+<tr>
+<td><strong><code>calculate_commutation_amount</code></strong></td>
+<td>Lump sum from pension summary + commutation app + age rate</td>
+</tr>
+<tr>
+<td><strong><code>get_sepcom_status</code></strong></td>
+<td>Readiness flags for UI</td>
+</tr>
+<tr>
+<td><code>_can_generate_sepcom</code></td>
+<td>Validates COM mode, no duplicate SEPCOM, amounts, bank</td>
+</tr>
+<tr>
+<td><code>_sync_mirror_commutation_amt</code></td>
+<td>Updates Oracle application mirror commutation amount</td>
+</tr>
+<tr>
+<td><code>_update_pensioner_commuted_portion</code></td>
+<td>Sets <code>commuted_portion</code> on pensioner master</td>
+</tr>
+<tr>
+<td><strong><code>generate_sepcom_for_employees</code></strong></td>
+<td>Creates <code>FiPnThSepcom</code> + <code>FiPnTdSepcom</code> (earn code 203)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="servicesppc_commutation_bill_servicepy"><code>services/ppc_commutation_bill_service.py</code></h3>
+<p>Oracle step 3 — <code>FI_PN_TH_Commutation_Bill_Gen.fmb</code></p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>_format_ppc_bill_no</code></td>
+<td><code>PPC/MM/YYYY/serial</code></td>
+</tr>
+<tr>
+<td><code>_allocate_ppc_serial</code></td>
+<td>Serial from fin control</td>
+</tr>
+<tr>
+<td><code>_ensure_month_setup</code></td>
+<td>Creates month setup row for bill type C</td>
+</tr>
+<tr>
+<td><code>_sum_sepcom_earn_dedn</code></td>
+<td>Sums SEPCOM TD lines by earn/dedn type</td>
+</tr>
+<tr>
+<td><code>_validate_ppc_candidate</code></td>
+<td>SEPCOM exists, not already billed, bank present, amounts &gt; 0</td>
+</tr>
+<tr>
+<td><code>serialize_ppc_candidate</code></td>
+<td>One row for PPC candidate grid</td>
+</tr>
+<tr>
+<td><strong><code>list_ppc_candidates</code></strong></td>
+<td>Eligible SEPCOM headers for month</td>
+</tr>
+<tr>
+<td><strong><code>get_ppc_employee_status</code></strong></td>
+<td>Per-employee PPC state for UI</td>
+</tr>
+<tr>
+<td><strong><code>generate_ppc_bills</code></strong></td>
+<td>Groups by bank; creates <code>FiPnThPensionBill</code> type C; links SEPCOM + application bill_no</td>
+</tr>
+<tr>
+<td><code>list_ppc_bills</code></td>
+<td>Lists PPC bills for month</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="servicessep_comm_report_servicepy"><code>services/sep_comm_report_service.py</code></h3>
+<p>Oracle step 4 — <code>SEP_COMM_REP1.fmb</code></p>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>_build_sepcom_page</code></td>
+<td>One report page from SEPCOM header + TD lines</td>
+</tr>
+<tr>
+<td><strong><code>build_sep_comm_report</code></strong></td>
+<td>Full report payload; enriches with sanction narrative from commutation report</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="servicescommutation_bill_report_servicepy"><code>services/commutation_bill_report_service.py</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>_build_row</code></td>
+<td>One employee sanction letter row (pension, MO cert, age narrative, lump sum)</td>
+</tr>
+<tr>
+<td><strong><code>build_commutation_bill_report</code></strong></td>
+<td>Recommendation &amp; Sanction of Commutation (used for PEN and as fallback)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="servicesfirst_month_pension_servicepy"><code>services/first_month_pension_service.py</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><code>get_first_month_status</code></strong></td>
+<td>Whether FMPEN already posted for employee</td>
+</tr>
+<tr>
+<td><strong><code>generate_first_month_pension</code></strong></td>
+<td>Allocates FMPEN_ID + PPN bill no; posts header/detail; creates/updates pensioner; <strong>skips commutation line for VR</strong></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="servicespension_bill_servicepy"><code>services/pension_bill_service.py</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>please_sum_pension</code></td>
+<td>Sums pension amounts for bill type/month</td>
+</tr>
+<tr>
+<td><strong><code>list_bill_candidates</code></strong></td>
+<td>FMPEN rows ready for PPN billing</td>
+</tr>
+<tr>
+<td><strong><code>generate_pension_bills</code></strong></td>
+<td>Oracle <code>FPROC_BILL_GENERATE</code> — group by bank, allocate PPN numbers</td>
+</tr>
+<tr>
+<td><strong><code>get_employee_bill_status</code></strong></td>
+<td>Employee position in PPN pipeline</td>
+</tr>
+<tr>
+<td><strong><code>build_lic_report</code></strong></td>
+<td>LIC treasurer report; ID card holdup line when not submitted</td>
+</tr>
+<tr>
+<td><code>list_reprocess_candidates</code> / <strong><code>reprocess_pension_bills</code></strong></td>
+<td>Regenerate when source data changed</td>
+</tr>
+<tr>
+<td><strong><code>close_pension_bill_month</code></strong></td>
+<td>Close month in <code>FiPnMhPmthsetup</code></td>
+</tr>
+<tr>
+<td><code>repair_orphan_pension_bill</code></td>
+<td>CLI repair for broken bill links</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="servicescommutation_appcn_servicepy-if-present-in-repo"><code>services/commutation_appcn_service.py</code> <em>(if present in repo)</em></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>get_next_appcn_no_with_fallback</code></td>
+<td>Next application number from Oracle or local max+1</td>
+</tr>
+<tr>
+<td><code>resolve_appcn_no_for_create</code></td>
+<td>Uses submitted or auto-allocated appcn_no</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="pension_proposal_apipy-referenced-in-urlspy"><code>pension_proposal_api.py</code> <em>(referenced in urls.py)</em></h3>
+<table>
+<thead>
+<tr>
+<th>Class / Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PensionProposalLookupAPIView</code></td>
+<td>Load proposal or Oracle defaults</td>
+</tr>
+<tr>
+<td><code>PensionProposalAPIView</code></td>
+<td>Save proposal + earn/dedn grid</td>
+</tr>
+<tr>
+<td><code>validate_pension_proposal_data</code></td>
+<td>Oracle-equivalent validation rules</td>
+</tr>
+<tr>
+<td>Bank / EarnDedn API views</td>
+<td>Master data LOVs for proposal form</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="process_intake_apipy-referenced-in-urlspy"><code>process_intake_api.py</code> <em>(referenced in urls.py)</em></h3>
+<table>
+<thead>
+<tr>
+<th>Class / Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ProcessIntakeLookupAPIView</code></td>
+<td>Separation intake status</td>
+</tr>
+<tr>
+<td><code>ProcessIntakeAPIView</code></td>
+<td>Save separation type/date on case + proposal</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="utilsamount_wordspy"><code>utils/amount_words.py</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rupees_amount_in_words</code></td>
+<td>Indian numbering — amount in words for report footers</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="section-8">8. Frontend — function reference by file</h2>
+<blockquote>
+<p><strong>Note:</strong> Full UI references additional components (<code>NoPayEntry</code>, <code>PensionProposalEntry</code>, <code>PensionReports</code>, etc.) imported by <code>EmployeeProcessTabs.jsx</code>. Only files currently under <code>src/components/</code> are listed in detail below.</p>
+</blockquote>
+<hr />
+<h3 id="employeeprocesstabsjsx"><code>EmployeeProcessTabs.jsx</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>formatAge</code></td>
+<td>Display <code>{years, months, days}</code></td>
+</tr>
+<tr>
+<td><code>INFO_FIELDS</code></td>
+<td>Basic Info grid field definitions</td>
+</tr>
+<tr>
+<td><strong><code>EmployeeProcessTabs</code></strong></td>
+<td>Renders 7 workflow tabs and child components</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Tabs rendered:</strong> Basic Info → Commutation → No-Pay → Proposal → Amount → Bill &amp; Journal → Reports</p>
+<hr />
+<h3 id="commutationapplicationentryjsx"><code>CommutationApplicationEntry.jsx</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>toInputDate</code></td>
+<td>Normalize dates for <code>&lt;input type="date"&gt;</code></td>
+</tr>
+<tr>
+<td><code>restorationFromCommutation</code></td>
+<td>Restoration date = commutation date + 15 years</td>
+</tr>
+<tr>
+<td><code>resolveBankFromMaster</code></td>
+<td>Bank code → description</td>
+</tr>
+<tr>
+<td><code>isVoluntaryRetirement</code></td>
+<td>Detect VR → default Separate Commutation</td>
+</tr>
+<tr>
+<td><code>buildNewCommutationForm</code></td>
+<td>New form defaults from employee/proposal</td>
+</tr>
+<tr>
+<td><code>mapCommutationDataToForm</code></td>
+<td>Saved record → form state</td>
+</tr>
+<tr>
+<td><strong><code>CommutationApplicationEntry</code></strong></td>
+<td>Main form: load/save commutation application</td>
+</tr>
+</tbody>
+</table>
+<p><strong>API calls:</strong></p>
+<ul>
+<li><code>GET banks/</code>, <code>GET banks/&lt;code&gt;/</code></li>
+<li><code>GET commutation/</code> (next appcn_no)</li>
+<li><code>POST commutation/</code>, <code>PUT commutation/&lt;id&gt;/</code></li>
+</ul>
+<p><strong>Key fields:</strong> <code>impl_fpen_combill</code> (PEN vs COM), <code>commutation_per</code>, dates, bank, ref_no, bill_no, MO certificate.</p>
+<hr />
+<h3 id="pensionsepcomgenerationjsx"><code>PensionSepcomGeneration.jsx</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>formatMoney</code></td>
+<td>Indian number format</td>
+</tr>
+<tr>
+<td><code>loadStatus</code></td>
+<td>GET SEPCOM status; sync bill month/year from response</td>
+</tr>
+<tr>
+<td><code>handleGenerate</code></td>
+<td>POST SEPCOM generation for employee</td>
+</tr>
+<tr>
+<td><strong><code>PensionSepcomGeneration</code></strong></td>
+<td>Step 2 separate commutation UI</td>
+</tr>
+</tbody>
+</table>
+<p><strong>API:</strong> <code>GET sepcom/status/employee/</code>, <code>POST sepcom/generate/</code></p>
+<p><strong>Prerequisites:</strong> Commutation application saved with <code>COM</code>; amount calculated; bank present.</p>
+<hr />
+<h3 id="pensionamountentryjsx"><code>PensionAmountEntry.jsx</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>formatMoney</code></td>
+<td>Display formatting</td>
+</tr>
+<tr>
+<td><code>loadFromDb</code></td>
+<td>GET amount tab state</td>
+</tr>
+<tr>
+<td><code>handleCalculate</code></td>
+<td>POST calculate → saves summary</td>
+</tr>
+<tr>
+<td><code>handleFirstPensionGenerate</code></td>
+<td>POST first-month generate (FMPEN)</td>
+</tr>
+<tr>
+<td><strong><code>PensionAmountEntry</code></strong></td>
+<td>Amount tab UI</td>
+</tr>
+</tbody>
+</table>
+<p><strong>API:</strong> <code>GET amount/employee/</code>, <code>POST amount/calculate/</code>, <code>POST amount/first-month-generate/</code></p>
+<p><strong>UI rules:</strong> Blocks calculate if no-pay missing; shows VR deferred commutation message.</p>
+<hr />
+<h3 id="pensionbilljournaltabsjsx"><code>PensionBillJournalTabs.jsx</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><code>PensionBillJournalTabs</code></strong></td>
+<td>Sub-tabs: PPN Bill, PPC Bill, Journal Voucher, Manual Journal</td>
+</tr>
+<tr>
+<td><code>useEmployeeBillContext</code></td>
+<td>Hook: shared bill no / JV period (from <code>hooks/useEmployeeBillContext.js</code>)</td>
+</tr>
+<tr>
+<td><code>refreshBillContext</code></td>
+<td>Reload on tab show</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Child components:</strong> <code>PensionBillGeneration</code>, <code>PensionPpcBillGeneration</code>, <code>PensionVoucherGeneration</code>, <code>PensionManualJournal</code></p>
+<hr />
+<h3 id="pensionppcbillgenerationjsx"><code>PensionPpcBillGeneration.jsx</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>loadData</code></td>
+<td>PPC status + month close + candidates; auto-set month/year from <code>sepcom_month/year</code></td>
+</tr>
+<tr>
+<td><code>toggleRow</code></td>
+<td>Select employees for batch PPC</td>
+</tr>
+<tr>
+<td><code>handleGenerate</code></td>
+<td>POST PPC bill generation</td>
+</tr>
+<tr>
+<td><strong><code>PensionPpcBillGeneration</code></strong></td>
+<td>Separate commutation bill UI</td>
+</tr>
+</tbody>
+</table>
+<p><strong>API:</strong> <code>GET ppc/status/</code>, <code>GET month-status/</code>, <code>GET ppc/candidates/</code>, <code>POST ppc/generate/</code></p>
+<p><strong>Important:</strong> Use SEPCOM month/year (e.g. 01/2024), not current calendar year.</p>
+<hr />
+<h3 id="pensioncommutationbillreportjsx"><code>PensionCommutationBillReport.jsx</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>loadReport</code></td>
+<td>Tries <code>sep-comm-report</code> first; falls back to <code>commutation-report</code></td>
+</tr>
+<tr>
+<td><code>handlePrint</code></td>
+<td>Browser print</td>
+</tr>
+<tr>
+<td><strong><code>PensionCommutationBillReport</code></strong></td>
+<td>Commutation Sanction report tab</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3 id="pensionlicreportprintjsx"><code>PensionLicReportPrint.jsx</code></h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Business logic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LicReportPage</code></td>
+<td>Renders one LIC report page (presentational)</td>
+</tr>
+<tr>
+<td><strong><code>PensionLicReportPrint</code></strong></td>
+<td>Print layout for LIC report</td>
+</tr>
+</tbody>
+</table>
+<p>No API calls — parent loads data and passes <code>report</code> prop.</p>
+<hr />
+<h3 id="expected-components-imported-but-may-live-outside-current-src-snapshot">Expected components (imported but may live outside current <code>src/</code> snapshot)</h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Tab</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>NoPayEntry</code></td>
+<td>No-Pay</td>
+<td>Save no-pay / dies-non days</td>
+</tr>
+<tr>
+<td><code>PensionProposalEntry</code></td>
+<td>Proposal</td>
+<td>Pension proposal form</td>
+</tr>
+<tr>
+<td><code>PensionBillGeneration</code></td>
+<td>Bill → PPN</td>
+<td>First pension bill generation</td>
+</tr>
+<tr>
+<td><code>PensionVoucherGeneration</code></td>
+<td>Bill → JV</td>
+<td>Auto journal voucher</td>
+</tr>
+<tr>
+<td><code>PensionManualJournal</code></td>
+<td>Bill → Manual JV</td>
+<td>Manual journal entry</td>
+</tr>
+<tr>
+<td><code>PensionReports</code></td>
+<td>Reports</td>
+<td>Container for all report sub-tabs</td>
+</tr>
+<tr>
+<td><code>PensionBillContextBar</code></td>
+<td>Bill / Reports</td>
+<td>Shows bill no, JV period, refresh</td>
+</tr>
+<tr>
+<td><code>PensionCommutationBillPrint</code></td>
+<td>Reports</td>
+<td>Print layout for commutation sanction</td>
+</tr>
+<tr>
+<td><code>services/Api.js</code></td>
+<td>All</td>
+<td>Axios wrapper for backend</td>
+</tr>
+<tr>
+<td><code>hooks/useEmployeeBillContext.js</code></td>
+<td>Bill</td>
+<td>Bill status hook</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="section-9">9. Complete API endpoint index</h2>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>employees/&lt;emp_id&gt;/</code></td>
+<td>Employee hub + workflow flags</td>
+</tr>
+<tr>
+<td>GET/POST</td>
+<td><code>process-intake/...</code></td>
+<td>Separation intake</td>
+</tr>
+<tr>
+<td>GET/POST/PUT</td>
+<td><code>no-pay/...</code></td>
+<td>No-pay entry</td>
+</tr>
+<tr>
+<td>GET/POST/PUT</td>
+<td><code>pension-proposal/...</code></td>
+<td>Proposal</td>
+</tr>
+<tr>
+<td>GET/POST/PUT</td>
+<td><code>commutation/...</code></td>
+<td>Commutation application</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>amount/employee/&lt;code&gt;/</code></td>
+<td>Amount tab load</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>amount/calculate/</code></td>
+<td>Run calculation</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>amount/first-month-generate/</code></td>
+<td>Post FMPEN</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>pension-bill/status/employee/&lt;code&gt;/</code></td>
+<td>PPN bill status</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>pension-bill/candidates/</code></td>
+<td>PPN candidates</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>pension-bill/generate/</code></td>
+<td>Generate PPN</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>pension-bill/sepcom/status/employee/&lt;code&gt;/</code></td>
+<td>SEPCOM status</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>pension-bill/sepcom/generate/</code></td>
+<td>Generate SEPCOM</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>pension-bill/ppc/status/employee/&lt;code&gt;/</code></td>
+<td>PPC status</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>pension-bill/ppc/candidates/</code></td>
+<td>PPC candidates</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>pension-bill/ppc/generate/</code></td>
+<td>Generate PPC</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>pension-bill/lic-report/</code></td>
+<td>LIC report</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>pension-bill/commutation-report/</code></td>
+<td>Commutation sanction</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>pension-bill/sep-comm-report/</code></td>
+<td>Separate commutation report</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>pension-bill/proposal-sanction-report/</code></td>
+<td>Pension sanction</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>pension-bill/bill-abstract-report/</code></td>
+<td>Bill abstract</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>pension-bill/journal-summary-report/</code></td>
+<td>JV summary</td>
+</tr>
+<tr>
+<td>GET/POST</td>
+<td><code>pension-bill/voucher/...</code></td>
+<td>Auto JV</td>
+</tr>
+<tr>
+<td>GET/POST</td>
+<td><code>pension-bill/manual-journal/...</code></td>
+<td>Manual JV</td>
+</tr>
+</tbody>
+</table>
+<p>Full route list: <code>first_pension/urls.py</code>.</p>
+<hr />
+<h2 id="section-10">10. How to run and test locally</h2>
+<h3 id="backend">Backend</h3>
+<pre><code class="language-bash">cd SMPK/backend/config
+../venv/Scripts/python.exe manage.py runserver
+</code></pre>
+<h3 id="frontend">Frontend</h3>
+<pre><code class="language-bash">cd SMPK/frontend/frontend
+npm install
+npm run dev
+</code></pre>
+<h3 id="suggested-test-employees">Suggested test employees</h3>
+<table>
+<thead>
+<tr>
+<th>emp_cd</th>
+<th>Type</th>
+<th>Use for</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>42230</td>
+<td>Normal RT</td>
+<td>Full PEN flow; amounts should match Oracle</td>
+</tr>
+<tr>
+<td>43186</td>
+<td>VR</td>
+<td>Separate COM flow; SEPCOM → PPC → report</td>
+</tr>
+</tbody>
+</table>
+<h3 id="debug-tips">Debug tips</h3>
+<ol>
+<li>Always check <code>GET first-pension/employees/&lt;id&gt;/</code> for workflow flags first.</li>
+<li>Amount issues → trace <code>run_pension_calculation_for_case</code> → <code>calculate_pension_financials</code>.</li>
+<li>SEPCOM amount → trace <code>calculate_commutation_amount</code> → <code>commutation_rate_service</code>.</li>
+<li>Report failures → check Django console for <code>FieldError</code> or missing prerequisites.</li>
+<li>Oracle mirror tables (<code>fi_pn_*</code>) are read/write — compare with SMPK local tables.</li>
+</ol>
+<hr />
+<h2 id="section-11">11. Known gaps and pending work</h2>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>VR SEPCOM pension source</td>
+<td>SEPCOM uses <code>PensionSummary.pension_amount</code>; Oracle uses disbursed pension from pensioner/application — can mismatch (see emp 43186)</td>
+</tr>
+<tr>
+<td>Oracle sync on save</td>
+<td><code>_sync_*_to_oracle</code> functions may be disabled — local save works; mirror may lag</td>
+</tr>
+<tr>
+<td>Frontend completeness</td>
+<td>Some tab components referenced but not in minimal <code>src/</code> snapshot — verify full deployment tree</td>
+</tr>
+<tr>
+<td>SEPCOM delete/regenerate</td>
+<td>Oracle <code>FPROC_DELETE</code> not yet ported</td>
+</tr>
+<tr>
+<td>Nominee split</td>
+<td>Multiple SEPCOM rows per employee not implemented</td>
+</tr>
+<tr>
+<td>PPC JV</td>
+<td>Journal voucher for PPC bills (parallel to PPN PNJV)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="quick-reference-who-calls-whom">Quick reference — who calls whom</h2>
+<pre><code>Amount Calculate
+  → run_pension_calculation_for_case
+    → calculate_pension_financials
+      → commutation_rate_service.compute_commutation_amounts
+
+First-month Generate
+  → generate_first_month_pension
+    → FiPnThFirstMonthPension, FiPnMhPensioner
+
+PPN Bill Generate
+  → generate_pension_bills
+    → FiPnThPensionBill (type N)
+
+SEPCOM Generate
+  → generate_sepcom_for_employees
+    → calculate_commutation_amount
+    → FiPnThSepcom, FiPnTdSepcom
+
+PPC Bill Generate
+  → generate_ppc_bills
+    → FiPnThPensionBill (type C)
+
+Commutation Report
+  → build_sep_comm_report (COM) OR build_commutation_bill_report (PEN)
+</code></pre>
+<hr />
+<p><em>Document maintained for SMPK First Pension handover. For questions about Oracle business rules, refer to <code>.fmb</code> files in repo root (e.g. <code>FI_PN_COMUTATION_GENERATION.fmb</code>).</em></p>
+</div>
+
+</body>
+</html>

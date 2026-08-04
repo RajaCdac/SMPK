@@ -16,7 +16,10 @@ const Header = () => {
 
       <div className="center">
         <h1>SYAMA PRASAD MOOKERJEE PORT, KOLKATA</h1>
-        <h4>A Statutory Body under the Ministry of Ports, Shipping and Waterways, Government of India</h4>
+        <p className="header-tagline">
+          A Statutory Body under the Ministry of Ports, Shipping and Waterways,
+        </p>
+        <p className="header-goi">Government of India</p>
       </div>
 
       <div className="right">

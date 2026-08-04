@@ -1,0 +1,85 @@
+.commutation-form-title {
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 1rem;
+  letter-spacing: 0.02em;
+}
+
+.commutation-club {
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
+  background: #fafbfc;
+}
+
+.commutation-club legend,
+.commutation-club .commutation-club-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 0.5rem;
+}
+
+.commutation-app-time {
+  margin-top: 0.85rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.commutation-app-time legend {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #64748b;
+  float: none;
+  width: auto;
+  padding: 0 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.commutation-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.88rem;
+  color: #334155;
+  cursor: pointer;
+}
+
+.commutation-radio input {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+
+.commutation-radio:last-child {
+  margin-bottom: 0;
+}
+
+.commutation-form .form-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 0.25rem;
+}
+
+.commutation-bank-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.commutation-bank-row .bank-cd-field {
+  flex: 0 0 7rem;
+  max-width: 7rem;
+}
+
+.commutation-bank-row .bank-desc-field {
+  flex: 1 1 12rem;
+  min-width: 10rem;
+}

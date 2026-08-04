@@ -1,0 +1,135 @@
+.smpk-datatable-wrap {
+  width: 100%;
+}
+
+.smpk-datatable-wrap .dt-container {
+  width: 100%;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.smpk-datatable-wrap .dataTables_filter input,
+.smpk-datatable-wrap .dataTables_length select,
+.smpk-datatable-wrap .dt-length select,
+.smpk-datatable-wrap .dt-search input {
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-left: 6px;
+}
+
+/* Bootstrap 5 DataTables sets --bs-table-bg on cells; override for visible headers */
+.smpk-datatable-wrap table.table.dataTable thead th,
+.smpk-datatable-wrap div.dt-scroll-head table.dataTable thead th {
+  background: linear-gradient(135deg, #1976d2, #0d47a1) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+  vertical-align: middle;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 14px 16px;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.smpk-datatable-wrap table.table.dataTable thead th .dt-column-title,
+.smpk-datatable-wrap table.table.dataTable thead th .dt-column-order {
+  color: #fff;
+}
+
+/* Consistent header layout: label left, sort icons right (numeric cols default to reversed flex) */
+.smpk-datatable-wrap table.table.dataTable thead th div.dt-column-header {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.smpk-datatable-wrap table.table.dataTable thead th.dt-type-numeric,
+.smpk-datatable-wrap table.table.dataTable thead th.dt-type-date {
+  text-align: left !important;
+}
+
+.smpk-datatable-wrap table.table.dataTable thead th .dt-column-title {
+  flex: 1 1 auto;
+  text-align: left;
+}
+
+.smpk-datatable-wrap table.table.dataTable thead th .dt-column-order {
+  position: relative !important;
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin-left: 0.25rem;
+  opacity: 0.9;
+}
+
+.smpk-datatable-wrap table.table.dataTable thead th .dt-column-order::before,
+.smpk-datatable-wrap table.table.dataTable thead th .dt-column-order::after {
+  position: absolute;
+  left: 0;
+  right: 0;
+  line-height: 1;
+  font-size: 0.65rem;
+}
+
+.smpk-datatable-wrap table.table.dataTable thead th .dt-column-order::before {
+  bottom: 50%;
+}
+
+.smpk-datatable-wrap table.table.dataTable thead th .dt-column-order::after {
+  top: 50%;
+}
+
+/* Non-sortable columns (e.g. Action) */
+.smpk-datatable-wrap
+  table.table.dataTable
+  thead
+  th.dt-orderable-none
+  .dt-column-order:empty {
+  display: none;
+}
+
+.smpk-datatable-wrap table.table.dataTable tbody td {
+  vertical-align: middle;
+  font-size: 0.875rem;
+  padding: 14px 16px;
+  color: #1e293b;
+  background-color: #fff !important;
+  box-shadow: none !important;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.smpk-datatable-wrap table.table.dataTable.table-striped > tbody > tr:nth-of-type(odd) > * {
+  background-color: #f8fafc !important;
+  box-shadow: none !important;
+}
+
+.smpk-datatable-wrap table.table.dataTable.table-hover > tbody > tr:hover > * {
+  background-color: #eff6ff !important;
+  box-shadow: none !important;
+}
+
+.smpk-datatable-wrap .dt-info,
+.smpk-datatable-wrap .dt-paging,
+.smpk-datatable-wrap .dataTables_info,
+.smpk-datatable-wrap .dataTables_paginate {
+  margin-top: 0.75rem;
+  font-size: 0.875rem;
+}
+
+.smpk-datatable-wrap .dt-paging .pagination {
+  gap: 0.25rem;
+}
+
+.smpk-datatable-wrap .dt-paging .page-link {
+  border-radius: 6px;
+  min-width: 2.25rem;
+  text-align: center;
+}
+
+.smpk-datatable-loading {
+  padding: 1.25rem;
+  text-align: center;
+}

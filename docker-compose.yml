@@ -1,0 +1,78 @@
+# SMPK Pension — Docker Compose (MySQL-only; no Oracle connection)
+#
+# Usage:
+#   cp .env.example .env   (optional — sensible defaults below)
+#   docker compose up -d --build
+#   Full DB: put dump in docker/mysql/init/01-smpk_pension.sql then docker compose down -v && up
+#   Or: .\scripts\restore-mysql-docker.ps1 -SqlFile D:\backups\smpk_pension_full.sql
+#
+# Oracle is NOT used: the backend reads all data from MySQL (mirrors/cache).
+# To enable live Oracle reads, see .env.example (INSTALL_ORACLE_CLIENT / ORACLE_READ_ENABLED).
+#
+# App: http://localhost
+# API:  http://localhost/api/
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: smpk-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-smpk_change_me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-smpk_pension}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - smpk_mysql_data:/var/lib/mysql
+      # Full DB on first start: place 01-smpk_pension.sql in docker/mysql/init/ (see docker/mysql/init/README.md)
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "${MYSQL_PUBLISH_PORT:-3306}:3306"
+    healthcheck:
+      # CMD-SHELL so $MYSQL_ROOT_PASSWORD expands; large 01-smpk_pension.sql import can take many minutes
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 900s
+
+  backend:
+    build:
+      context: ./backend/config
+      dockerfile: Dockerfile
+      # MySQL-only image. To enable live Oracle reads, set this to "true"
+      # and ORACLE_READ_ENABLED=true + ORACLE_CLIENT_LIB=/opt/oracle/instantclient.
+      args:
+        INSTALL_ORACLE_CLIENT: ${INSTALL_ORACLE_CLIENT:-false}
+    container_name: smpk-backend
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-smpk_change_me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-smpk_pension}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      # MySQL-only: never connect to Oracle, use MySQL mirrors/cache.
+      ORACLE_READ_ENABLED: ${ORACLE_READ_ENABLED:-False}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PUBLISH_PORT:-8000}:8000"
+
+  frontend:
+    build:
+      context: ./frontend/frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/}
+    container_name: smpk-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PUBLISH_PORT:-80}:80"
+
+volumes:
+  smpk_mysql_data:

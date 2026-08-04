@@ -1,0 +1,103 @@
+import { useState } from "react";
+import API from "../../services/Api";
+import { defaultDashboardPath } from "../../utils/authRoles";
+import "../../styles/Login.css";
+
+function generateCaptcha() {
+  return Math.random().toString(36).substring(2, 7).toUpperCase();
+}
+
+export default function LoginPanel({ onBack }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [captchaInput, setCaptchaInput] = useState("");
+  const [captcha, setCaptcha] = useState(generateCaptcha);
+
+  const refreshCaptcha = () => {
+    setCaptcha(generateCaptcha());
+    setCaptchaInput("");
+  };
+
+  const handleLogin = async () => {
+    if (captchaInput.toUpperCase() !== captcha) {
+      alert("Invalid Captcha");
+      refreshCaptcha();
+      return;
+    }
+
+    try {
+      const res = await API.post("login/", { username, password });
+      localStorage.setItem("access", res.data.access);
+      localStorage.setItem("refresh", res.data.refresh);
+      localStorage.setItem("user", JSON.stringify(res.data.user));
+      window.location.href = defaultDashboardPath(res.data.user);
+    } catch {
+      alert("Invalid credentials");
+    }
+  };
+
+  return (
+    <form
+      className="login-card login-card--carousel smpk-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        handleLogin();
+      }}
+    >
+      <h2>Pension Portal</h2>
+      <p className="login-subtitle">Employee Pension Management System</p>
+
+      <input
+        type="text"
+        placeholder="Enter Username"
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+        autoComplete="username"
+        required
+      />
+
+      <input
+        type="password"
+        placeholder="Enter Password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        autoComplete="current-password"
+        required
+      />
+
+      <div className="captcha-box">
+        <span className="captcha-text" aria-label="Captcha code">
+          {captcha}
+        </span>
+        <button
+          type="button"
+          className="captcha-refresh"
+          onClick={refreshCaptcha}
+          aria-label="Refresh captcha"
+        >
+          ↻
+        </button>
+      </div>
+
+      <input
+        type="text"
+        placeholder="Enter Captcha"
+        value={captchaInput}
+        onChange={(e) => setCaptchaInput(e.target.value)}
+        autoComplete="off"
+        required
+      />
+
+      <button type="submit" className="login-btn">
+        Login
+      </button>
+
+      <div className="login-footer">
+        Secure Pension Dashboard Access
+        <button type="button" className="login-back-home" onClick={onBack}>
+          ← Back
+        </button>
+      </div>
+    </form>
+  );
+}

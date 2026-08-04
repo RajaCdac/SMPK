@@ -14,6 +14,13 @@ def get_special_da(pay):
     )
 
 
+def get_special_da_options():
+    """Distinct S.D.A values from the SpecialDA worksheet, ascending."""
+    df = load_special_da_table()
+    values = sorted({float(v) for v in df['S.D.A'].dropna().tolist()})
+    return values
+
+
 def get_special_da_1980(pay):
     df = load_special_allowance_table()
     result = df[

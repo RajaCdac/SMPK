@@ -2,10 +2,32 @@ import { useState, useEffect } from "react";
 import API from "../services/Api";
 import "../styles/PensionProposal.css";
 import {
+  applyVrStartPeriod,
   buildEmptyProposalForm,
   defaultEarningRows,
   emptyEarningRow,
+  formatServiceTenureYearsOnly,
 } from "./pensionProposalDefaults";
+import {
+  lookupBankByCode,
+  resolveBankFromMaster,
+} from "../utils/bankAutocomplete";
+import {
+  HELD_UP_FLAG_OPTIONS,
+  heldFlagIsActive,
+  heldFlagRequiresAmount,
+  normalizeHeldUpFlag,
+} from "../constants/heldUpFlagOptions";
+import {
+  WITHHOLD_REASON_OPTIONS,
+  normalizeWithholdReason,
+  withholdReasonIsActive,
+} from "../constants/withholdReasonOptions";
+import {
+  sanitizePensionProposalForm,
+  validatePensionProposalForm,
+} from "../utils/pensionProposalValidation";
+import EarnDednCodeHintModal from "./EarnDednCodeHintModal";
 
 function toInputDate(v) {
   if (!v) return "";
@@ -15,8 +37,23 @@ function toInputDate(v) {
   return v;
 }
 
+function toCheckboxBool(v) {
+  if (v === true || v === 1 || v === "1" || v === "Y" || v === "y") return true;
+  if (v === false || v === 0 || v === "0" || v === "N" || v === "n") return false;
+  if (v == null || v === "") return false;
+  if (typeof v === "string") {
+    return ["true", "yes", "on", "y"].includes(v.trim().toLowerCase());
+  }
+  return Boolean(v);
+}
+
+function fieldStr(v) {
+  if (v === null || v === undefined) return "";
+  return String(v);
+}
+
 function normalizeProposalData(data, employee) {
-  return {
+  const merged = {
     ...buildEmptyProposalForm(employee),
     ...data,
     emp_cd: data.emp_cd || employee.emp_id,
@@ -28,11 +65,56 @@ function normalizeProposalData(data, employee) {
     ),
     vigilance_clearance_ref_dt: toInputDate(data.vigilance_clearance_ref_dt),
     vr_ref_dt: toInputDate(data.vr_ref_dt),
+    held_recovery_date: toInputDate(data.held_recovery_date),
+    held_up_flag: normalizeHeldUpFlag(data.held_up_flag),
+    quarter_status: normalizeWithholdReason(data.quarter_status),
+    id_card_submitted: toCheckboxBool(data.id_card_submitted),
+    vigilance_cleared: toCheckboxBool(data.vigilance_cleared),
+    extra_tccs_enabled: toCheckboxBool(data.extra_tccs_enabled),
+    eligible_double_family_pension: toCheckboxBool(
+      data.eligible_double_family_pension
+    ),
+    service_tenure: formatServiceTenureYearsOnly(
+      employee?.amount_data?.total_service ||
+        employee?.proposal_defaults?.service_tenure ||
+        data.service_tenure ||
+        ""
+    ),
     earning_deductions:
       data.earning_deductions?.length > 0
         ? data.earning_deductions
         : defaultEarningRows(),
   };
+
+  return applyVrStartPeriod(
+    {
+      ...merged,
+      ca_number: fieldStr(merged.ca_number),
+      pension_proposal_no: fieldStr(merged.pension_proposal_no),
+      regn_no: fieldStr(merged.regn_no),
+      pension_roll_no: fieldStr(merged.pension_roll_no),
+      provisional_pension_pct: fieldStr(merged.provisional_pension_pct),
+      bank_cd: fieldStr(merged.bank_cd),
+      bank_name: fieldStr(merged.bank_name),
+      account_no: fieldStr(merged.account_no),
+      vigilance_clearance_ref_no: fieldStr(merged.vigilance_clearance_ref_no),
+      lic_bank_cd: fieldStr(merged.lic_bank_cd),
+      lic_bank_name: fieldStr(merged.lic_bank_name),
+      vr_ref_no: fieldStr(merged.vr_ref_no),
+      compassionate_allowance: fieldStr(merged.compassionate_allowance),
+      compassionate_allowance_amt: fieldStr(merged.compassionate_allowance_amt),
+      retirement_cpi: fieldStr(merged.retirement_cpi),
+      held_gratuity_amt: fieldStr(merged.held_gratuity_amt),
+      held_recovery_amt: fieldStr(merged.held_recovery_amt),
+      held_recovery_ref_no: fieldStr(merged.held_recovery_ref_no),
+      held_recovery_remarks: fieldStr(merged.held_recovery_remarks),
+      implemented_year: fieldStr(merged.implemented_year),
+      implemented_month: fieldStr(merged.implemented_month),
+      start_month: merged.start_month ?? "",
+      start_year: fieldStr(merged.start_year),
+    },
+    employee
+  );
 }
 
 export default function PensionProposalEntry({ employee }) {
@@ -40,6 +122,62 @@ export default function PensionProposalEntry({ employee }) {
   const [recordExists, setRecordExists] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [bankMaster, setBankMaster] = useState([]);
+  const [earnDednHintRow, setEarnDednHintRow] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadBanks = async () => {
+      try {
+        const res = await API.get("first-pension/banks/?limit=2000");
+        if (!cancelled) {
+          setBankMaster(res.data?.banks || []);
+        }
+      } catch (error) {
+        console.error("Bank master load failed:", error);
+      }
+    };
+    loadBanks();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!form.bank_cd || form.bank_name || bankMaster.length === 0) return;
+
+    let cancelled = false;
+    lookupBankByCode(API, bankMaster, form.bank_cd).then(
+      ({ bank_cd, bank_name }) => {
+        if (cancelled || !bank_name) return;
+        setForm((prev) =>
+          prev.bank_name ? prev : { ...prev, bank_cd, bank_name }
+        );
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [form.bank_cd, form.bank_name, bankMaster]);
+
+  useEffect(() => {
+    if (!form.lic_bank_cd || form.lic_bank_name || bankMaster.length === 0) return;
+
+    let cancelled = false;
+    lookupBankByCode(API, bankMaster, form.lic_bank_cd).then(
+      ({ bank_cd, bank_name }) => {
+        if (cancelled || !bank_name) return;
+        setForm((prev) =>
+          prev.lic_bank_name
+            ? prev
+            : { ...prev, lic_bank_cd: bank_cd, lic_bank_name: bank_name }
+        );
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [form.lic_bank_cd, form.lic_bank_name, bankMaster]);
 
   useEffect(() => {
     if (!employee) return;
@@ -60,8 +198,21 @@ export default function PensionProposalEntry({ employee }) {
           );
           exists = res.data.exists;
           data = res.data.proposal_data;
-          proposalDefaults =
-            res.data.proposal_defaults || proposalDefaults;
+          const apiDefaults = res.data.proposal_defaults || null;
+          // Prefer full Oracle MH/MD legacy prefill over thin bank/date defaults.
+          if (apiDefaults?.legacy && apiDefaults?.pension_type) {
+            proposalDefaults = apiDefaults;
+          } else if (proposalDefaults?.legacy && proposalDefaults?.pension_type) {
+            proposalDefaults = {
+              ...apiDefaults,
+              ...proposalDefaults,
+            };
+          } else {
+            proposalDefaults = {
+              ...(proposalDefaults || {}),
+              ...(apiDefaults || {}),
+            };
+          }
         } catch (err) {
           console.error(err);
         }
@@ -76,6 +227,10 @@ export default function PensionProposalEntry({ employee }) {
         setForm(normalizeProposalData(data, empWithDefaults));
         setRecordExists(true);
         setIsEditing(false);
+      } else if (proposalDefaults?.legacy && proposalDefaults?.ca_number) {
+        setForm(normalizeProposalData(proposalDefaults, empWithDefaults));
+        setRecordExists(false);
+        setIsEditing(true);
       } else {
         setForm(buildEmptyProposalForm(empWithDefaults));
         setRecordExists(false);
@@ -85,23 +240,108 @@ export default function PensionProposalEntry({ employee }) {
     };
 
     load();
-  }, [employee]);
+  }, [employee?.emp_id]);
 
-  const disabled = recordExists && !isEditing;
-  const dbFieldLocked = true;
+  const fieldDisabled = recordExists && !isEditing;
+  const pensionType = String(form.pension_type || "").toUpperCase();
+  const legacyPrefill =
+    !recordExists && Boolean(employee?.proposal_defaults?.legacy);
+  const heldAmtEnabled = heldFlagRequiresAmount(form.held_up_flag);
+  const hasWithholdSetup =
+    heldFlagIsActive(form.held_up_flag) ||
+    withholdReasonIsActive(form.quarter_status);
+  const hasRecoveryData = [
+    form.held_recovery_amt,
+    form.held_recovery_date,
+    form.held_recovery_ref_no,
+    form.held_recovery_remarks,
+  ].some((v) => String(v ?? "").trim() !== "");
+  // Recovery is record-keeping for a later refund — only after the proposal exists,
+  // and only in edit mode (or readonly view when recovery was already saved).
+  const showHeldRecovery =
+    recordExists && (hasRecoveryData || (isEditing && hasWithholdSetup));
 
   const onChange = (e) => {
     const { name, value, type, checked } = e.target;
+    setForm((prev) => {
+      const next = {
+        ...prev,
+        [name]: type === "checkbox" ? checked : value,
+      };
+      if (name === "pension_type") {
+        const pt = String(value || "").toUpperCase();
+        if (recordExists && pt !== "C") {
+          next.compassionate_allowance = "";
+          next.compassionate_allowance_amt = "";
+        }
+        if (pt !== "P") {
+          next.provisional_pension_pct = "";
+        }
+      }
+      if (name === "held_up_flag") {
+        const flag = normalizeHeldUpFlag(value);
+        next.held_up_flag = flag;
+        if (!heldFlagRequiresAmount(flag)) {
+          next.held_gratuity_amt = "";
+        }
+      }
+      if (name === "quarter_status") {
+        next.quarter_status = normalizeWithholdReason(value);
+      }
+      return next;
+    });
+  };
+
+  const handleBankCdChange = (e) => {
+    const { bank_cd, bank_name } = resolveBankFromMaster(
+      bankMaster,
+      e.target.value
+    );
+    setForm((prev) => ({ ...prev, bank_cd, bank_name }));
+  };
+
+  const handleBankCdBlur = async () => {
+    const { bank_cd, bank_name } = await lookupBankByCode(
+      API,
+      bankMaster,
+      form.bank_cd
+    );
+    setForm((prev) => ({ ...prev, bank_cd, bank_name }));
+  };
+
+  const handleLicBankCdChange = (e) => {
+    const { bank_cd, bank_name } = resolveBankFromMaster(
+      bankMaster,
+      e.target.value
+    );
     setForm((prev) => ({
       ...prev,
-      [name]: type === "checkbox" ? checked : value,
+      lic_bank_cd: bank_cd,
+      ...(bank_name ? { lic_bank_name: bank_name } : {}),
+    }));
+  };
+
+  const handleLicBankCdBlur = async () => {
+    const { bank_cd, bank_name } = await lookupBankByCode(
+      API,
+      bankMaster,
+      form.lic_bank_cd
+    );
+    setForm((prev) => ({
+      ...prev,
+      lic_bank_cd: bank_cd,
+      lic_bank_name: bank_name || prev.lic_bank_name,
     }));
   };
 
   const onEarningChange = (index, field, value) => {
     setForm((prev) => {
       const rows = [...prev.earning_deductions];
-      rows[index] = { ...rows[index], [field]: value };
+      const row = { ...rows[index], [field]: value };
+      if (field === "type" && !String(value).toUpperCase().startsWith("D")) {
+        row.deduction_priority = "";
+      }
+      rows[index] = row;
       return { ...prev, earning_deductions: rows };
     });
   };
@@ -144,24 +384,97 @@ export default function PensionProposalEntry({ employee }) {
     }));
   };
 
+  const removeEarningRow = (index) => {
+    setForm((prev) => {
+      if (prev.earning_deductions.length <= 1) {
+        return prev;
+      }
+      return {
+        ...prev,
+        earning_deductions: prev.earning_deductions.filter((_, i) => i !== index),
+      };
+    });
+    setEarnDednHintRow((current) => {
+      if (current === null) return null;
+      if (current === index) return null;
+      if (current > index) return current - 1;
+      return current;
+    });
+  };
+
   const handlePopulateDetails = () => {
     alert("Populate Details will load earning/deduction from finance records.");
+  };
+
+  const openEarnDednHint = (index) => {
+    const row = form.earning_deductions[index];
+    if (!String(row?.type || "").toUpperCase().startsWith("D")) return;
+    setEarnDednHintRow(index);
+  };
+
+  const handleEarnDednHintSelect = (item) => {
+    if (earnDednHintRow === null) return;
+    const idx = earnDednHintRow;
+    setForm((prev) => {
+      const rows = [...prev.earning_deductions];
+      rows[idx] = {
+        ...rows[idx],
+        code: item.code || "",
+        desc: item.desc || "",
+        type: "D",
+      };
+      return { ...prev, earning_deductions: rows };
+    });
+    setEarnDednHintRow(null);
+  };
+
+  const handleCodeKeyDown = (e, index) => {
+    if (e.key !== "F9") return;
+    const row = form.earning_deductions[index];
+    if (!String(row?.type || "").toUpperCase().startsWith("D")) return;
+    e.preventDefault();
+    openEarnDednHint(index);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     const isUpdate = Boolean(form.id);
 
-    try {
-      const response = isUpdate
-        ? await API.put(`first-pension/pension-proposal/${form.id}/`, form)
-        : await API.post("first-pension/pension-proposal/", form);
+    const sanitized = sanitizePensionProposalForm(form);
+    const validationErrors = validatePensionProposalForm(sanitized, {
+      recordExists: Boolean(form.id) || recordExists,
+    });
+    if (validationErrors.length > 0) {
+      alert(validationErrors.join("\n"));
+      return;
+    }
 
-      alert(
+    try {
+      const payload = {
+        ...sanitized,
+        implemented_year:
+          String(sanitized.implemented_year || "").trim() === ""
+            ? null
+            : Number(sanitized.implemented_year),
+        implemented_month:
+          String(sanitized.implemented_month || "").trim() === ""
+            ? null
+            : Number(sanitized.implemented_month),
+      };
+
+      const response = isUpdate
+        ? await API.put(`first-pension/pension-proposal/${form.id}/`, payload)
+        : await API.post("first-pension/pension-proposal/", payload);
+
+      let alertMessage = response.data.message || (
         isUpdate
           ? "Pension Proposal Updated Successfully"
           : "Pension Proposal Saved Successfully"
       );
+      if (response.data.oracle_warning) {
+        alertMessage += `\n\n${response.data.oracle_warning}`;
+      }
+      alert(alertMessage);
 
       if (response.data.proposal_data) {
         setForm(normalizeProposalData(response.data.proposal_data, employee));
@@ -170,7 +483,12 @@ export default function PensionProposalEntry({ employee }) {
       setIsEditing(false);
     } catch (error) {
       console.error(error);
-      alert(error.response?.data?.error || "Save Failed");
+      const apiErrors = error.response?.data?.errors;
+      if (Array.isArray(apiErrors) && apiErrors.length > 0) {
+        alert(apiErrors.join("\n"));
+      } else {
+        alert(error.response?.data?.error || "Save Failed");
+      }
     }
   };
 
@@ -180,186 +498,149 @@ export default function PensionProposalEntry({ employee }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="pension-proposal-form">
+    <form onSubmit={handleSubmit} className="pension-proposal-form smpk-form">
       <div className="pp-title-bar">PENSION / FAMILY PENSION PROPOSAL</div>
+      {legacyPrefill && (
+        <div className="alert alert-info py-2 mb-2 mx-2 mt-2">
+          Prefill from Oracle FI_PN_MH_PENSION_PROPOSAL / FI_PN_MD_PENSION_PROPOSAL
+          ({employee?.proposal_defaults?.source || "legacy"}). Review and Save to
+          store in SMPK.
+        </div>
+      )}
 
       <div className="pp-form-scroll">
         <div className="row g-2 mb-2">
-          <div className="col-md-6">
+          <div className="col-12 col-lg-6">
             <div className="row g-2 align-items-end">
-              <div className="col-3">
+              {/* <div className="col-12 col-sm-4 col-md-3">
                 <label className="pp-label">Employee</label>
-                <input
-                  className="form-control form-control-sm"
-                  name="emp_cd"
-                  value={form.emp_cd}
-                  readOnly
-                />
+                <input className="form-control" name="emp_cd" value={form.emp_cd} readOnly />
               </div>
-              <div className="col-9">
-                <input
-                  className="form-control form-control-sm pp-readonly"
-                  name="emp_name"
-                  value={form.emp_name}
-                  readOnly
-                />
-              </div>
-              <div className="col-md-6">
+              <div className="col-12 col-sm-8 col-md-9">
+                <label className="pp-label d-sm-none">Name</label>
+                <input className="form-control pp-readonly" name="emp_name" value={form.emp_name} readOnly />
+              </div> */}
+              <div className="col-12 col-lg-6">
                 <label className="pp-label">Employee Status</label>
-                <select
-                  className="form-select form-select-sm"
-                  name="employee_status"
-                  value={form.employee_status}
-                  onChange={onChange}
-                  disabled={disabled}
-                >
-                  <option value="EMPLOYEE">Pensioner</option>
-                  <option value="RETIRED">Family Pensioner</option>
-                  
+                <select className="form-select" name="employee_status" value={form.employee_status} onChange={onChange} disabled={fieldDisabled} >
+                  <option value="P">Pensioner</option>
+                  <option value="F">Family Pensioner</option>
                 </select>
               </div>
-              <div className="col-md-6">
-                <label className="pp-label">CA No.</label>
-                <input
-                  className="form-control form-control-sm"
-                  name="ca_number"
-                  value={form.ca_number}
-                  onChange={onChange}
-                  disabled={disabled}
-                />
+              <div className="col-12 col-lg-6">
+                <label className="pp-label">CA No. *</label>
+                <input className="form-control" name="ca_number" value={form.ca_number} onChange={onChange} disabled={fieldDisabled} required maxLength={22} autoComplete="off" />
               </div>
-              <div className="col-md-6">
+              <div className="col-md-4">
                 <label className="pp-label">Pension Type</label>
-                <select
-                  className="form-select form-select-sm"
-                  name="pension_type"
-                  value={form.pension_type}
-                  onChange={onChange}
-                  disabled={disabled}
-                >
+                <select className="form-select" name="pension_type" value={form.pension_type} onChange={onChange} disabled={fieldDisabled} >
                   <option value="">Select</option>
-                  <option value="PN">Normal Pension</option>
-                  <option value="FP">Family Pension</option>
-                  <option value="PP">Provisional Pension</option>
-                  <option value="SG">Service Gratuity</option>
-                  <option value="CA">Compassionate Allowance</option>
-                  <option value="RG">Resignation</option>
+                  <option value="N">Normal Pension</option>
+                  <option value="F">Family Pension</option>
+                  <option value="P">Provisional Pension</option>
+                  <option value="S">Service Gratuity</option>
+                  <option value="C">Compassionate Allowance</option>
+                  <option value="R">Resignation</option>
                 </select>
               </div>
-              <div className="col-md-6">
+              <div className="col-md-4">
                 <label className="pp-label">Pension Proposal No</label>
+                <input className="form-control" name="pension_proposal_no" value={form.pension_proposal_no} onChange={onChange} disabled={fieldDisabled} />
+              </div>
+              <div className="col-md-4">
+                <label className="pp-label">Pension Proposal Date</label>
                 <input
-                  className="form-control form-control-sm"
-                  name="pension_proposal_no"
-                  value={form.pension_proposal_no}
+                  type="date"
+                  className="form-control"
+                  name="pension_proposal_date"
+                  value={form.pension_proposal_date || ""}
                   onChange={onChange}
-                  disabled={disabled}
+                  disabled={fieldDisabled}
                 />
               </div>
-              <div className="col-12">
-                <div className="form-check">
+              
+            </div>
+          </div>
+
+          <div className="col-12 col-lg-6">
+            <div className="pp-section h-100">
+              <div className="row g-2">
+                <div className="col-md-4">
+                  <label className="pp-label">Separation type</label>
+                  <select className="form-select" name="separation_type" value={form.separation_type} onChange={onChange} disabled={fieldDisabled} >
+                    <option value="">Select</option>
+                    <option value="RT">Superannuation</option>
+                    <option value="DT">Death</option>
+                    <option value="VR">Voluntary Retirement</option>
+                  </select>
+                </div>
+                <div className="col-md-4">
+                  <label className="pp-label">Separation Date</label>
+                  <input type="date" className="form-control pp-readonly" name="separation_date" value={form.separation_date || ""} readOnly />
+                </div>
+                {/* Impl. Year / Month — hidden for now; kept in model/API for later use
+                <div className="col-6 col-sm-4 col-lg-2">
+                  <label className="pp-label">Impl. Year</label>
                   <input
-                    className="form-check-input"
-                    type="checkbox"
-                    name="eligible_double_family_pension"
-                    checked={form.eligible_double_family_pension}
+                    className="form-control"
+                    name="implemented_year"
+                    value={form.implemented_year}
                     onChange={onChange}
-                    disabled={disabled}
+                    disabled={fieldDisabled}
                   />
+                </div>
+                <div className="col-6 col-sm-4 col-lg-2">
+                  <label className="pp-label">Impl. Month</label>
+                  <input
+                    className="form-control"
+                    name="implemented_month"
+                    value={form.implemented_month}
+                    onChange={onChange}
+                    disabled={fieldDisabled}
+                  />
+                </div>
+                */}
+                <div className="col-md-4">
+                  <label className="pp-label">Total Service (Yrs)</label>
+                  <input className="form-control pp-readonly" name="service_tenure" value={form.service_tenure} readOnly />
+                </div>
+                <div className="col-6">
+                <div className="form-check">
+                  <input className="form-check-input" type="checkbox" name="eligible_double_family_pension" checked={form.eligible_double_family_pension} onChange={onChange} disabled={fieldDisabled} />
                   <label className="form-check-label">
                     Eligible for Double Family Pension
                   </label>
                 </div>
               </div>
-            </div>
-          </div>
-
-          <div className="col-md-6">
-            <div className="pp-section h-100">
-              <div className="row g-2">
-                <div className="col-md-4">
-                  <label className="pp-label">Separation type</label>
-                  <select
-                    className="form-select form-select-sm"
-                    name="separation_type"
-                    value={form.separation_type}
-                    onChange={onChange}
-                    disabled={disabled}
-                  >
-                    <option value="">Select</option>
-                    <option value="RT">Retirement</option>
-                    <option value="DT">Death</option>
-                    <option value="RG">Resignation</option>
-                  </select>
-                </div>
-                <div className="col-md-4">
-                  <label className="pp-label">Separation Date</label>
-                  <input
-                    type="date"
-                    className="form-control form-control-sm pp-readonly"
-                    name="separation_date"
-                    value={form.separation_date || ""}
-                    readOnly
-                  />
-                </div>
-                <div className="col-md-2">
-                  <label className="pp-label">Impl. Year</label>
-                  <input
-                    className="form-control form-control-sm"
-                    name="implemented_year"
-                    value={form.implemented_year}
-                    onChange={onChange}
-                    disabled={disabled}
-                  />
-                </div>
-                <div className="col-md-2">
-                  <label className="pp-label">Impl. Month</label>
-                  <input
-                    className="form-control form-control-sm"
-                    name="implemented_month"
-                    value={form.implemented_month}
-                    onChange={onChange}
-                    disabled={disabled}
-                  />
-                </div>
-                <div className="col-12">
-                  <label className="pp-label">Service Tenure</label>
-                  <input
-                    className="form-control form-control-sm pp-readonly"
-                    name="service_tenure"
-                    value={form.service_tenure}
-                    readOnly
-                  />
-                </div>
+              
+              <div className="col-6">
+                <label className="pp-label">Double Family Pension Upto Date</label>
+                <input
+                  type="date"
+                  className="form-control"
+                  name="double_family_pension_upto_date"
+                  value={form.double_family_pension_upto_date || ""}
+                  onChange={onChange}
+                  disabled={fieldDisabled}
+                />
+              </div>
               </div>
             </div>
           </div>
         </div>
 
         <div className="row g-2 mb-2">
-          <div className="col-md-3">
+          <div className="col-12 col-sm-6 col-lg-3">
             <label className="pp-label">Pension Option</label>
-            <select
-              className="form-select form-select-sm"
-              name="pension_option"
-              value={form.pension_option}
-              onChange={onChange}
-              disabled={disabled}
-            >
+            <select className="form-select" name="pension_option" value={form.pension_option} onChange={onChange} disabled={fieldDisabled} >
               <option value="">Select</option>
               <option value="G">Govt Line</option>
               <option value="P">Port Line</option>
             </select>
           </div>
-          <div className="col-md-3">
+          <div className="col-12 col-sm-6 col-lg-3">
             <label className="pp-label">Option Given By</label>
-            <select
-              className="form-select form-select-sm"
-              name="option_given_by"
-              value={form.option_given_by}
-              onChange={onChange}
-              disabled={disabled}
-            >
+            <select className="form-select" name="option_given_by" value={form.option_given_by} onChange={onChange} disabled={fieldDisabled} >
               <option value="">Select</option>
               <option value="E">Employee</option>
               <option value="W">Widow</option>
@@ -369,34 +650,34 @@ export default function PensionProposalEntry({ employee }) {
               
             </select>
           </div>
-          <div className="col-md-3">
+          <div className="col-12 col-sm-6 col-lg-3">
             <label className="pp-label">Regn No.</label>
             <input
-              className="form-control form-control-sm"
+              className="form-control"
               name="regn_no"
               value={form.regn_no}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
             />
           </div>
-          <div className="col-md-3">
+          <div className="col-12 col-sm-6 col-lg-3">
             <label className="pp-label">Regn Date</label>
             <input
               type="date"
-              className="form-control form-control-sm"
+              className="form-control"
               name="regn_date"
               value={form.regn_date || ""}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
             />
           </div>
-          <div className="col-md-2">
+          <div className="col-6 col-sm-4 col-lg-2">
             <label className="pp-label">Start Month</label>
             <select
-              className="form-select form-select-sm pp-readonly"
+              className="form-select pp-readonly"
               name="start_month"
               value={form.start_month}
-              disabled={dbFieldLocked}
+              disabled
             >
               <option value="">--</option>
               {Array.from({ length: 12 }, (_, i) => (
@@ -406,161 +687,146 @@ export default function PensionProposalEntry({ employee }) {
               ))}
             </select>
           </div>
-          <div className="col-md-2">
+          <div className="col-6 col-sm-4 col-lg-2">
             <label className="pp-label">Start Year</label>
             <input
-              className="form-control form-control-sm pp-readonly"
+              className="form-control pp-readonly"
               name="start_year"
               value={form.start_year}
               readOnly
             />
           </div>
-          <div className="col-md-2">
+          <div className="col-6 col-sm-4 col-lg-2">
             <label className="pp-label">Roll No</label>
             <input
-              className="form-control form-control-sm"
+              className="form-control"
               name="pension_roll_no"
               value={form.pension_roll_no}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
             />
           </div>
-          <div className="col-md-3">
-            <label className="pp-label">Pension Proposal Date</label>
-            <input
-              type="date"
-              className="form-control form-control-sm"
-              name="pension_proposal_date"
-              value={form.pension_proposal_date || ""}
-              onChange={onChange}
-              disabled={disabled}
-            />
+          <div className="col-6 col-sm-4 col-lg-2">
+            <label className="pp-label">Bank</label>
+            <input type="text" className="form-control" name="bank_cd" list="proposal-bank-list" value={form.bank_cd}  onChange={handleBankCdChange}  onBlur={handleBankCdBlur} disabled={fieldDisabled} placeholder="Type or select code" autoComplete="off" />
+            <datalist id="proposal-bank-list">
+              {bankMaster.map((bank) => (
+                <option key={bank.bank_cd} value={bank.bank_cd} label={`${bank.bank_cd} — ${bank.bank_name || bank.bank_desc || ""}`} />
+              ))}
+            </datalist>
           </div>
-          <div className="col-md-3">
-            <label className="pp-label">Double Family Pension Upto Date</label>
-            <input
-              type="date"
-              className="form-control form-control-sm"
-              name="double_family_pension_upto_date"
-              value={form.double_family_pension_upto_date || ""}
-              onChange={onChange}
-              disabled={disabled}
-            />
+          <div className="col-12 col-sm-4 col-lg-2">
+            <label className="pp-label">Bank Name</label>
+            <input className="form-control pp-readonly" name="bank_name"  value={form.bank_name} readOnly placeholder="Filled from bank code" />
           </div>
+          <div className="col-6 col-sm-4 col-lg-2">
+            <label className="pp-label">A/C No</label>
+            <input className="form-control" name="account_no" value={form.account_no} onChange={onChange} disabled={fieldDisabled} />
+          </div>
+          
         </div>
 
         <div className="row g-2 mb-2">
-          <div className="col-md-2">
+          <div className="col-6 col-sm-4 col-lg-2">
             <label className="pp-label">Provisional Pension %</label>
             <input
-              className="form-control form-control-sm"
+              className="form-control"
               name="provisional_pension_pct"
               value={form.provisional_pension_pct}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
+              required={pensionType === "P"}
             />
           </div>
-          <div className="col-md-2">
-            <label className="pp-label">Bank</label>
-            <input
-              className="form-control form-control-sm pp-readonly"
-              name="bank_cd"
-              value={form.bank_cd}
-              readOnly
-              placeholder="Code"
-            />
-          </div>
-          <div className="col-md-3">
-            <label className="pp-label">Bank Name</label>
-            <input
-              className="form-control form-control-sm pp-readonly"
-              name="bank_name"
-              value={form.bank_name}
-              readOnly
-              placeholder="Bank Name"
-            />
-          </div>
-          <div className="col-md-2">
-            <label className="pp-label">A/C No</label>
-            <input
-              className="form-control form-control-sm pp-readonly"
-              name="account_no"
-              value={form.account_no}
-              readOnly
-            />
-          </div>
-          <div className="col-md-3">
+          
+          <div className="col-12 col-sm-6 col-lg-3">
             <label className="pp-label">Vig. Clearance Ref. No.</label>
             <input
-              className="form-control form-control-sm"
+              className="form-control"
               name="vigilance_clearance_ref_no"
               value={form.vigilance_clearance_ref_no}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
             />
           </div>
-          <div className="col-md-2">
+          <div className="col-6 col-sm-4 col-lg-2">
             <label className="pp-label">Vig. Clearance Ref. Dt.</label>
             <input
               type="date"
-              className="form-control form-control-sm"
+              className="form-control"
               name="vigilance_clearance_ref_dt"
               value={form.vigilance_clearance_ref_dt || ""}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
             />
           </div>
-          <div className="col-md-2">
+          <div className="col-6 col-sm-4 col-lg-2">
             <label className="pp-label">Lic Opted Bank</label>
             <input
-              className="form-control form-control-sm"
+              type="text"
+              className="form-control"
               name="lic_bank_cd"
+              list="proposal-lic-bank-list"
               value={form.lic_bank_cd}
-              onChange={onChange}
-              disabled={disabled}
+              onChange={handleLicBankCdChange}
+              onBlur={handleLicBankCdBlur}
+              disabled={fieldDisabled}
+              placeholder="Type or select code"
+              autoComplete="off"
             />
+            <datalist id="proposal-lic-bank-list">
+              {bankMaster.map((bank) => (
+                <option
+                  key={bank.bank_cd}
+                  value={bank.bank_cd}
+                  label={`${bank.bank_cd} — ${bank.bank_name || bank.bank_desc || ""}`}
+                />
+              ))}
+            </datalist>
           </div>
-          <div className="col-md-3">
+          <div className="col-12 col-sm-6 col-lg-3">
+            <label className="pp-label">Lic Opted Bank Name</label>
             <input
-              className="form-control form-control-sm pp-readonly mt-4"
+              className="form-control"
               name="lic_bank_name"
               value={form.lic_bank_name}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
+              placeholder="Bank name"
             />
           </div>
         </div>
 
         <div className="row g-2 mb-2">
-          <div className="col-md-3">
+          <div className="col-12 col-sm-6 col-lg-3">
             <label className="pp-label">V.R Ref No</label>
             <input
-              className="form-control form-control-sm"
+              className="form-control"
               name="vr_ref_no"
               value={form.vr_ref_no}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
             />
           </div>
-          <div className="col-md-3">
+          <div className="col-12 col-sm-6 col-lg-3">
             <label className="pp-label">V.R Ref Date</label>
             <input
               type="date"
-              className="form-control form-control-sm"
+              className="form-control"
               name="vr_ref_dt"
               value={form.vr_ref_dt || ""}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
             />
           </div>
-          <div className="col-md-3">
+          <div className="col-12 col-sm-6 col-lg-3">
             <label className="pp-label">Compassionate Allowance</label>
             <select
-              className="form-select form-select-sm"
+              className="form-select"
               name="compassionate_allowance"
               value={form.compassionate_allowance}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
             >
               <option value="">Select</option>
               <option value="1">Less Than Equal 1/3 Pension</option>
@@ -568,84 +834,90 @@ export default function PensionProposalEntry({ employee }) {
               <option value="3">Less Than Equal 1/3 (Pension+Gratuity)</option>
             </select>
           </div>
-          <div className="col-md-3">
-            <label className="pp-label">Reasons to Withhold</label>
-            <select
-              className="form-select form-select-sm"
-              name="quarter_status"
-              value={form.quarter_status}
-              onChange={onChange}
-              disabled={disabled}
-            >
-              <option value="">Select</option>
-              <option value="1">Electricity Clearence</option>
-              <option value="2">Quarter & Elec Clearence</option>
-            </select>
-          </div>
-          <div className="col-md-3">
-            <label className="pp-label">Nominee/E-form</label>
-            <select
-              className="form-select form-select-sm"
-              name="nominee_eform"
-              value={form.nominee_eform}
-              onChange={onChange}
-              disabled={disabled}
-            >
-              <option value="">Select</option>
-              <option value="NOMINEE">Nominee</option>
-              <option value="EFORM">E-Form</option>
-            </select>
-          </div>
-          <div className="col-md-3">
+          <div className="col-12 col-sm-6 col-lg-3">
             <label className="pp-label">Compassionate Allowance Amt</label>
             <input
-              className="form-control form-control-sm"
+              className="form-control"
               name="compassionate_allowance_amt"
               value={form.compassionate_allowance_amt}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
+              required={pensionType === "C" && !fieldDisabled}
             />
           </div>
-          <div className="col-md-2">
+          
+          <div className="col-12 col-sm-6 col-lg-3">
+            <label className="pp-label">Nominee/E-form</label>
+            <select
+              className="form-select"
+              name="nominee_eform"
+              value={form.nominee_eform}
+              onChange={onChange}
+              disabled={fieldDisabled}
+            >
+              <option value="">Select</option>
+              <option value="N">Nominee</option>
+              <option value="E">E-Form</option>
+            </select>
+          </div>
+          <div className="col-12 col-sm-6 col-lg-3">
+            <label className="pp-label">Reasons to Withhold</label>
+            <select
+              className="form-select"
+              name="quarter_status"
+              value={form.quarter_status}
+              onChange={onChange}
+              disabled={fieldDisabled}
+            >
+              <option value="">Select</option>
+              {WITHHOLD_REASON_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          
+          <div className="col-6 col-sm-4 col-lg-2">
             <label className="pp-label">Port City Resident</label>
             <select
-              className="form-select form-select-sm"
+              className="form-select"
               name="port_city_resident"
               value={form.port_city_resident}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
             >
               <option value="">Select</option>
               <option value="YES">Yes</option>
               <option value="NO">No</option>
             </select>
           </div>
-          <div className="col-md-2">
+          <div className="col-6 col-sm-4 col-lg-2">
             <label className="pp-label">Gratuity Option</label>
             <select
-              className="form-select form-select-sm"
+              className="form-select"
               name="gratuity_option"
               value={form.gratuity_option}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
             >
               <option value="">Select</option>
-              <option value="1">Retirement Gratuity Opt1</option>
-              <option value="2">Retirement Gratuity Opt2</option>
-              <option value="3">Death Gratuity Opt2</option>
+              <option value="0">Retirement Gratuity Opt-I</option>
+              <option value="1">Retirement Gratuity Opt-II</option>
+              <option value="2">Death Gratuity Opt-II</option>
             </select>
           </div>
-          <div className="col-md-2">
+          <div className="col-6 col-sm-4 col-lg-2">
             <label className="pp-label">Retirement CPI</label>
             <input
-              className="form-control form-control-sm"
+              className="form-control"
               name="retirement_cpi"
               value={form.retirement_cpi}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
             />
           </div>
-          <div className="col-md-3 d-flex align-items-end gap-3">
+          <div className="col-12 col-sm-6 col-lg-3 d-flex align-items-end gap-3">
             <div className="form-check">
               <input
                 className="form-check-input"
@@ -653,7 +925,7 @@ export default function PensionProposalEntry({ employee }) {
                 name="id_card_submitted"
                 checked={form.id_card_submitted}
                 onChange={onChange}
-                disabled={disabled}
+                disabled={fieldDisabled}
               />
               <label className="form-check-label">ID Card Submitted</label>
             </div>
@@ -664,7 +936,7 @@ export default function PensionProposalEntry({ employee }) {
                 name="vigilance_cleared"
                 checked={form.vigilance_cleared}
                 onChange={onChange}
-                disabled={disabled}
+                disabled={fieldDisabled}
               />
               <label className="form-check-label">Vig. Cleared</label>
             </div>
@@ -672,89 +944,150 @@ export default function PensionProposalEntry({ employee }) {
         </div>
 
         <div className="row g-2 mb-2 align-items-end">
-          <div className="col-md-2">
+          <div className="col-6 col-sm-4 col-lg-2">
             <label className="pp-label">Inc Holder</label>
             <select
-              className="form-select form-select-sm"
+              className="form-select"
               name="incentive_holder"
               value={form.incentive_holder}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
             >
               <option value="">Select</option>
               <option value="YES">Yes</option>
               <option value="NO">No</option>
             </select>
           </div>
-          <div className="col-md-2">
+          <div className="col-6 col-sm-4 col-lg-2">
             <label className="pp-label">Held Up Flg</label>
             <select
-              className="form-select form-select-sm"
+              className="form-select"
               name="held_up_flag"
               value={form.held_up_flag}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled}
             >
               <option value="">Select</option>
-              <option value="N">Not Appl</option>
-              <option value="G">Gratuity Full</option>
-              <option value="GP">Gratuity Partial</option>
-              <option value="C">Commutation</option>
-              <option value="R">Relief</option>
-              <option value="P">Pension</option>
+              {HELD_UP_FLAG_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
           </div>
-          <div className="col-md-2">
+          <div className="col-6 col-sm-4 col-lg-2">
             <label className="pp-label">Amt.</label>
             <input
-              className="form-control form-control-sm"
+              className="form-control"
               name="held_gratuity_amt"
               value={form.held_gratuity_amt}
               onChange={onChange}
-              disabled={disabled}
+              disabled={fieldDisabled || !heldAmtEnabled}
+              required={heldAmtEnabled}
             />
           </div>
-          <div className="col-md-6">
-            <div className="form-check d-inline-block me-2">
+          <div className="col-12 col-lg-6">
+            <div className="form-check mb-2">
               <input
                 className="form-check-input"
                 type="checkbox"
                 name="extra_tccs_enabled"
                 checked={form.extra_tccs_enabled}
                 onChange={onChange}
-                disabled={disabled}
+                disabled={fieldDisabled}
               />
               <label className="form-check-label">Extra TCCS</label>
             </div>
-            <input
-              className="form-control form-control-sm d-inline-block"
-              style={{ width: 70 }}
-              name="extra_tccs_years"
-              value={form.extra_tccs_years}
-              onChange={onChange}
-              disabled={disabled || !form.extra_tccs_enabled}
-              placeholder="Yrs"
-            />
-            <input
-              className="form-control form-control-sm d-inline-block ms-1"
-              style={{ width: 70 }}
-              name="extra_tccs_months"
-              value={form.extra_tccs_months}
-              onChange={onChange}
-              disabled={disabled || !form.extra_tccs_enabled}
-              placeholder="Mths"
-            />
-            <input
-              className="form-control form-control-sm d-inline-block ms-1"
-              style={{ width: 70 }}
-              name="extra_tccs_days"
-              value={form.extra_tccs_days}
-              onChange={onChange}
-              disabled={disabled || !form.extra_tccs_enabled}
-              placeholder="Dys"
-            />
+            <div className="pp-tccs-inline">
+              <input
+                className="form-control pp-tccs-field"
+                name="extra_tccs_years"
+                value={form.extra_tccs_years}
+                onChange={onChange}
+                disabled={fieldDisabled || !form.extra_tccs_enabled}
+                placeholder="Years"
+                aria-label="Extra TCCS years"
+              />
+              <input
+                className="form-control pp-tccs-field"
+                name="extra_tccs_months"
+                value={form.extra_tccs_months}
+                onChange={onChange}
+                disabled={fieldDisabled || !form.extra_tccs_enabled}
+                placeholder="Months"
+                aria-label="Extra TCCS months"
+              />
+              <input
+                className="form-control pp-tccs-field"
+                name="extra_tccs_days"
+                value={form.extra_tccs_days}
+                onChange={onChange}
+                disabled={fieldDisabled || !form.extra_tccs_enabled}
+                placeholder="Days"
+                aria-label="Extra TCCS days"
+              />
+            </div>
           </div>
         </div>
+
+        {showHeldRecovery && (
+          <div className="row g-2 mb-2 pp-held-recovery">
+            <div className="col-12">
+              <div className="pp-section-title">Withheld Amount Recovery</div>
+              {isEditing && (
+                <p className="pp-held-recovery-hint mb-2">
+                  Record refund details here when the employee returns the withheld
+                  amount (weeks, months, or years after the initial proposal). Leave
+                  blank on first processing.
+                </p>
+              )}
+            </div>
+            <div className="col-6 col-sm-4 col-lg-3">
+              <label className="pp-label">Amount Recovered</label>
+              <input
+                className="form-control"
+                name="held_recovery_amt"
+                value={form.held_recovery_amt}
+                onChange={onChange}
+                disabled={fieldDisabled}
+                inputMode="decimal"
+              />
+            </div>
+            <div className="col-6 col-sm-4 col-lg-3">
+              <label className="pp-label">Recovery Date</label>
+              <input
+                type="date"
+                className="form-control"
+                name="held_recovery_date"
+                value={form.held_recovery_date}
+                onChange={onChange}
+                disabled={fieldDisabled}
+              />
+            </div>
+            <div className="col-6 col-sm-4 col-lg-3">
+              <label className="pp-label">Ref / Letter No.</label>
+              <input
+                className="form-control"
+                name="held_recovery_ref_no"
+                value={form.held_recovery_ref_no}
+                onChange={onChange}
+                disabled={fieldDisabled}
+                maxLength={30}
+              />
+            </div>
+            <div className="col-12 col-lg-3">
+              <label className="pp-label">Remarks</label>
+              <input
+                className="form-control"
+                name="held_recovery_remarks"
+                value={form.held_recovery_remarks}
+                onChange={onChange}
+                disabled={fieldDisabled}
+                maxLength={500}
+              />
+            </div>
+          </div>
+        )}
 
         <div className="pp-section">
           <div className="d-flex justify-content-between align-items-center mb-2">
@@ -763,12 +1096,13 @@ export default function PensionProposalEntry({ employee }) {
               type="button"
               className="btn btn-sm btn-outline-primary"
               onClick={handlePopulateDetails}
-              disabled={disabled}
+              disabled={fieldDisabled}
             >
               Populate Details
             </button>
           </div>
-          <table className="pp-earn-table">
+          <div className="pp-earn-table-wrap">
+          <table className="pp-earn-table table table-bordered mb-0">
             <thead>
               <tr>
                 <th>Type</th>
@@ -776,6 +1110,7 @@ export default function PensionProposalEntry({ employee }) {
                 <th>Desc</th>
                 <th>Amount</th>
                 <th>Deduction Priority</th>
+                <th className="pp-earn-actions-col">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -783,34 +1118,54 @@ export default function PensionProposalEntry({ employee }) {
                 <tr key={idx}>
                   <td>
                     <select
-                      className="form-select form-select-sm"
+                      className="form-select"
                       value={row.type}
                       onChange={(e) =>
                         onEarningChange(idx, "type", e.target.value)
                       }
-                      disabled={disabled}
+                      disabled={fieldDisabled}
                     >
-                      <option value="EARN">EARNNG</option>
-                      <option value="DEDN">DEDUCTION</option>
+                      <option value="E">EARNNG</option>
+                      <option value="D">DEDUCTION</option>
                     </select>
                   </td>
                   <td>
-                    <input
-                      className="form-control form-control-sm"
-                      value={row.code}
-                      onChange={(e) =>
-                        onEarningChange(idx, "code", e.target.value)
-                      }
-                      onBlur={(e) =>
-                        fetchEarnDednDescription(idx, e.target.value)
-                      }
-                      disabled={disabled}
-                      placeholder="e.g. 200"
-                    />
+                    <div className="pp-code-cell">
+                      <input
+                        className="form-control"
+                        value={row.code}
+                        onChange={(e) =>
+                          onEarningChange(idx, "code", e.target.value)
+                        }
+                        onBlur={(e) =>
+                          fetchEarnDednDescription(idx, e.target.value)
+                        }
+                        onKeyDown={(e) => handleCodeKeyDown(e, idx)}
+                        disabled={fieldDisabled}
+                        placeholder="e.g. 603"
+                        title={
+                          String(row.type || "").toUpperCase().startsWith("D")
+                            ? "F9 — deduction code list"
+                            : undefined
+                        }
+                      />
+                      {String(row.type || "").toUpperCase().startsWith("D") && (
+                        <button
+                          type="button"
+                          className="pp-code-hint-btn"
+                          onClick={() => openEarnDednHint(idx)}
+                          disabled={fieldDisabled}
+                          title="Deduction codes (F9)"
+                          aria-label="Show deduction codes"
+                        >
+                          i
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td>
                     <input
-                      className="form-control form-control-sm pp-readonly"
+                      className="form-control pp-readonly"
                       value={row.desc}
                       readOnly
                       placeholder="From Oracle"
@@ -818,17 +1173,17 @@ export default function PensionProposalEntry({ employee }) {
                   </td>
                   <td>
                     <input
-                      className="form-control form-control-sm"
+                      className="form-control"
                       value={row.amount}
                       onChange={(e) =>
                         onEarningChange(idx, "amount", e.target.value)
                       }
-                      disabled={disabled}
+                      disabled={fieldDisabled}
                     />
                   </td>
                   <td>
                     <select
-                      className="form-select form-select-sm"
+                      className="form-select"
                       value={row.deduction_priority}
                       onChange={(e) =>
                         onEarningChange(
@@ -837,7 +1192,10 @@ export default function PensionProposalEntry({ employee }) {
                           e.target.value
                         )
                       }
-                      disabled={disabled}
+                      disabled={
+                        fieldDisabled ||
+                        !String(row.type || "").toUpperCase().startsWith("D")
+                      }
                     >
                       <option value="">--</option>
                       <option value="1">1</option>
@@ -845,22 +1203,41 @@ export default function PensionProposalEntry({ employee }) {
                       <option value="3">3</option>
                     </select>
                   </td>
+                  <td className="pp-earn-actions-col text-center">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-danger pp-earn-delete-btn"
+                      onClick={() => removeEarningRow(idx)}
+                      disabled={
+                        fieldDisabled || form.earning_deductions.length <= 1
+                      }
+                      title={
+                        form.earning_deductions.length <= 1
+                          ? "At least one row is required"
+                          : "Delete row"
+                      }
+                      aria-label={`Delete earning/deduction row ${idx + 1}`}
+                    >
+                      Delete
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
           <button
             type="button"
             className="btn btn-sm btn-link mt-1"
             onClick={addEarningRow}
-            disabled={disabled}
+            disabled={fieldDisabled}
           >
             + Add row
           </button>
         </div>
       </div>
 
-      <div className="text-end mt-3">
+      <div className="smpk-form-actions justify-content-end mt-3">
         {recordExists && (
           <button
             type="button"
@@ -879,6 +1256,12 @@ export default function PensionProposalEntry({ employee }) {
           Save
         </button>
       </div>
+
+      <EarnDednCodeHintModal
+        open={earnDednHintRow !== null}
+        onClose={() => setEarnDednHintRow(null)}
+        onSelect={handleEarnDednHintSelect}
+      />
     </form>
   );
 }

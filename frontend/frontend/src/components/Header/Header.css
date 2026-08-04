@@ -1,7 +1,8 @@
 /* HEADER */
 .header {
-  width: 100%;   /* full viewport width */
-  height: 150px;
+  width: 100%;
+  min-height: 100px;
+  height: auto;
 
   background-size: cover;
   background-position: center;
@@ -10,42 +11,52 @@
   align-items: center;
   justify-content: space-between;
 
-  padding: 0 20px;
+  padding: 12px 16px;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
-
-/* Optional overlay */
-/* .header::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  /* background: rgba(255, 255, 255, 0.4); */
-} */
-
-/* .header > * {
-  position: relative;
-  z-index: 1;
-} */
 
 /* LOGOS */
 .left img,
 .right img {
-  height: 100px;
-  margin: 30px;
+  height: clamp(56px, 12vw, 100px);
+  width: auto;
+  max-width: 100%;
+  margin: 0;
+  object-fit: contain;
 }
 
 /* CENTER TEXT */
 .center {
   text-align: center;
   color: #000;
-  max-width: 60%;
+  max-width: min(60%, 720px);
+  flex: 1;
+  padding: 0 8px;
 }
 
 .center h1 {
   margin: 0;
-  font-size: 30px;
+  font-size: clamp(0.85rem, 2.8vw, 1.75rem);
   font-weight: bold;
   font-family: Arial, Helvetica, sans-serif;
+  line-height: 1.25;
+}
+
+.center .header-tagline,
+.center .header-goi {
+  margin: 0;
+  font-size: clamp(0.65rem, 1.8vw, 0.95rem);
+  font-weight: normal;
+  line-height: 1.35;
+}
+
+.center .header-tagline {
+  margin-top: 4px;
+}
+
+.center .header-goi {
+  margin-top: 2px;
 }
 
 .center p {
@@ -59,42 +70,25 @@
 
 /* 📱 MOBILE RESPONSIVE */
 @media (max-width: 768px) {
-
   .header {
-    flex-direction: column;
-    height: auto;
-    padding: 10px;
-    text-align: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 12px;
   }
 
-  .left, .right {
-    margin: 5px 0;
+  .left,
+  .right {
+    flex: 0 0 auto;
   }
 
   .center {
+    order: 3;
+    flex: 1 1 100%;
     max-width: 100%;
-  }
-
-  .center h1 {
-    font-size: 16px;
   }
 
   .center .sub {
     font-size: 11px;
-  }
-
-  .navbar {
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .menu {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-
-  .menu a {
-    margin: 5px 10px;
   }
 }

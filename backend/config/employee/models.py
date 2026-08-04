@@ -76,3 +76,11 @@ class PensionCase(models.Model):
 
     def __str__(self):
         return self.emp_code
+
+
+from .oracle_mirror import (  # noqa: E402, F401
+    FiXxMdFinscale,
+    FiXxMhEmpAdm,
+    FiXxMhEmpFin,
+    FiXxMhEmpPer,
+)

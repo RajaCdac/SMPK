@@ -20,8 +20,14 @@ class PensionCase(models.Model):
     dies_non_days = models.IntegerField(default=0)
     no_pay_more_than_240_days = models.IntegerField(default=0)
     suspension_days = models.IntegerField(default=0)
+    boys_serv_days = models.IntegerField(default=0)
     commutation_percent = models.DecimalField(max_digits=5, decimal_places=2, default=40)
     commutation_reason = models.CharField(max_length=200, blank=True, null=True )
+
+    # Separation (synced with Oracle FI_XX_MH_EMP_ADM on process intake)
+    separation_type = models.CharField(max_length=50, blank=True, default="")
+    separation_date = models.DateField(null=True, blank=True)
+    process_remarks = models.TextField(blank=True, default="")
 
     # Workflow
     status = models.CharField(max_length=50, default="INITIATED")
@@ -77,6 +83,12 @@ class CommutationApplication(models.Model):
     mo_certificate_dt=models.DateField(auto_now=False)
     mo_certificate_ref=models.CharField(max_length=50)
     commutation_reasons=models.CharField(max_length=200)
+    bank_cd = models.CharField(max_length=6, blank=True, default="")
+    bank_desc = models.CharField(max_length=50, blank=True, default="")
+    ca_no = models.CharField(max_length=50, blank=True, default="")
+    ref_no = models.CharField(max_length=100, blank=True, default="")
+    bill_no = models.CharField(max_length=50, blank=True, default="")
+    sanction_parameter = models.CharField(max_length=200, blank=True, default="")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.SET_NULL, null=True, related_name="commutation_created" )
     created_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(max_length=50, default="COMMUTATION INITIATED")
@@ -145,13 +157,23 @@ class PensionProposal(models.Model):
     held_gratuity_amt = models.DecimalField(
         max_digits=12, decimal_places=2, null=True, blank=True
     )
+    held_recovery_amt = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+    held_recovery_date = models.DateField(null=True, blank=True)
+    held_recovery_ref_no = models.CharField(max_length=30, blank=True, default="")
+    held_recovery_remarks = models.CharField(max_length=500, blank=True, default="")
 
     extra_tccs_enabled = models.BooleanField(default=False)
     extra_tccs_years = models.IntegerField(default=0)
     extra_tccs_months = models.IntegerField(default=0)
     extra_tccs_days = models.IntegerField(default=0)
 
-    earning_deductions = models.JSONField(default=list, blank=True)
+    earning_deductions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Legacy JSON cache; canonical rows are in PensionProposalEarndedn.",
+    )
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -171,3 +193,109 @@ class PensionProposal(models.Model):
 
     def __str__(self):
         return f"{self.emp_cd} - {self.pension_proposal_no}"
+
+
+class PensionProposalEarndedn(models.Model):
+    """
+    Proposal earn/dedn lines — Oracle FINANCE.FI_PN_MD_PENSION_PROPOSAL.
+    PK: (CA_NUMBER, EARNDEDN_CD, EARN_DEDN_TYPE)
+    """
+
+    EARN = "E"
+    DEDN = "D"
+    TYPE_CHOICES = [
+        (EARN, "Earning"),
+        (DEDN, "Deduction"),
+    ]
+
+    pk = models.CompositePrimaryKey("ca_number", "earndedn_cd", "earn_dedn_type")
+    ca_number = models.CharField(max_length=22, db_index=True)
+    earndedn_cd = models.CharField(max_length=3)
+    earn_dedn_type = models.CharField(max_length=1, choices=TYPE_CHOICES)
+    amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    e_d_priority = models.PositiveSmallIntegerField(null=True, blank=True)
+    deducted_amt = models.DecimalField(
+        max_digits=14, decimal_places=2, null=True, blank=True
+    )
+    date_created = models.DateField(null=True, blank=True)
+    created_by = models.CharField(max_length=5, blank=True, default="")
+    date_modified = models.DateField(null=True, blank=True)
+    modified_by = models.CharField(max_length=5, blank=True, default="")
+
+    class Meta:
+        db_table = "fi_pn_md_pension_proposal"
+        verbose_name = "Pension proposal earn/dedn line"
+        verbose_name_plural = "Pension proposal earn/dedn lines"
+        ordering = ["ca_number", "earndedn_cd", "earn_dedn_type"]
+
+    def __str__(self):
+        return f"{self.ca_number} / {self.earndedn_cd}"
+
+
+class DashboardMonthSnapshot(models.Model):
+    """Month-level dashboard counts/labels synced from Oracle."""
+
+    month = models.PositiveSmallIntegerField()
+    year = models.PositiveIntegerField()
+    total_employees = models.IntegerField(null=True, blank=True)
+    prev_month_count = models.IntegerField(default=0)
+    retirement_count = models.IntegerField(default=0)
+    next_month_count = models.IntegerField(default=0)
+    prev_month_label = models.CharField(max_length=64, blank=True)
+    this_month_label = models.CharField(max_length=64, blank=True)
+    next_month_label = models.CharField(max_length=64, blank=True)
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "first_pension_dashboard_snapshot"
+        unique_together = [("month", "year")]
+        indexes = [models.Index(fields=["year", "month"])]
+
+
+class CachedRetirementEmployee(models.Model):
+    """One retiring employee row for a given retirement month/year."""
+
+    emp_code = models.CharField(max_length=20, db_index=True)
+    retirement_month = models.PositiveSmallIntegerField()
+    retirement_year = models.PositiveIntegerField()
+    name = models.CharField(max_length=300, blank=True)
+    joining_date = models.CharField(max_length=20, blank=True)
+    retirement_date = models.CharField(max_length=20, blank=True)
+    birth_date = models.CharField(max_length=20, blank=True)
+    age_on_appointment = models.JSONField(null=True, blank=True)
+    age_on_retirement = models.JSONField(null=True, blank=True)
+    designation = models.CharField(max_length=300, blank=True)
+    scale = models.CharField(max_length=100, blank=True)
+    last_basic = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    emp_class = models.CharField(max_length=20, blank=True)
+    row_payload = models.JSONField(default=dict)
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "first_pension_cached_retirement_emp"
+        unique_together = [("emp_code", "retirement_month", "retirement_year")]
+        indexes = [models.Index(fields=["retirement_year", "retirement_month"])]
+
+
+class CachedEmployeeOracleDetail(models.Model):
+    """Last successful Oracle employee lookup (merged with fresh MySQL on read)."""
+
+    emp_code = models.CharField(max_length=20, unique=True, db_index=True)
+    payload = models.JSONField(default=dict)
+    synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "first_pension_cached_employee_oracle"
+
+
+from .oracle_mirror import (  # noqa: E402, F401
+    FiPnMhApplication,
+    FiPnMhOldbillParam,
+    FiPnMhPmthsetup,
+    FiPnMhPensionProposal,
+    FiPnMhPensioner,
+    FiPnTdFirstMonthPension,
+    FiPnTdSalout,
+    FiPnThFirstMonthPension,
+    FiPnThPensionBill,
+)

@@ -1,0 +1,26 @@
+=== BLKBT_ENTRY items (sample held/dcr/grat) ===
+EXTRA_GRAT_TCCS_DAYS
+HELD_GRAT_AMT
+HELD_GRAT_FLG
+held_grat_amt
+held_grat_flg
+held_grat_flg
+
+=== Search DCR / REASON / WITHHOLD strings ===
+DCR_TYPE: -1
+dcr_type: -1
+REASONS_TO: -1
+WITHHOLD: -1
+Reasons to: 286668
+Held Up: 499792
+HELD_COMMU: -1
+LETTER_NO: -1
+ACEPTED: -1
+
+=== Labels containing Reason or Held ===
+entry.held
+ENTRY.held
+ENTRY.HELD
+Reasons to Withhold
+Held Up Flg
+VALIDATE: HELD_GRAT_FLG

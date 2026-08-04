@@ -1,0 +1,13 @@
+﻿Reasons to Withhold context:
+../venv/Scripts/python.exe : Traceback (most recent call last):
+At C:\Users\HP\AppData\Local\Temp\ps-script-e6b8851a-da24-4888-bfb3-edfa2d659811.ps1:79 char:35
++ ... nd/config"; ../venv/Scripts/python.exe scripts/_tmp_two_held2.py 2>&1 ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "D:\SMPK\SMPK\backend\config\scripts\_tmp_two_held2.py", line 11, in <module>
+    print(d[i : i + 1200].replace("\x00", "|")[:1200])
+  File "C:\Users\HP\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+UnicodeEncodeError: 'charmap' codec can't encode character '\x90' in position 73: character maps to <undefined>

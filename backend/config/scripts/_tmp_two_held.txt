@@ -1,0 +1,47 @@
+
+=== Reasons to Withhold @ 286668 ===
+||||||||||||||ÿÿ|||||||||||||||||«Í«Í«Í«Í«Í«Í«Í«Í|0|||||||D|||
+||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||L|||| ||||'||$||!0||||||||||||0|||| |||||||||	||||||||||||||||||||||||||||||||||||||||||||||||||TEXTSTR183||||||TEXTSTR183||||||Reasons to Withhold|||||||||black|||||||MS Sans Seri|`|ÿÿÿÔ|||l||||||B||||:||||||||||||||1|||
+|||°||$"|| è||||FPROC_SCROLL_CONTROL||||||]PROCEDURE FPROC_SCROLL_CONTROL IS  -- *** enabling and disabling the navigation buttons in toolbar ***
+BEGIN
+  if :SYSTEM.LAST_RECORD='TRUE' AND :SYSTEM.CURSOR_RECORD='1' then
+  	set_item_property('BLKCT_TOOLBAR.TLB_FREC',enabled,property_off);
+  	set_item_property('BLKCT_TOOLBAR.TLB_NREC',enabled,property_off);
+  	set_item_property('BLKCT_TOOLBAR.TLB_PREC',enabled,property_off);
+  	set_item_property('BLKCT_TOOLBAR.TLB_LREC',enabled,property_off);
+  elsif :SYSTEM.LAST_RECORD='TRUE' then
+  	set_item_property('BLKCT_TOOLBAR.TLB_FREC',enabled,property_on);
+  	set_item_property('BLKCT_TOOLBAR.TLB_NREC',enabled,property_off);
+  	set_item_property(
+
+=== Held Up Flg @ 499792 ===
+||||||||Deducted Amt||||||||  Priority||||||||||||||||||||||Dys|||||||||Mths||||||||N|||||||Yrs|||||||||Extra TCCS||||||Inc Holder||||||N|||||||No||||||Yes|||||||||Populate Details||||||||Bank_Desc|||||||Bank_Cd|||||||||| |ÿÿÿÔ|||l|||SELECT BANK FROM LIST FOR LIC OPTED PENSIONERS||||||Amt.||||||||Held Up Flg|||||||||Lic Opted Bank||||||N|||||||Regn Date|||||||Regn No.||||||||A/C No||||||Pension|||||||||Relief||||||Commutation|||||||||Option Given By|||||||||E|||||||Widow|||||||Employee||||||||Nominee/E-form||||||E|||||||Nominee|||||||||E- form|||||||||V.R Ref Date||||||||V.R Ref No||||||Normal Pension||||||Gratuity Partial||||||||Gratuity Full|||||||Not Appl||||||||Co-Operative Credit Society|||||||||Elec  & Crt Attachement|||||||||Qtr clear & Crt Attachemnt||||||Qtr Elec Crt Charges||||||||Court Attachement|||||||Quter  & Elec Clearence|||||||||Electricity Clearence|||||||Quater Clearence||||||||||||||||m|$|ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç|||ç||
+
+=== HELD_GRAT_FLG @ 197346 ===
+d_grat_amt',UPDATEABLE,PROPERTY_true);
+	else 
+			:BLKBT_ENTRY.held_grat_amt:=null;
+		
+			set_item_property('BLKBT_ENTRY.held_grat_amt',NAVIGABLE,property_false);
+			set_item_property('BLKBT_ENTRY.held_grat_amt',UPDATEABLE,PROPERTY_false);
+	end if;
+end if;|||
+END;|||.WHEN-VALIDATE-ITEM (BLKBT_ENTRY.HELD_GRAT_FLG)|||||k|||«Í«Í«Í«Í«Í«Í«Í«Í||||||||||||||||||wÄ|SYS|STANDARD||	||||||||||FORMS4C||	||||||||||FORMS40||	|||$|||«Í«Í«Í«Í«Í«Í«Í«Í«Í«Í«Í«Í«Í«Í«Í«Í|0|||||||8|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||"PKG INIT"<anonymous>""|||T|||||||||||||||||||||||||||||||||||||||||||||||||||||||||S|||||||||||||||||||ÿÿ|||||||||||||||||«Í«Í«Í«Í«Í«Í«Í«Í|0|||||||D|||
+||||||T|||||||||||||||T||K|||x||||||||||||||||||||||||||||||||||s|||| ||||ä||`|Ú|·|&|'|,$|B|,(||
+ ||Ä|4Ú|·|||||
+6||||||
+&|||0|||
+|||Ht|||j|||&|'|&|'|&|'|`GIGI$||&|'|&|'|&|'|`GEpGI$||p|||E8$Û|¸|$
+
+=== HELD_UP_FLG @ -1 ===
+
+=== HELD_* tokens ===
+HELD_GRAT_AMT
+HELD_GRAT_FLG
+
+=== blkbt_entry held/grat items ===
+EXTRA_GRAT_TCCS_DAYS
+HELD_GRAT_AMT
+HELD_GRAT_FLG
+held_grat_amt
+held_grat_flg

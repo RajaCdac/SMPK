@@ -1,0 +1,200 @@
+/**
+ * Pension processing modal (portaled to document.body).
+ */
+
+.smpk-process-modal.modal-overlay {
+  z-index: 2000;
+  align-items: center;
+  justify-content: center;
+  padding: max(12px, 2vh) max(12px, 1.5vw);
+}
+
+.smpk-process-modal .modal-box {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  color: #1e293b;
+  font-size: 1rem;
+  line-height: 1.5;
+  width: min(calc(100vw - 2rem), 1520px);
+  max-height: min(96vh, 1000px);
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+.smpk-process-modal .modal-box-wide {
+  width: min(calc(100vw - 2rem), 1520px);
+}
+
+.smpk-process-modal .modal-header {
+  flex-shrink: 0;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: linear-gradient(135deg, #1976d2, #0d47a1);
+}
+
+.smpk-process-modal .modal-employee-bar {
+  flex-shrink: 0;
+  padding: 0.6rem 1.35rem;
+  background: #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.smpk-process-modal .modal-employee-bar strong {
+  font-weight: 600;
+}
+
+.smpk-process-modal .modal-header h2 {
+  font-size: clamp(1rem, 2.5vw, 1.35rem) !important;
+  margin: 0 !important;
+  color: #fff !important;
+  letter-spacing: normal !important;
+  line-height: 1.35 !important;
+  font-weight: 600 !important;
+}
+
+.smpk-process-modal .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 1.25rem 1.35rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.smpk-process-modal .modal-footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.85rem 1.35rem;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.smpk-process-modal .modal-close-btn {
+  min-width: 7rem;
+  min-height: 2.75rem;
+  font-weight: 600;
+  border-radius: 10px;
+}
+
+.smpk-process-modal .process-intake-form,
+.smpk-process-modal .employee-process-tabs,
+.smpk-process-modal .first-pension-workflow {
+  min-width: 0;
+  width: 100%;
+}
+
+/* Intake form: one row for dates, actions on the right */
+.smpk-process-modal .process-intake-fields {
+  align-items: flex-end;
+}
+
+.smpk-process-modal .process-intake-actions {
+  justify-content: flex-end;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.smpk-process-modal .smpk-form-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.smpk-process-modal .employee-process-tabs {
+  margin: 0;
+}
+
+.smpk-process-modal .employee-process-tabs__panel {
+  max-height: none;
+  overflow: visible;
+  padding: 1.15rem 1.2rem 1.25rem;
+}
+
+.smpk-process-modal .pension-proposal-form {
+  min-width: 0;
+}
+
+.smpk-process-modal .pp-form-scroll {
+  max-height: min(58vh, 680px);
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+@media (min-width: 992px) {
+  .smpk-process-modal .pp-form-scroll {
+    max-height: min(62vh, 740px);
+  }
+}
+
+.smpk-process-modal .smpk-form .form-label,
+.smpk-process-modal .smpk-form .pp-label {
+  color: #334155;
+}
+
+.smpk-process-modal .smpk-form .form-control,
+.smpk-process-modal .smpk-form .form-select,
+.smpk-process-modal .smpk-form textarea.form-control {
+  background-color: #fff;
+  color: #0f172a;
+  width: 100%;
+}
+
+.smpk-process-modal .text-muted {
+  color: #64748b !important;
+}
+
+.smpk-process-modal .btn-primary {
+  background-color: #1976d2;
+  border-color: #1976d2;
+}
+
+/* Hide legacy in-body close strip if present */
+.smpk-process-modal .modal-buttons {
+  display: none;
+}
+
+body.smpk-modal-open {
+  overflow: hidden;
+}
+
+@media (max-width: 767.98px) {
+  .smpk-process-modal.modal-overlay {
+    padding: 8px;
+    align-items: stretch;
+  }
+
+  .smpk-process-modal .modal-box {
+    width: 100%;
+    max-height: 96vh;
+  }
+
+  .smpk-process-modal .pp-form-scroll {
+    max-height: min(42vh, 400px);
+  }
+
+  .smpk-process-modal .process-intake-actions,
+  .smpk-process-modal .smpk-form-actions {
+    justify-content: stretch;
+  }
+
+  .smpk-process-modal .process-intake-actions .btn,
+  .smpk-process-modal .smpk-form-actions .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+
+@media (min-width: 768px) {
+  .smpk-process-modal .modal-body {
+    padding: 1.35rem 1.5rem;
+  }
+}

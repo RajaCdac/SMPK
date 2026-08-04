@@ -177,7 +177,113 @@
   font-size: 14px;
   color: #475569;
   font-weight: 600;
-}@media print {
+}
+
+/* Modal view from pension cases list */
+.pension-report-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(15, 23, 42, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.pension-report-modal {
+  background: #eef3f8;
+  border-radius: 16px;
+  width: min(960px, 100%);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+
+.pension-report-modal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+
+.pension-report-modal-toolbar h2 {
+  margin: 0;
+  font-size: 1.125rem;
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.pension-report-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.pension-report-print-btn {
+  background: linear-gradient(135deg, #1565c0, #0d47a1);
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pension-report-print-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pension-report-close-btn {
+  border: none;
+  background: #f1f5f9;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: #475569;
+}
+
+.pension-report-close-btn:hover {
+  background: #e2e8f0;
+}
+
+.pension-report-modal-body {
+  overflow: auto;
+  padding: 20px;
+  flex: 1;
+}
+
+.pension-report-modal-body .sheet {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+
+.pension-report-modal-loading,
+.pension-report-modal-error {
+  text-align: center;
+  padding: 48px 24px;
+  color: #64748b;
+  font-size: 15px;
+}
+
+.pension-report-modal-error {
+  color: #b91c1c;
+}
+
+@media print {
 
   @page {
     size: A4;
@@ -200,7 +306,25 @@
   }
 
   .no-print {
-    display: none;
+    display: none !important;
+  }
+
+  .pension-report-modal-backdrop {
+    position: static;
+    background: none;
+    padding: 0;
+  }
+
+  .pension-report-modal {
+    max-height: none;
+    box-shadow: none;
+    border-radius: 0;
+    background: white;
+  }
+
+  .pension-report-modal-body {
+    overflow: visible;
+    padding: 0;
   }
 
   .print-page {

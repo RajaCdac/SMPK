@@ -1,0 +1,224 @@
+.m2-consol-print-wrap {
+  font-family: "Times New Roman", Times, serif;
+  color: #000;
+  background: #fff;
+  /* Keep off-screen on monitor; only shown when printing */
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  width: 186mm;
+}
+
+.m2-print-portal {
+  display: none;
+}
+
+.m2-consol-print {
+  max-width: 210mm;
+  margin: 0 auto;
+  padding: 12px 16px 24px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.m2-consol-print__title {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.m2-consol-print__subtitle {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 300;
+  margin: 0 0 2px;
+}
+
+.m2-consol-print__generated {
+  text-align: center;
+  font-size: 11px;
+  margin: 0 0 14px;
+}
+
+.m2-consol-print__emp-grid {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 14px;
+  table-layout: fixed;
+}
+
+.m2-consol-print__emp-grid td {
+  border: 1px solid #333;
+  padding: 4px 8px;
+  vertical-align: top;
+  width: 50%;
+}
+
+.m2-consol-print__emp-grid .label {
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.m2-consol-print__block {
+  margin-bottom: 12px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.m2-consol-print__block-title {
+  font-weight: 700;
+  font-size: 12px;
+  margin: 0 0 4px;
+  text-align: center;
+  background: #f3f3f3;
+  border: 1px solid #333;
+  border-bottom: none;
+  padding: 4px 6px;
+}
+
+.m2-consol-print__block-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.m2-consol-print__block-table th,
+.m2-consol-print__block-table td {
+  border: 1px solid #333;
+  padding: 3px 8px;
+}
+
+.m2-consol-print__block-table th {
+  background: #eee;
+  font-size: 11px;
+  text-align: center;
+}
+
+.m2-consol-print__block-table td.code,
+.m2-consol-print__block-table th.code {
+  width: 28px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.m2-consol-print__block-table td.amt {
+  text-align: right;
+  white-space: nowrap;
+  width: 28%;
+}
+
+.m2-consol-print__fp-title {
+  font-weight: 700;
+  text-align: center;
+  margin: 16px 0 6px;
+  font-size: 13px;
+}
+
+.m2-consol-print__fp-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 28px;
+}
+
+.m2-consol-print__fp-table th,
+.m2-consol-print__fp-table td {
+  border: 1px solid #333;
+  padding: 5px 8px;
+}
+
+.m2-consol-print__fp-table th {
+  background: #eee;
+  text-align: center;
+}
+
+.m2-consol-print__fp-table td.amt {
+  text-align: right;
+}
+
+.m2-consol-print__footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 36px;
+  padding: 0 24px;
+  font-weight: 700;
+  font-size: 13px;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  @page m2-portrait-page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  /* Only when M2 consolidation print is triggered — do not affect pension reports. */
+  html.m2-consol-printing,
+  html.m2-consol-printing body {
+    width: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Portal is a direct child of body — hide everything else */
+  html.m2-consol-printing body > *:not(#m2-print-portal) {
+    display: none !important;
+  }
+
+  html.m2-consol-printing #m2-print-portal {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    page: m2-portrait-page;
+  }
+
+  html.m2-consol-printing #m2-print-portal .m2-consol-print-wrap {
+    display: block !important;
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    page: m2-portrait-page;
+  }
+
+  html.m2-consol-printing #m2-print-portal .m2-consol-print {
+    max-width: none;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+  }
+
+  html.m2-consol-printing #m2-print-portal .m2-consol-print__emp-grid,
+  html.m2-consol-printing #m2-print-portal .m2-consol-print__block-table,
+  html.m2-consol-printing #m2-print-portal .m2-consol-print__fp-table {
+    display: table !important;
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  html.m2-consol-printing #m2-print-portal .m2-consol-print__footer {
+    display: flex !important;
+    justify-content: space-between;
+  }
+
+  html.m2-consol-printing .no-print {
+    display: none !important;
+  }
+}

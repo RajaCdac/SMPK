@@ -1,7 +1,8 @@
 """
 Methodology 2 row-wise calculation (M2_34), keyed by retirement revision.
 Rounding: ROUNDUP to next 10 (rows 51, 55, 2012 basic carry);
-          ROUNDUP to next 100 (row 60 basic from 2012 notional).
+          nearest rupee on row 59 (Notional Pay as on 01.01.2017);
+          row 60 from 2017 matrix fitment on row 59 (2012 scale column).
 """
 
 from methodology2.services.matrix_service import (
@@ -10,8 +11,8 @@ from methodology2.services.matrix_service import (
 )
 from methodology2.services.rounding_helpers import (
     round2,
+    round_nearest_rupee,
     round_up_to_10,
-    round_up_to_100,
     round_up_whole_rupee,
 )
 from methodology2.services.scale_parser import (
@@ -88,7 +89,7 @@ ROW_LABELS = {
     56: "Basic Pay Over 198 CPI Points as on 01.01.2012",
     57: "DA@40% On Basic",
     58: "Fitment @ 10.6% on Basic + DA",
-    59: "Notional Pay (as on 01.01.2017)",
+    59: "Notional Pay (Located in the level of the pay matrix given at Appendix-III)",
     60: "Basic Pay Over 277 CPI Points as on 01.01.2017",
     61: "DA@30% On Basic",
     62: "Fitment @ 8.5%",
@@ -120,15 +121,15 @@ def _vda_1994(basic_pay_1994):
                 slab = float(row["Slab"])
                 return max(round2(basic * rate), slab)
     if basic <= 3500:
-        vda = round2(basic * 0.554)
+        vda = round2(basic * 0.5541)
         return max(vda, 1218)
     if basic <= 6500:
-        vda = round2(basic * 0.415)
+        vda = round2(basic * 0.4156)
         return max(vda, 1939)
     if basic <= 9500:
-        vda = round2(basic * 0.332)
+        vda = round2(basic * 0.3324)
         return max(vda, 2701)
-    vda = round2(basic * 0.277)
+    vda = round2(basic * 0.2770)
     return max(vda, 3158)
 
 
@@ -160,6 +161,14 @@ def _matrix_2022(scale_2022, amount):
     return fix_pay_in_scale(scale_2022, amount)
 
 
+def _set_notional_pay_2017_row(state, scales):
+    """Row 59: nearest rupee. Row 60: 2017 matrix fitment on row 59 (2012 scale)."""
+    total = state[56] + state[57] + state[58]
+    state[59] = round_nearest_rupee(total)
+    scale_2012 = scales.get("2012(198 CPI)")
+    state[60] = _matrix_2017(scale_2012, state[59])
+
+
 def _tail_from_1997(state, basic_1997, scales):
     """Rows 48–65 from 1997 basic (last pay at retirement)."""
     state[48] = float(basic_1997)
@@ -175,9 +184,7 @@ def _tail_from_1997(state, basic_1997, scales):
     state[56] = state[55]
     state[57] = round2(state[56] * 0.40)
     state[58] = round2((state[56] + state[57]) * 0.106)
-    state[59] = round2(state[56] + state[57] + state[58])
-
-    state[60] = round_up_to_100(state[59])
+    _set_notional_pay_2017_row(state, scales)
     state[61] = round2(state[60] * 0.30)
     state[62] = round2(state[60] * 1.3 * 0.085)
     state[63] = round2(state[60] + state[61] + state[62])
@@ -196,9 +203,7 @@ def _tail_from_2007(state, basic_2007, scales):
     state[56] = state[55]
     state[57] = round2(state[56] * 0.40)
     state[58] = round2((state[56] + state[57]) * 0.106)
-    state[59] = round2(state[56] + state[57] + state[58])
-
-    state[60] = round_up_to_100(state[59])
+    _set_notional_pay_2017_row(state, scales)
     state[61] = round2(state[60] * 0.30)
     state[62] = round2(state[60] * 1.3 * 0.085)
     state[63] = round2(state[60] + state[61] + state[62])
@@ -212,9 +217,7 @@ def _tail_from_2012(state, basic_2012, scales):
     state[56] = round_up_to_10(float(basic_2012))
     state[57] = round2(state[56] * 0.40)
     state[58] = round2((state[56] + state[57]) * 0.106)
-    state[59] = round2(state[56] + state[57] + state[58])
-
-    state[60] = round_up_to_100(state[59])
+    _set_notional_pay_2017_row(state, scales)
     state[61] = round2(state[60] * 0.30)
     state[62] = round2(state[60] * 1.3 * 0.085)
     state[63] = round2(state[60] + state[61] + state[62])
@@ -227,9 +230,9 @@ def _tail_from_2012(state, basic_2012, scales):
 def _block_1994_to_1997(state, scales, basic_1994):
     state[42] = float(basic_1994)
     if state[42] <= 3000:
-        state[43] = round_up_whole_rupee(state[42] * 0.02)
+        state[43] = round2(state[42] * 0.02)
     else:
-        state[43] = round_up_whole_rupee(state[42] * 0.04)
+        state[43] = round2(state[42] * 0.04)
     state[44] = _vda_1994(state[42])
     state[45] = 138 if state[42] else 0
     state[46] = round2(state[42] * 0.275) if state[42] else 0
@@ -244,10 +247,10 @@ def _block_1994_to_1997(state, scales, basic_1994):
     _tail_from_1997(state, basic_1997, scales)
 
 
-def _block_1988_to_1994(state, scales, basic_1988, pay_for_sda):
+def _block_1988_to_1994(state, scales, basic_1988, pay_for_sda, sda_override=0):
     state[36] = float(basic_1988)
     state[37] = 778.45 if state[36] else 0
-    state[38] = _safe_sda(get_special_da, pay_for_sda)
+    state[38] = float(sda_override) if sda_override else 0
     state[39] = _safe_sda(get_fixed_da_1988, state[36])
     state[40] = round2(state[36] * 0.125) if state[36] else 0
     state[41] = round2(
@@ -259,7 +262,7 @@ def _block_1988_to_1994(state, scales, basic_1988, pay_for_sda):
     _block_1994_to_1997(state, scales, basic_1994)
 
 
-def _block_1984_to_1988(state, scales, basic_1984):
+def _block_1984_to_1988(state, scales, basic_1984, sda_override=0):
     state[31] = float(basic_1984)
     state[32] = 237.85 if state[31] else 0
     state[33] = _fda_1984(state[31]) if state[31] else 0
@@ -268,10 +271,10 @@ def _block_1984_to_1988(state, scales, basic_1984):
 
     scale_1988 = scales.get("1988(607 CPI)")
     pay_1988 = align_pay_with_increment(state[35], scale_1988, 1)
-    _block_1988_to_1994(state, scales, pay_1988, state[31])
+    _block_1988_to_1994(state, scales, pay_1988, state[31], sda_override)
 
 
-def _compute_from_1979(state, scales, last_pay):
+def _compute_from_1979(state, scales, last_pay, sda_override=0):
     basic = float(last_pay)
     state[27] = basic
     state[28] = 150
@@ -288,36 +291,36 @@ def _compute_from_1979(state, scales, last_pay):
 
     scale_1988 = scales.get("1988(607 CPI)")
     pay_1988 = align_pay_with_increment(state[35], scale_1988, 1)
-    _block_1988_to_1994(state, scales, pay_1988, pay_after_two)
+    _block_1988_to_1994(state, scales, pay_1988, pay_after_two, sda_override)
 
 
-def _compute_from_1984(state, scales, last_pay):
-    _block_1984_to_1988(state, scales, last_pay)
+def _compute_from_1984(state, scales, last_pay, sda_override=0):
+    _block_1984_to_1988(state, scales, last_pay, sda_override)
 
 
-def _compute_from_1988(state, scales, last_pay):
-    _block_1988_to_1994(state, scales, last_pay, last_pay)
+def _compute_from_1988(state, scales, last_pay, sda_override=0):
+    _block_1988_to_1994(state, scales, last_pay, last_pay, sda_override)
 
 
-def _compute_from_1993(state, scales, last_pay):
+def _compute_from_1993(state, scales, last_pay, sda_override=0):
     scale_1993 = scales.get("1993(1030 CPI)")
     basic_1994 = align_pay_without_increment(float(last_pay), scale_1993)
     _block_1994_to_1997(state, scales, basic_1994)
 
 
-def _compute_from_1997(state, scales, last_pay):
+def _compute_from_1997(state, scales, last_pay, sda_override=0):
     _tail_from_1997(state, last_pay, scales)
 
 
-def _compute_from_2007(state, scales, last_pay):
+def _compute_from_2007(state, scales, last_pay, sda_override=0):
     _tail_from_2007(state, last_pay, scales)
 
 
-def _compute_from_2012(state, scales, last_pay):
+def _compute_from_2012(state, scales, last_pay, sda_override=0):
     _tail_from_2012(state, last_pay, scales)
 
 
-def _compute_from_2017(state, scales, last_pay):
+def _compute_from_2017(state, scales, last_pay, sda_override=0):
     state[60] = float(last_pay)
     state[61] = round2(state[60] * 0.30)
     state[62] = round2(state[60] * 1.3 * 0.085)
@@ -327,7 +330,7 @@ def _compute_from_2017(state, scales, last_pay):
     state[65] = state[64]
 
 
-def _compute_from_2022(state, scales, last_pay):
+def _compute_from_2022(state, scales, last_pay, sda_override=0):
     scale_2017 = scales.get("2017(277 CPI)")
     state[64] = _matrix_2022(scale_2017, float(last_pay))
     state[65] = state[64]
@@ -355,10 +358,129 @@ def _format_rows(state, start_row):
             "description": ROW_LABELS.get(row_num, f"Row {row_num}"),
             "value": value,
         })
-    return rows
+    return expand_detailed_cpi_breakdown(rows)
 
 
-def calculate_revision(scales, current_revision, last_pay):
+def expand_detailed_cpi_breakdown(rows):
+    """
+    Expand 2007 / 2012 / 2017 / 2022 into A–E/F detailed breakdown rows
+    for UI and print.
+
+    Raw engine rows 52–65 are replaced by display rows 200701–202201.
+    """
+    by_row = {}
+    for row in rows:
+        if isinstance(row, dict) and row.get("row") is not None:
+            by_row[int(row["row"])] = row
+
+    def v(row_num):
+        return float(by_row.get(row_num, {}).get("value") or 0)
+
+    def has_value(row_num):
+        return row_num in by_row and v(row_num) != 0
+
+    out = [
+        row
+        for row in rows
+        if isinstance(row, dict)
+        and row.get("row") is not None
+        and int(row["row"]) < 52
+        and v(int(row["row"])) != 0
+    ]
+
+    def letter_row(row_num, letter, description, value):
+        return {
+            "row": row_num,
+            "code": letter,
+            "description": description,
+            "value": value,
+        }
+
+    if has_value(52):
+        a, b, c = v(52), v(53), v(54)
+        d = round2(a + b + c)
+        e = v(55) if has_value(55) else round_up_to_10(d)
+        out.extend([
+            letter_row(
+                200701,
+                "A",
+                "Basic Pay Over 126 CPI Points as on 01.01.2007",
+                a,
+            ),
+            letter_row(200702, "B", "Variable D.A of 57.14%", b),
+            letter_row(200703, "C", "Fitment @ 10.5% on basic pay+DA", c),
+            letter_row(200704, "D", "Aggregate of A+B+C", d),
+            letter_row(
+                200705,
+                "E",
+                "Notional Pay (Rounded of to the next 10 Rupees)",
+                e,
+            ),
+        ])
+
+    if has_value(56):
+        a, b, c = v(56), v(57), v(58)
+        d = round2(a + b + c)
+        e = v(59) if has_value(59) else round_nearest_rupee(d)
+        f = v(60)
+        out.extend([
+            letter_row(
+                201201,
+                "A",
+                "Basic Pay Over 198 CPI Points as on 01.01.2012",
+                a,
+            ),
+            letter_row(201202, "B", "DA @ 40% On basic pay", b),
+            letter_row(201203, "C", "Fitment @ 10.6% on basic pay+DA", c),
+            letter_row(201204, "D", "Aggregate of A+B+C", d),
+            letter_row(201205, "E", "Rounded off to the nearest rupee", e),
+            letter_row(
+                201206,
+                "F",
+                (
+                    "Notional Pay (Located in the level of the pay matrix "
+                    "given at Appendix-III)"
+                ),
+                f,
+            ),
+        ])
+
+    if has_value(60):
+        a, b, c = v(60), v(61), v(62)
+        d = v(63) if has_value(63) else round2(a + b + c)
+        e = round_up_to_10(d)
+        f = v(64)
+        out.extend([
+            letter_row(
+                201701,
+                "A",
+                "Basic Pay Over 277 CPI Points as on 01.01.2017",
+                a,
+            ),
+            letter_row(201702, "B", "DA @ 30% on basic pay", b),
+            letter_row(201703, "C", "Fitment @ 8.5% on basic pay + DA", c),
+            letter_row(201704, "D", "Aggregate of A+B+C", d),
+            letter_row(201705, "E", "Rounded off to the next 10 Rupees", e),
+            letter_row(
+                201706,
+                "F",
+                (
+                    "Notional Pay (Located in the level of the pay matrix "
+                    "given at Appendix-IV)"
+                ),
+                f,
+            ),
+        ])
+
+    if has_value(64):
+        out.append(
+            letter_row(202201, "A", "Basic Pay as on 01.01.2022", v(64))
+        )
+
+    return out
+
+
+def calculate_revision(scales, current_revision, last_pay, sda_override=0):
     if not scales:
         return {"rows": [], "pension": {}}
 
@@ -379,7 +501,7 @@ def calculate_revision(scales, current_revision, last_pay):
     if not handler:
         return {"rows": [], "pension": {}}
 
-    handler(state, scales, last_pay)
+    handler(state, scales, last_pay, sda_override)
     start_row = START_ROW[current_revision]
     return {
         "rows": _format_rows(state, start_row),

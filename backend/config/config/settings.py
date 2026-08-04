@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 from datetime import timedelta
 
@@ -21,12 +22,22 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-g8#5k_t-3-o21#+am8nflt%q6sy&uvo)t#0%qe*p-5cht1qgv8'
+SECRET_KEY = os.environ.get(
+    "DJANGO_SECRET_KEY",
+    "django-insecure-g8#5k_t-3-o21#+am8nflt%q6sy&uvo)t#0%qe*p-5cht1qgv8",
+)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = [
+    h.strip()
+    for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "*").split(",")
+    if h.strip()
+]
 
 
 # Application definition
@@ -46,7 +57,10 @@ INSTALLED_APPS = [
     'workflow',
     'audit',
     'first_pension',
+    'family_pension',
+    'methodology1',
     'methodology2',
+    'master_data',
 ]
 
 MIDDLEWARE = [
@@ -94,24 +108,58 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'smpk_pension',
-        'USER': 'root',
-        'PASSWORD': 'root123',
-        'HOST':'localhost',
-        'PORT': '3306',
-        'OPTIONS':{
-            'init_command':"SET sql_mode ='STRICT_TRANS_TABLES'"
-        }
-    }
-} 
+        'NAME': os.environ.get('MYSQL_DATABASE', 'smpk_pension'),
+        'USER': os.environ.get('MYSQL_USER', 'root'),
+        'PASSWORD': os.environ.get('MYSQL_PASSWORD', 'root123'),
+        'HOST': os.environ.get('MYSQL_HOST', 'localhost'),
+        'PORT': os.environ.get('MYSQL_PORT', '3306'),
+        'OPTIONS': {
+            'init_command': "SET sql_mode ='STRICT_TRANS_TABLES'",
+        },
+    },
+    # Oracle FINANCE dump — historical first-pension archive (read-only).
+    'finance': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': os.environ.get('FINANCE_MYSQL_DATABASE', 'finance'),
+        'USER': os.environ.get('FINANCE_MYSQL_USER', os.environ.get('MYSQL_USER', 'root')),
+        'PASSWORD': os.environ.get(
+            'FINANCE_MYSQL_PASSWORD',
+            os.environ.get('MYSQL_PASSWORD', 'root123'),
+        ),
+        'HOST': os.environ.get('FINANCE_MYSQL_HOST', 'localhost'),
+        'PORT': os.environ.get('FINANCE_MYSQL_PORT', '3307'),
+        'OPTIONS': {
+            'init_command': "SET sql_mode ='STRICT_TRANS_TABLES'",
+        },
+    },
+}
 
 ORACLE_DB = {
-    "HOST": "192.168.4.62",
-    "PORT": 1521,
-    "SERVICE_NAME": "kopttestfin",
-    "USER": "system",
-    "PASSWORD": "system",
+    "HOST": os.environ.get("ORACLE_DB_HOST", "192.168.4.62"),
+    "PORT": int(os.environ.get("ORACLE_DB_PORT", "1521")),
+    #"SERVICE_NAME": os.environ.get("ORACLE_DB_SERVICE_NAME", "kopttestfin"),
+    "SERVICE_NAME": os.environ.get("ORACLE_DB_SERVICE_NAME", "koptfin"),
+    "USER": os.environ.get("ORACLE_DB_USER", "system"),
+    "PASSWORD": os.environ.get("ORACLE_DB_PASSWORD", "system"),
 }
+
+ORACLE_LOCAL_CACHE_ENABLED = os.environ.get(
+    "ORACLE_LOCAL_CACHE_ENABLED", "True"
+).lower() in ("1", "true", "yes")
+
+ORACLE_SYNC_REQUIRED = os.environ.get("ORACLE_SYNC_REQUIRED", "False").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+# Live Oracle reads (employee search, salout transfer, ADA rates). Default off:
+# SMPK saves pension data in MySQL; mirrors supply master data when Oracle is down.
+ORACLE_READ_ENABLED = os.environ.get("ORACLE_READ_ENABLED", "False").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 
 
@@ -168,3 +216,7 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Methodology-2 bulk PDFs: parent of M2_YYYY-MM-DD (default Desktop).
+_bulk_out = (os.environ.get("BULK_OUTPUT_DIR") or "").strip()
+BULK_OUTPUT_DIR = Path(_bulk_out) if _bulk_out else (Path.home() / "Desktop")

@@ -1,0 +1,13 @@
+--- 286679 ---
+|||0|||| |||||||||	||||||||||||||||||||||||||||||||||||||||||||||||||TEXTSTR183||||||TEXTSTR183||||||Reasons to Withhold|||||||||black|||||||MS Sans Seri|`|ÿÿÿÔ|||l||||||B||||:||||||||||||||1|||
+|||°||$"|| è||||FPROC_SCROLL_CONTROL||||||]PROCEDURE FPROC_SCROLL_CONTROL IS  -- *** enabling and disabl
+--- 497575 ---
+|Type |||||||Implemented Month|||||||Implemented Year||||||||Port City Resident||||||ID Card Submitted|||||||Reasons to Withhold|||||||||Vig.Clearance Ref. Dt.||||||Vig.Clearance Ref. No.||||||Provisional Pension %|||||||Roll No|||||||||BUDGET CENTRE CLASS/GROUP MASTER - EDIT/ENTRY|||||||Pension Option||||||Vig.Cleared
+--- 573399 ---
+| |j||||i|||||k|||m|||/||||Z||||~|||Ï||||||||||||||||||||||||||||||TEXTSTR183||||||TEXTSTR183||||||Reasons to Withhold|||||||||black|||||||MS Sans Seri|À|ÿÿÿÔ|||l|||f||||||||0°||E|	|ó<||Ó|0À|||§|||¨|||ª|||«|||%|||t|||Xu|||¹i|||M|y|||
+Ã||||Ä||||É|||Ç||||||||[|0Ð·|0Ü¹|0èÍ|0
+REASON: -1
+reason: -1
+WHY: -1
+CLR: -1
+CLEAR: 37891

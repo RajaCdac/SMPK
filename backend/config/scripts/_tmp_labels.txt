@@ -1,0 +1,54 @@
+﻿Clearance 10
+Withhold 3
+Quarter 0
+Quater 2
+Held 2
+Amt. 4
+DCR 0
+Recovery 0
+Letter 0
+L: A/C No
+L: Bank Code
+L: Bank Desc
+L: Commutation
+L: Court Attachement
+L: Death Gratuity
+L: Deducted Amt
+L: Double Family Pension
+L: Elec  & Crt Attachement
+L: Electricity Clearence
+L: Employee
+L: Extra TCCS
+L: Family Pensioner
+L: Gratuity
+L: Gratuity Full
+L: Gratuity Partial
+L: Held Up Flg
+L: Inc Holder
+L: LIST FOR LIC OPTED PENSIONERS
+L: Lic Opted Bank
+L: Nominee
+L: Normal Pension
+L: Not Appl
+L: Not to deduct
+L: Operative Credit Society
+L: Option Given By
+L: Pension
+L: Pensioner
+L: Populate Details
+L: Press F9 to display list...
+L: Priority
+L: Qtr Elec Crt Charges
+L: Qtr clear & Crt Attachemnt
+L: Quater Clearence
+L: Quter  & Elec Clearence
+L: Regn Date
+L: Regn No.
+L: Relief
+L: Retirement CPI
+L: Retirement Gratuity Option I
+L: Retirement Gratuity Option II
+L: Select Bank From the list...
+L: V.R Ref Date
+L: V.R Ref No
+L: Widow

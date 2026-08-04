@@ -1,44 +1,48 @@
-import { Outlet, Link } from "react-router-dom";
+import { Outlet, NavLink } from "react-router-dom";
+import "../../styles/Dashboard.css";
+import {
+  getStoredUser,
+  getNavItemsForUser,
+  normalizeRoleCode,
+} from "../../utils/authRoles";
+
+const linkClass = ({ isActive }) =>
+  `sidebar-link${isActive ? " sidebar-link-active" : ""}`;
 
 export default function DashboardLayout() {
-  const user = JSON.parse(localStorage.getItem("user"));
-  const role = user?.role;
+  const user = getStoredUser();
+  const roleCode = normalizeRoleCode(user);
+  const navItems = getNavItemsForUser(user);
+  const displayName =
+    user?.display_name ||
+    [user?.first_name, user?.last_name].filter(Boolean).join(" ") ||
+    user?.username ||
+    "User";
 
   return (
     <div className="dashboard-container">
-
-      {/* Sidebar */}
       <div className="sidebar">
         <h3>Pension System</h3>
+        <p className="sidebar-role-badge">{user?.role || roleCode}</p>
 
-        <ul>
-          <li><Link to="/dashboard" style={{color: "white", textDecoration: "none",}} >Dashboard</Link></li>
-          {role === "User" && (
-            <>
-              {/* <li>Users</li> */}
-              {/* <li><Link to="/dashboard/roles" style={{color: "white", textDecoration: "none",}}>Role Management</Link></li> */}
-              {/* <li>Workflow</li> */}
-              <li> <Link to="/dashboard/logs" style={{color: "white", textDecoration: "none",}}>Audit Logs</Link></li>
-              <li><Link to="/dashboard/cases" style={{color: "white", textDecoration: "none",}}>Pension Cases</Link></li>
-              <li><Link to="/dashboard/firstpensioncases" style={{color: "white", textDecoration: "none",}}>First Pension</Link></li>
-              <li><Link to="/dashboard/methodology2" style={{color: "white", textDecoration: "none",}}>Methodology2</Link></li>
-            </>
-          )}
-
-          {(role === "Admin" || role === "Clerk") && (
-            <li>Employees</li>
-          )}
+        <ul className="sidebar-nav">
+          {navItems.map((item) => (
+            <li key={item.to}>
+              <NavLink to={item.to} end={item.end} className={linkClass}>
+                {item.label}
+              </NavLink>
+            </li>
+          ))}
         </ul>
       </div>
 
-      {/* Main Area */}
       <div className="main-area">
-
-        {/* Topbar */}
         <div className="topbar">
-          <span>Welcome, {user?.username} ({role})</span>
-
+          <span>
+            Welcome, {displayName} ({user?.role || roleCode})
+          </span>
           <button
+            type="button"
             onClick={() => {
               localStorage.clear();
               window.location.href = "/";
@@ -48,11 +52,9 @@ export default function DashboardLayout() {
           </button>
         </div>
 
-        {/* 🔥 THIS IS THE KEY */}
         <div className="content">
           <Outlet />
         </div>
-
       </div>
     </div>
   );

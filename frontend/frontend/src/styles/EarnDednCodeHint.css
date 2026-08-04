@@ -1,0 +1,99 @@
+.pp-code-cell {
+  display: flex;
+  gap: 0.25rem;
+  align-items: stretch;
+}
+
+.pp-code-cell .form-control {
+  flex: 1;
+  min-width: 0;
+}
+
+.pp-code-hint-btn {
+  flex: 0 0 auto;
+  width: 2rem;
+  min-height: 2.5rem;
+  padding: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.375rem;
+  background: #f8fafc;
+  color: #1e40af;
+  font-weight: 700;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pp-code-hint-btn:hover:not(:disabled) {
+  background: #e0e7ff;
+  border-color: #93c5fd;
+}
+
+.pp-code-hint-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.earn-dedn-hint-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1060;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.earn-dedn-hint-modal {
+  width: min(520px, 100%);
+  max-height: min(80vh, 560px);
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.earn-dedn-hint-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.earn-dedn-hint-sub {
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.earn-dedn-hint-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.earn-dedn-hint-table th {
+  position: sticky;
+  top: 0;
+  background: #f1f5f9;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.earn-dedn-hint-table td {
+  font-size: 0.82rem;
+  vertical-align: middle;
+}
+
+.earn-dedn-hint-row {
+  cursor: pointer;
+}
+
+.earn-dedn-hint-row:hover td {
+  background: #eff6ff;
+}

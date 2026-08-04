@@ -1,0 +1,281 @@
+.lic-report-print {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #000;
+  background: #fff;
+}
+
+.lic-report-print__page {
+  width: 297mm;
+  min-height: 210mm;
+  margin: 0 auto 1.5rem;
+  padding: 10mm 14mm 8mm;
+  background: #fff;
+  box-sizing: border-box;
+  page-break-after: always;
+}
+
+.lic-report-print__page:last-child {
+  page-break-after: auto;
+}
+
+.lic-report-print__header {
+  display: grid;
+  grid-template-columns: 120px 1fr 90px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.lic-report-print__logo {
+  height: 72px;
+  width: auto;
+  max-width: 110px;
+  object-fit: contain;
+}
+
+.lic-report-print__org {
+  text-align: center;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.lic-report-print__title {
+  text-align: center;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.lic-report-print__page-no {
+  text-align: right;
+  font-size: 11px;
+  padding-top: 4px;
+}
+
+.lic-report-print__rule {
+  border: none;
+  border-top: 1px dashed #000;
+  margin: 8px 0;
+}
+
+.lic-report-print__meta {
+  margin-bottom: 4px;
+}
+
+.lic-report-print__meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  margin-bottom: 2px;
+}
+
+.lic-report-print__inline-field {
+  display: inline-flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.lic-report-print__label {
+  min-width: 0;
+}
+
+.lic-report-print__detail-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  margin-bottom: 3px;
+}
+
+.lic-report-print__body-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px 120px;
+  gap: 16px;
+  align-items: start;
+  margin: 8px 0 10px;
+}
+
+.lic-report-print__month-label {
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+
+.lic-report-print__col-ack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 18px;
+}
+
+.lic-report-print__ack-label {
+  font-size: 11px;
+  margin-bottom: 4px;
+  text-align: center;
+}
+
+.lic-report-print__col-treasury {
+  font-size: 11px;
+  line-height: 1.5;
+  padding-top: 18px;
+}
+
+.lic-report-print__holdup {
+  margin: 4px 0;
+  max-width: 11em;
+  white-space: normal;
+}
+
+.lic-report-print__earn-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.lic-report-print__earn-table th,
+.lic-report-print__earn-table td {
+  padding: 2px 4px;
+  vertical-align: top;
+}
+
+.lic-report-print__earn-table th {
+  text-align: left;
+  font-weight: 700;
+}
+
+.lic-report-print__earn-table .amount {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.lic-report-print__earn-table .summary td {
+  padding-top: 6px;
+}
+
+.lic-report-print__ack-box {
+  width: 100%;
+  max-width: 130px;
+  height: 52px;
+  border: 1px solid #000;
+}
+
+.lic-report-print__bank-total {
+  margin-top: 8px;
+}
+
+.lic-report-print__bank-total .line {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+
+.lic-report-print__words {
+  text-transform: uppercase;
+}
+
+.lic-report-print__footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 28px;
+}
+
+.lic-report-print__sign {
+  line-height: 1.45;
+}
+
+@media print {
+  /* Landscape only for LIC bill; default @page is portrait (see pension-report-print.css). */
+  html.pension-report-printing,
+  html.pension-report-printing body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Match on-screen LIC bill layout exactly (landscape A4). */
+  html.pension-report-printing .lic-report-print {
+    font-family: "Courier New", Courier, monospace;
+    font-size: 12px;
+    line-height: 1.35;
+    color: #000;
+    background: #fff;
+  }
+
+  html.pension-report-printing .lic-report-print__page {
+    width: 297mm;
+    min-height: 210mm;
+    height: auto;
+    margin: 0 auto;
+    padding: 10mm 14mm 8mm;
+    background: #fff;
+    box-sizing: border-box;
+    box-shadow: none;
+    page-break-after: always;
+    break-after: page;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  html.pension-report-printing .lic-report-print__page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  html.pension-report-printing .lic-report-print__header {
+    display: grid !important;
+    grid-template-columns: 120px 1fr 90px;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  html.pension-report-printing .lic-report-print__logo {
+    height: 72px;
+    width: auto;
+    max-width: 110px;
+    object-fit: contain;
+  }
+
+  html.pension-report-printing .lic-report-print__meta-line,
+  html.pension-report-printing .lic-report-print__detail-line,
+  html.pension-report-printing .lic-report-print__bank-total .line {
+    display: flex !important;
+    flex-wrap: wrap;
+  }
+
+  html.pension-report-printing .lic-report-print__inline-field {
+    display: inline-flex !important;
+    gap: 6px;
+    white-space: nowrap;
+  }
+
+  html.pension-report-printing .lic-report-print__body-cols {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 150px 120px;
+    gap: 16px;
+    align-items: start;
+  }
+
+  html.pension-report-printing .lic-report-print__col-ack {
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  html.pension-report-printing .lic-report-print__footer {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 28px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  html.pension-report-printing .lic-report-print__rule {
+    border-top: 1px dashed #000;
+  }
+
+  html.pension-report-printing .lic-report-print__ack-box {
+    border: 1px solid #000;
+  }
+}

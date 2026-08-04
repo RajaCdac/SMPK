@@ -5,122 +5,99 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework.views import APIView
 from datetime import datetime
-from dateutil.relativedelta import relativedelta
 from employee.models import PensionCase
-from employee.services.oracle_service import get_oracle_connection
+from accounts.user_auth import build_user_auth_payload
 
 class CustomTokenSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
-
-        user = self.user
-
-        # get role (adjust based on your model)
-        role = user.userrole_set.first().role.name if user.userrole_set.exists() else "User"
-
-        data["user"] = {
-            "username": user.username,
-            "role": role
-        }
-
+        data["user"] = build_user_auth_payload(self.user)
         return data
 
 
 class CustomTokenView(TokenObtainPairView):
     serializer_class = CustomTokenSerializer
 
-def calculate_age(dob, other_date):
-    """
-    dob and other_date should be datetime.date or datetime objects
-    """
-
-    if dob is None or other_date is None:
-        return None
-
-    if other_date < dob:
-        return None  # invalid case
-
-    diff = relativedelta(other_date, dob)
-
-    return {
-        "years": diff.years,
-        "months": diff.months,
-        "days": diff.days
-    }
-
 class DashboardView(APIView):
     def get(self, request):
-        conn = get_oracle_connection()
-        cursor = conn.cursor()
+        import logging
+
+        from employee.services.oracle_service import oracle_reads_enabled
+        from first_pension.services.mirror_dashboard_service import (
+            fetch_dashboard_from_mirror,
+        )
+        from first_pension.services.oracle_cache_service import (
+            load_dashboard_from_cache,
+            sync_dashboard_to_cache,
+        )
+        from first_pension.services.oracle_dashboard_service import (
+            fetch_dashboard_payload,
+        )
+
+        logger = logging.getLogger(__name__)
 
         today = datetime.today()
         month = request.GET.get("month")
         year = request.GET.get("year")
         if not month or not year:
-                month = today.month
-                year = today.year
+            month = today.month
+            year = today.year
+        month = int(month)
+        year = int(year)
 
-        # Total employees
-        cursor.execute("""
-            SELECT COUNT(*) FROM FINANCE.FI_XX_MH_EMP_PER
-        """)
-        total = cursor.fetchone()[0]
+        from first_pension.services.dashboard_workflow_status import (
+            enrich_retirement_list,
+        )
 
-        # Retirement count
-        cursor.execute("""
-            SELECT COUNT(*)
-            FROM FINANCE.FI_XX_MH_EMP_ADM
-            WHERE EXTRACT(MONTH FROM EXP_RET_DT) = :month
-              AND EXTRACT(YEAR FROM EXP_RET_DT) = :year
-               AND SEPARATION_TYPE IS NULL
-        """, {"month": month, "year": year})
+        def attach_workflow(payload):
+            enriched, _summary = enrich_retirement_list(
+                payload.get("retirement_list") or []
+            )
+            payload["retirement_list"] = enriched
+            return payload
 
-        retirement_count = cursor.fetchone()[0]
+        payload = None
+        data_source = None
 
-        # Retirement list
-        cursor.execute("""
-            SELECT t1.EMP_CD,TRIM( t1.TITLE || ' ' || t1.FIRST_NAME || ' ' || NVL(t1.MIDDLE_NAME, '') || ' ' || t1.LAST_NAME ) AS full_name,
-            t2.JOIN_DT,t2.EXP_RET_DT,t1.BIRTH_DT,t3.DESIG_DESC,
-            t4.SCALE_SL,t5.BASIC_AMT,t5.CLASS
-            FROM FINANCE.FI_XX_MH_EMP_PER t1
-            LEFT JOIN FINANCE.FI_XX_MH_EMP_ADM t2 ON t1.EMP_CD = t2.EMP_CD
-            LEFT JOIN FINANCE.FI_XX_MH_DESIG t3 ON t2.DESIG_CD = t3.DESIG_CD
-            LEFT JOIN FINANCE.FI_XX_MH_EMP_FIN t4 ON t1.EMP_CD = t4.EMP_CD
-            LEFT JOIN FINANCE.FI_XX_MH_EMP_FIN_vw t5 ON t4.EMP_CD= t5.EMP_CD
-            
-            WHERE EXTRACT(MONTH FROM (EXP_RET_DT-1)) = :month
-              AND EXTRACT(YEAR FROM (EXP_RET_DT-1)) = :year
-              AND t2.SEPARATION_TYPE IS NULL
-            ORDER BY t1.EMP_CD ASC
-        """, {"month": month, "year": year})
+        if oracle_reads_enabled():
+            try:
+                payload = fetch_dashboard_payload(month, year)
+                sync_dashboard_to_cache(month, year, payload)
+                data_source = "oracle"
+            except Exception as exc:
+                logger.warning("Dashboard Oracle fetch failed: %s", exc)
 
-        rows = cursor.fetchall()
-        #Calculate age (year,month,day) on appointment and retirement
-        
+        if payload is None:
+            try:
+                payload = fetch_dashboard_from_mirror(month, year)
+                data_source = "mirror"
+            except Exception as exc:
+                logger.warning("Dashboard mirror fetch failed: %s", exc)
 
-        data = []
-        for r in rows:
-            data.append({
-                "emp_code": r[0],
-                "name": r[1],
-                "joining_date": r[2].strftime("%d-%m-%Y") if r[2] else None,
-                "retirement_date": r[3].strftime("%d-%m-%Y") if r[3] else None,
-                "birth_date": r[4].strftime("%d-%m-%Y") if r[4] else None,
-                "age_on_appointment": calculate_age(r[4], r[2]) if r[4] and r[2] else None,
-                "age_on_retirement": calculate_age(r[4], r[3]) if r[4] and r[3] else None,
-                "designation": r[5],
-                "scale": r[6],
-                "last_basic": r[7],
-                "class": r[8]
-            })
+        if payload is None:
+            cached = load_dashboard_from_cache(month, year)
+            if cached is not None:
+                payload = cached
+                data_source = "cache"
+                payload["cache_message"] = (
+                    "Showing data last synced from Oracle."
+                )
 
-        cursor.close()
-        conn.close()
-        return Response({
-            "total_employees": total,
-            "retirement_count": retirement_count,
-            "retirement_list": data
-        })
+        if payload is None:
+            payload = {
+                "total_employees": 0,
+                "retirement_count": 0,
+                "retirement_list": [],
+                "prev_month_count": 0,
+                "next_month_count": 0,
+                "prev_month_label": "",
+                "this_month_label": "",
+                "next_month_label": "",
+            }
+            data_source = "none"
+
+        payload["data_source"] = data_source
+        return Response(attach_workflow(payload))
     
 
 class PensionProcessView(APIView):

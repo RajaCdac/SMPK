@@ -1,0 +1,175 @@
+/* Shared responsive form layout — import once in main.jsx */
+
+.smpk-form {
+  text-align: left;
+  color: #1e293b;
+}
+
+.smpk-form .form-label,
+.smpk-form .pp-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #334155;
+  line-height: 1.3;
+}
+
+.smpk-form .form-control,
+.smpk-form .form-select,
+.smpk-form textarea.form-control {
+  min-height: 2.75rem;
+  font-size: 1rem;
+  border-radius: 8px;
+  border-color: #cbd5e1;
+  background-color: #fff;
+  color: #0f172a;
+}
+
+.smpk-form .form-control:focus,
+.smpk-form .form-select:focus,
+.smpk-form textarea.form-control:focus {
+  border-color: #1976d2;
+  box-shadow: 0 0 0 0.2rem rgba(25, 118, 210, 0.15);
+}
+
+.smpk-form .form-control:disabled,
+.smpk-form .form-control[readonly],
+.smpk-form .form-select:disabled,
+.smpk-form .pp-readonly {
+  background-color: #f1f5f9;
+  color: #475569;
+}
+
+.smpk-form .form-check {
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  padding-left: 1.75rem;
+}
+
+.smpk-form .form-check-input {
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0;
+}
+
+.smpk-form .form-check-label {
+  font-size: 0.95rem;
+  color: #334155;
+}
+
+.smpk-form .row {
+  --bs-gutter-x: 1rem;
+  --bs-gutter-y: 0.75rem;
+}
+
+.smpk-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+
+.process-intake-actions {
+  justify-content: flex-end;
+}
+
+.smpk-form-actions .btn {
+  min-height: 2.75rem;
+  padding: 0.5rem 1.25rem;
+}
+
+.smpk-form-actions.justify-content-end {
+  justify-content: flex-end;
+}
+
+.methodology-page {
+  text-align: left;
+  max-width: 100%;
+}
+
+/* Basic info grid instead of cramped 4-col table */
+.employee-info-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.employee-info-item {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+}
+
+.employee-info-item span {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+  margin-bottom: 0.25rem;
+}
+
+.employee-info-item strong {
+  font-size: 0.95rem;
+  color: #0f172a;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+@media (min-width: 576px) {
+  .employee-info-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 992px) {
+  .employee-info-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Responsive amount summary table */
+.smpk-form .smpk-summary-table {
+  width: 100%;
+}
+
+@media (max-width: 767.98px) {
+  .smpk-form .smpk-summary-table thead {
+    display: none;
+  }
+
+  .smpk-form .smpk-summary-table tbody tr {
+    display: block;
+    margin-bottom: 0.75rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .smpk-form .smpk-summary-table tbody td {
+    display: block;
+    text-align: left !important;
+    padding: 0.75rem 1rem;
+    border: none;
+    border-bottom: 1px solid #f1f5f9;
+  }
+
+  .smpk-form .smpk-summary-table tbody td::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #64748b;
+    margin-bottom: 0.25rem;
+    text-transform: uppercase;
+  }
+
+  .smpk-form .smpk-summary-table tbody td:last-child {
+    border-bottom: none;
+  }
+}

@@ -1,0 +1,119 @@
+.comm-sanction-print {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #000;
+  background: #fff;
+}
+
+.comm-sanction-print__page {
+  width: 297mm;
+  min-height: 210mm;
+  margin: 0 auto 1.5rem;
+  padding: 10mm 16mm 8mm;
+  background: #fff;
+  box-sizing: border-box;
+  page-break-after: always;
+}
+
+.comm-sanction-print__page:last-child {
+  page-break-after: auto;
+}
+
+.comm-sanction-print__header {
+  display: grid;
+  grid-template-columns: 110px 1fr 150px;
+  align-items: start;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.comm-sanction-print__footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 28px;
+}
+.comm-sanction-print__sign {
+  margin-top: 30px;
+  line-height: 1.45;
+}
+
+
+.comm-sanction-print__logo {
+  height: 72px;
+  width: auto;
+  max-width: 100px;
+  object-fit: contain;
+}
+
+.comm-sanction-print__heading {
+  text-align: center;
+  padding-top: 4px;
+}
+
+.comm-sanction-print__org {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.comm-sanction-print__title {
+  font-weight: 700;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.comm-sanction-print__meta-top {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  text-align: right;
+}
+
+.comm-sanction-print__fields {
+  margin-top: 8px;
+}
+
+.comm-sanction-print__field {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-bottom: 10px;
+  align-items: start;
+}
+
+.comm-sanction-print__label {
+  line-height: 1.4;
+  padding-right: 4px;
+}
+
+.comm-sanction-print__value {
+  font-weight: 700;
+  text-transform: uppercase;
+  min-width: 0;
+}
+
+.comm-sanction-print__narrative {
+  margin: 28px 0 8px;
+  line-height: 1.55;
+  text-align: justify;
+}
+
+.comm-sanction-print__words {
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.pension-commutation-bill-report {
+  margin-top: 0.5rem;
+}
+
+@media print {
+  .comm-sanction-print__page {
+    width: auto;
+    min-height: auto;
+    margin: 0;
+    padding: 0;
+  }
+}

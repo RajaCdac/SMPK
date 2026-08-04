@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>M2 Consolidation {{ s.emp_cd }}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 5mm 8mm;
+    }
+    body {
+      font-family: "Times New Roman", Times, serif;
+      color: #000;
+      background: #fff;
+      font-size: 12px;
+      line-height: 1.35;
+      margin: 0;
+      padding: 0;
+    }
+    img.rupee {
+      height: 10px;
+      width: auto;
+      vertical-align: middle;
+      margin: 0 1px 1px 0;
+    }
+    .m2-consol-print {
+      width: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    .m2-consol-print__title {
+      text-align: center;
+      font-size: 12px;
+      font-weight: 700;
+      margin: 0 0 4px;
+    }
+    .m2-consol-print__subtitle {
+      text-align: center;
+      font-size: 13px;
+      font-weight: 300;
+      margin: 0 0 2px;
+    }
+    .m2-consol-print__generated {
+      text-align: center;
+      font-size: 11px;
+      margin: 0 0 8px;
+    }
+    .m2-consol-print__emp-grid {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 10px;
+      table-layout: fixed;
+    }
+    .m2-consol-print__emp-grid td {
+      border: 1px solid #333;
+      padding: 4px 8px;
+      vertical-align: top;
+      width: 50%;
+    }
+    .m2-consol-print__emp-grid .label {
+      font-weight: 700;
+      margin-right: 4px;
+    }
+    .m2-consol-print__block {
+      margin-bottom: 12px;
+      page-break-inside: avoid;
+    }
+    .m2-consol-print__block-title {
+      font-weight: 700;
+      font-size: 12px;
+      margin: 0;
+      text-align: center;
+      background: #f3f3f3;
+      border: 1px solid #333;
+      border-bottom: none;
+      padding: 4px 6px;
+    }
+    .m2-consol-print__block-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .m2-consol-print__block-table th,
+    .m2-consol-print__block-table td {
+      border: 1px solid #333;
+      padding: 3px 8px;
+    }
+    .m2-consol-print__block-table th {
+      background: #eee;
+      font-size: 11px;
+      text-align: center;
+    }
+    .m2-consol-print__block-table td.code,
+    .m2-consol-print__block-table th.code {
+      width: 28px;
+      text-align: center;
+      font-weight: 700;
+    }
+    .m2-consol-print__block-table td.amt {
+      text-align: right;
+      white-space: nowrap;
+      width: 28%;
+    }
+    .m2-consol-print__fp-title {
+      font-weight: 700;
+      text-align: center;
+      margin: 10px 0 4px;
+      font-size: 13px;
+    }
+    .m2-consol-print__fp-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 16px;
+    }
+    .m2-consol-print__fp-table th,
+    .m2-consol-print__fp-table td {
+      border: 1px solid #333;
+      padding: 5px 8px;
+    }
+    .m2-consol-print__fp-table th {
+      background: #eee;
+      text-align: center;
+    }
+    .m2-consol-print__fp-table td.amt {
+      text-align: right;
+    }
+    .m2-consol-print__footer {
+      width: 100%;
+      margin-top: 20px;
+      border-collapse: collapse;
+      page-break-inside: avoid;
+    }
+    .m2-consol-print__footer td {
+      border: none;
+      font-weight: 700;
+      font-size: 13px;
+      padding: 0 24px;
+    }
+    .m2-consol-print__footer td.right {
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div class="m2-consol-print">
+    <h3 class="m2-consol-print__title">
+      Consolidation of Pension as per Methodology-2 and comparison between M-1 &amp; M-2 for 2017 &amp; 2022
+    </h3>
+    <h4 class="m2-consol-print__subtitle">Pension Calculation Report</h4>
+    <div class="m2-consol-print__generated">Generated on: {{ generated_on }}</div>
+
+    <table class="m2-consol-print__emp-grid">
+      <tbody>
+        <tr>
+          <td><span class="label">Employee Name:</span> {{ s.name|default:"—" }}</td>
+          <td><span class="label">Emp ID:</span> {{ s.emp_cd|default:"—" }}</td>
+        </tr>
+        <tr>
+          <td><span class="label">Case NO:</span> {{ s.case_no|default:"—" }}</td>
+          <td><span class="label">Retirement Date:</span> {{ retirement_date }}</td>
+        </tr>
+        <tr>
+          <td><span class="label">Roll No:</span> {{ s.roll_no|default:"—" }}</td>
+          <td><span class="label">Category:</span> {{ s.category|default:"—" }}</td>
+        </tr>
+        <tr>
+          <td><span class="label">Designation:</span> {{ s.designation|default:"—" }}</td>
+          <td><span class="label">TQS:</span> {{ tqs }}</td>
+        </tr>
+        <tr>
+          <td><span class="label">Average Pay:</span> {{ average_pay }}</td>
+          <td><span class="label">Last Pay:</span> {{ last_pay }}</td>
+        </tr>
+        {% if not is_employee_pension %}
+        <tr>
+          <td><span class="label">Pensioner Name:</span> {{ s.pensioner_name|default:"—" }}</td>
+          <td></td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    {% for block in blocks %}
+    <div class="m2-consol-print__block">
+      <div class="m2-consol-print__block-title">{{ block.title }}</div>
+      <table class="m2-consol-print__block-table">
+        <thead>
+          <tr>
+            <th class="code"></th>
+            <th>Breakdown Component</th>
+            <th>Amount ({{ rupee_img }})</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in block.rows %}
+          <tr>
+            <td class="code">{{ row.code }}</td>
+            <td>{{ row.description }}</td>
+            <td class="amt">{{ row.amount_display }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="3">No rows</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% empty %}
+    <p>No revision blocks on snapshot.</p>
+    {% endfor %}
+
+    <div class="m2-consol-print__fp-title">{{ pension_section_title }}</div>
+    <table class="m2-consol-print__fp-table">
+      <thead>
+        <tr>
+          <th>Particulars</th>
+          <th>In 2017 (277 CPI)</th>
+          <th>In 2022 (359 CPI)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Pension fixed as per Methodology-2</td>
+          <td class="amt">{{ m2_277 }}</td>
+          <td class="amt">{{ m2_359 }}</td>
+        </tr>
+        <tr>
+          <td>Pension fixed as per Methodology-1</td>
+          <td class="amt">{{ m1_277 }}</td>
+          <td class="amt">{{ m1_359 }}</td>
+        </tr>
+        <tr>
+          <td>Difference</td>
+          <td class="amt">{{ diff_277 }}</td>
+          <td class="amt">{{ diff_359 }}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <table class="m2-consol-print__footer">
+      <tr>
+        <td>FA &amp; CAO</td>
+        <td class="right">AO GR-1</td>
+      </tr>
+    </table>
+  </div>
+</body>
+</html>

@@ -1,0 +1,86 @@
+.proposal-sanction-print {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #000;
+  background: #fff;
+}
+
+.proposal-sanction-print__page {
+  width: 297mm;
+  min-height: 210mm;
+  margin: 0 auto 1.5rem;
+  padding: 8mm 10mm 6mm;
+  background: #fff;
+  box-sizing: border-box;
+  page-break-after: always;
+}
+
+.proposal-sanction-print__page:last-child {
+  page-break-after: auto;
+}
+
+.proposal-sanction-print__header {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.proposal-sanction-print__org {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.proposal-sanction-print__title {
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.proposal-sanction-print__meta-top {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 10px;
+}
+
+.proposal-sanction-print__table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.proposal-sanction-print__table th,
+.proposal-sanction-print__table td {
+  border: 1px solid #000;
+  padding: 4px;
+  vertical-align: top;
+  word-wrap: break-word;
+}
+
+.proposal-sanction-print__table th {
+  text-align: center;
+  font-weight: 700;
+  font-size: 10px;
+}
+
+.proposal-sanction-print__name {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.proposal-sanction-print__notes {
+  margin: 4px 0 0;
+  padding-left: 14px;
+}
+
+.proposal-sanction-print__notes li {
+  margin-bottom: 2px;
+}
+
+.proposal-sanction-print__footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 28px;
+  padding-top: 8px;
+  border-top: 1px solid #000;
+  font-weight: 700;
+}

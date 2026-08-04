@@ -42,6 +42,7 @@ def _str(value):
 
 
 def empty_claim_form():
+    now = datetime.now()
     return {
         "clmca_id": "",
         "clm_ca_type": "CA",
@@ -61,12 +62,12 @@ def empty_claim_form():
         "disp_relation": "",
         "dob_guardian": "",
         "service_pension_amt": "",
-        "fpen_start_mnth": "",
-        "fprn_start_yr": "",
+        "fpen_start_mnth": now.month,
+        "fprn_start_yr": now.year,
         "retirement_cpi": "",
         "pension_opt": "",
-        "last_fpen_mth": "",
-        "last_fpen_yr": "",
+        "last_fpen_mth": now.month,
+        "last_fpen_yr": now.year,
         "scale_cd": "",
         "last_basic_at_ret": "",
         "fpension_roll_no": "",
@@ -328,22 +329,15 @@ def prefill_from_emp(emp_cd: str, clm_ca_type: str | None = None) -> dict:
             "emp_cd": code,
             "disp_name": name,
             "clm_ca_type": claim_type,
+            # Defaults for new claim entry (user can change)
+            "fpen_start_mnth": datetime.now().month,
+            "fprn_start_yr": datetime.now().year,
+            "last_fpen_mth": datetime.now().month,
+            "last_fpen_yr": datetime.now().year,
+            "dod_emp_pensioner": "",
         }
 
-        cur.execute(
-            """
-            SELECT SEPARATION_DT
-            FROM fi_xx_mh_emp_adm
-            WHERE EMP_CD = %s
-            LIMIT 1
-            """,
-            [code],
-        )
-        adm = cur.fetchone()
-        if adm and adm[0]:
-            prefill["dod_emp_pensioner"] = _fmt_date(adm[0])
-            prefill["emp_dod"] = _fmt_date(adm[0])
-
+        # Separation date is available on emp_adm but Pensioner Death On stays blank for user input.
         cur.execute(
             """
             SELECT SCALE_SL, EMP_CLASS
@@ -381,8 +375,7 @@ def prefill_from_emp(emp_cd: str, clm_ca_type: str | None = None) -> dict:
         cur.execute(
             """
             SELECT DOUBLE_FPEN_ELIGIBILITY, DOUBLE_FPEN_UPTO, CA_NUMBER,
-                   PENSION_OPTION, INCENTIVE_HOLDER_FLG, BASE_CPI,
-                   START_MONTH, START_YR, SEPARATION_DT
+                   PENSION_OPTION, INCENTIVE_HOLDER_FLG, BASE_CPI
             FROM fi_pn_mh_pension_proposal
             WHERE EMP_CD = %s
             ORDER BY
@@ -407,18 +400,12 @@ def prefill_from_emp(emp_cd: str, clm_ca_type: str | None = None) -> dict:
                 prefill["incentive_holder_flg"] = _str(prop[4])[:1]
             if prop[5] is not None:
                 prefill["retirement_cpi"] = _num(prop[5])
-            if prop[6] is not None:
-                prefill["fpen_start_mnth"] = prop[6]
-            if prop[7] is not None:
-                prefill["fprn_start_yr"] = prop[7]
-            if prop[8] and not prefill.get("dod_emp_pensioner"):
-                prefill["dod_emp_pensioner"] = _fmt_date(prop[8])
 
         matches = find_claims_by_emp(code)
         return {
             "prefill": prefill,
             "matches": matches,
-            "exists": bool(name or pen or prop or adm),
+            "exists": bool(name or pen or prop or fin),
         }
 
 
@@ -474,6 +461,8 @@ def save_claim(payload: dict, user_id: str = "SMPK") -> dict:
     Insert or update FI_PN_MH_FPEN_CACLAIM + replace FI_PN_MD_FPEN_APPCN rows.
     Returns saved claim (via get_claim_by_id).
     """
+    from django.db import transaction
+
     data = payload or {}
     emp_cd = _str(data.get("emp_cd"))[:6]
     if not emp_cd:
@@ -487,186 +476,217 @@ def save_claim(payload: dict, user_id: str = "SMPK") -> dict:
     applicants = data.get("applicants") or []
     named = [a for a in applicants if _str(a.get("name"))]
 
-    conn = connections["default"]
-    with conn.cursor() as cur:
-        if clmca_id:
-            cur.execute(
-                "SELECT 1 FROM fi_pn_mh_fpen_caclaim WHERE CLMCA_ID = %s LIMIT 1",
-                [clmca_id],
-            )
-            exists = cur.fetchone() is not None
-        else:
-            exists = False
-            clmca_id = allocate_claim_id(cur, clm_ca_type)
+    created = False
 
-        master_vals = {
-            "CLMCA_ID": clmca_id[:22],
-            "CLM_CA_TYPE": clm_ca_type,
-            "CA_NO": _str(data.get("ca_no"))[:22] or None,
-            "EMP_CD": emp_cd,
-            "APPCN_NO": _str(data.get("appcn_no"))[:22] or None,
-            "APPCN_DATE": _parse_date(data.get("appcn_date")),
-            "APPCN_STATUS": _parse_int(data.get("appcn_status")),
-            "DOUBLE_FPEN_ELIGIBILITY": 1
-            if data.get("double_fpen_eligibility") in (1, "1", True)
-            else 0,
-            "DOUBLE_FPEN_UPTO": _parse_date(data.get("double_fpen_upto")),
-            "APPLICANT_TYPE": _parse_int(data.get("applicant_type")),
-            "APPLICANT_NAME": _str(data.get("applicant_name"))[:60] or None,
-            "APPLICANT_ADDRESS": _str(data.get("applicant_address"))[:200] or None,
-            "DOD_EMP_PENSIONER": _parse_date(data.get("dod_emp_pensioner")),
-            "GURDIAN_RELATION_CD": _parse_int(data.get("gurdian_relation_cd")),
-            "DOB_GUARDIAN": _parse_date(data.get("dob_guardian")),
-            "SERVICE_PENSION_AMT": _parse_dec(data.get("service_pension_amt")),
-            "FPEN_START_MNTH": _parse_int(data.get("fpen_start_mnth")),
-            "FPRN_START_YR": _parse_int(data.get("fprn_start_yr")),
-            "RETIREMENT_CPI": _parse_dec(data.get("retirement_cpi")),
-            "PENSION_OPT": _str(data.get("pension_opt"))[:1] or None,
-            "LAST_FPEN_MTH": _parse_int(data.get("last_fpen_mth")),
-            "LAST_FPEN_YR": _parse_int(data.get("last_fpen_yr")),
-            "SCALE_CD": _str(data.get("scale_cd"))[:11] or None,
-            "LAST_BASIC_AT_RET": _parse_dec(data.get("last_basic_at_ret")),
-            "FPENSION_ROLL_NO": _str(data.get("fpension_roll_no"))[:22] or None,
-            "INCENTIVE_HOLDER_FLG": _str(data.get("incentive_holder_flg"))[:1] or None,
-            "CONSOLID_CPI_SCL_STAMT": _parse_dec(data.get("consolid_cpi_scl_stamt")),
-            "EQUIV_PAY_AT_BASE_CPI": _parse_dec(data.get("equiv_pay_at_base_cpi")),
-            "CLASS": _parse_int(data.get("class_cd")),
-            "EMP_DOD": _parse_date(data.get("emp_dod")),
-            "REMARKS": _str(data.get("remarks"))[:200] or None,
-        }
+    try:
+        with transaction.atomic(using="default"):
+            conn = connections["default"]
+            with conn.cursor() as cur:
+                if clmca_id:
+                    cur.execute(
+                        "SELECT 1 FROM fi_pn_mh_fpen_caclaim WHERE CLMCA_ID = %s LIMIT 1",
+                        [clmca_id],
+                    )
+                    exists = cur.fetchone() is not None
+                else:
+                    exists = False
+                    # Allocate under the same transaction to reduce duplicate-ID races
+                    for _ in range(5):
+                        clmca_id = allocate_claim_id(cur, clm_ca_type)
+                        cur.execute(
+                            "SELECT 1 FROM fi_pn_mh_fpen_caclaim WHERE CLMCA_ID = %s LIMIT 1",
+                            [clmca_id],
+                        )
+                        if not cur.fetchone():
+                            break
+                    else:
+                        return {"error": "Could not allocate a new Claim ID"}
 
-        if exists:
-            cur.execute(
-                """
-                UPDATE fi_pn_mh_fpen_caclaim SET
-                    CLM_CA_TYPE=%(CLM_CA_TYPE)s,
-                    CA_NO=%(CA_NO)s,
-                    EMP_CD=%(EMP_CD)s,
-                    APPCN_NO=%(APPCN_NO)s,
-                    APPCN_DATE=%(APPCN_DATE)s,
-                    APPCN_STATUS=%(APPCN_STATUS)s,
-                    DOUBLE_FPEN_ELIGIBILITY=%(DOUBLE_FPEN_ELIGIBILITY)s,
-                    DOUBLE_FPEN_UPTO=%(DOUBLE_FPEN_UPTO)s,
-                    APPLICANT_TYPE=%(APPLICANT_TYPE)s,
-                    APPLICANT_NAME=%(APPLICANT_NAME)s,
-                    APPLICANT_ADDRESS=%(APPLICANT_ADDRESS)s,
-                    DOD_EMP_PENSIONER=%(DOD_EMP_PENSIONER)s,
-                    GURDIAN_RELATION_CD=%(GURDIAN_RELATION_CD)s,
-                    DOB_GUARDIAN=%(DOB_GUARDIAN)s,
-                    SERVICE_PENSION_AMT=%(SERVICE_PENSION_AMT)s,
-                    FPEN_START_MNTH=%(FPEN_START_MNTH)s,
-                    FPRN_START_YR=%(FPRN_START_YR)s,
-                    RETIREMENT_CPI=%(RETIREMENT_CPI)s,
-                    PENSION_OPT=%(PENSION_OPT)s,
-                    LAST_FPEN_MTH=%(LAST_FPEN_MTH)s,
-                    LAST_FPEN_YR=%(LAST_FPEN_YR)s,
-                    SCALE_CD=%(SCALE_CD)s,
-                    LAST_BASIC_AT_RET=%(LAST_BASIC_AT_RET)s,
-                    FPENSION_ROLL_NO=%(FPENSION_ROLL_NO)s,
-                    INCENTIVE_HOLDER_FLG=%(INCENTIVE_HOLDER_FLG)s,
-                    CONSOLID_CPI_SCL_STAMT=%(CONSOLID_CPI_SCL_STAMT)s,
-                    EQUIV_PAY_AT_BASE_CPI=%(EQUIV_PAY_AT_BASE_CPI)s,
-                    CLASS=%(CLASS)s,
-                    EMP_DOD=%(EMP_DOD)s,
-                    REMARKS=%(REMARKS)s,
-                    DATE_MODIFIED=%(DATE_MODIFIED)s,
-                    MODIFIED_BY=%(MODIFIED_BY)s
-                WHERE CLMCA_ID=%(CLMCA_ID)s
-                """,
-                {
-                    **master_vals,
-                    "DATE_MODIFIED": now,
-                    "MODIFIED_BY": user,
-                },
-            )
-        else:
-            cur.execute(
-                """
-                INSERT INTO fi_pn_mh_fpen_caclaim (
-                    CLMCA_ID, CLM_CA_TYPE, CA_NO, EMP_CD,
-                    APPCN_NO, APPCN_DATE, APPCN_STATUS,
-                    DOUBLE_FPEN_ELIGIBILITY, DOUBLE_FPEN_UPTO,
-                    APPLICANT_TYPE, APPLICANT_NAME, APPLICANT_ADDRESS,
-                    DOD_EMP_PENSIONER, GURDIAN_RELATION_CD, DOB_GUARDIAN,
-                    SERVICE_PENSION_AMT,
-                    DATE_CREATED, CREATED_BY,
-                    FPEN_START_MNTH, FPRN_START_YR, RETIREMENT_CPI, PENSION_OPT,
-                    LAST_FPEN_MTH, LAST_FPEN_YR, SCALE_CD, LAST_BASIC_AT_RET,
-                    FPENSION_ROLL_NO, INCENTIVE_HOLDER_FLG,
-                    CONSOLID_CPI_SCL_STAMT, EQUIV_PAY_AT_BASE_CPI,
-                    CLASS, EMP_DOD, REMARKS
-                ) VALUES (
-                    %(CLMCA_ID)s, %(CLM_CA_TYPE)s, %(CA_NO)s, %(EMP_CD)s,
-                    %(APPCN_NO)s, %(APPCN_DATE)s, %(APPCN_STATUS)s,
-                    %(DOUBLE_FPEN_ELIGIBILITY)s, %(DOUBLE_FPEN_UPTO)s,
-                    %(APPLICANT_TYPE)s, %(APPLICANT_NAME)s, %(APPLICANT_ADDRESS)s,
-                    %(DOD_EMP_PENSIONER)s, %(GURDIAN_RELATION_CD)s, %(DOB_GUARDIAN)s,
-                    %(SERVICE_PENSION_AMT)s,
-                    %(DATE_CREATED)s, %(CREATED_BY)s,
-                    %(FPEN_START_MNTH)s, %(FPRN_START_YR)s, %(RETIREMENT_CPI)s, %(PENSION_OPT)s,
-                    %(LAST_FPEN_MTH)s, %(LAST_FPEN_YR)s, %(SCALE_CD)s, %(LAST_BASIC_AT_RET)s,
-                    %(FPENSION_ROLL_NO)s, %(INCENTIVE_HOLDER_FLG)s,
-                    %(CONSOLID_CPI_SCL_STAMT)s, %(EQUIV_PAY_AT_BASE_CPI)s,
-                    %(CLASS)s, %(EMP_DOD)s, %(REMARKS)s
+                created = not exists
+
+                master_vals = {
+                    "CLMCA_ID": clmca_id[:22],
+                    "CLM_CA_TYPE": clm_ca_type,
+                    "CA_NO": _str(data.get("ca_no"))[:22] or None,
+                    "EMP_CD": emp_cd,
+                    "APPCN_NO": _str(data.get("appcn_no"))[:22] or None,
+                    "APPCN_DATE": _parse_date(data.get("appcn_date")),
+                    "APPCN_STATUS": _parse_int(data.get("appcn_status")),
+                    "DOUBLE_FPEN_ELIGIBILITY": 1
+                    if data.get("double_fpen_eligibility") in (1, "1", True)
+                    else 0,
+                    "DOUBLE_FPEN_UPTO": _parse_date(data.get("double_fpen_upto")),
+                    "APPLICANT_TYPE": _parse_int(data.get("applicant_type")),
+                    "APPLICANT_NAME": _str(data.get("applicant_name"))[:60] or None,
+                    "APPLICANT_ADDRESS": _str(data.get("applicant_address"))[:200]
+                    or None,
+                    "DOD_EMP_PENSIONER": _parse_date(data.get("dod_emp_pensioner")),
+                    "GURDIAN_RELATION_CD": _parse_int(data.get("gurdian_relation_cd")),
+                    "DOB_GUARDIAN": _parse_date(data.get("dob_guardian")),
+                    "SERVICE_PENSION_AMT": _parse_dec(data.get("service_pension_amt")),
+                    "FPEN_START_MNTH": _parse_int(data.get("fpen_start_mnth")),
+                    "FPRN_START_YR": _parse_int(data.get("fprn_start_yr")),
+                    "RETIREMENT_CPI": _parse_dec(data.get("retirement_cpi")),
+                    "PENSION_OPT": _str(data.get("pension_opt"))[:1] or None,
+                    "LAST_FPEN_MTH": _parse_int(data.get("last_fpen_mth")),
+                    "LAST_FPEN_YR": _parse_int(data.get("last_fpen_yr")),
+                    "SCALE_CD": _str(data.get("scale_cd"))[:11] or None,
+                    "LAST_BASIC_AT_RET": _parse_dec(data.get("last_basic_at_ret")),
+                    "FPENSION_ROLL_NO": _str(data.get("fpension_roll_no"))[:22] or None,
+                    "INCENTIVE_HOLDER_FLG": _str(data.get("incentive_holder_flg"))[:1]
+                    or None,
+                    "CONSOLID_CPI_SCL_STAMT": _parse_dec(
+                        data.get("consolid_cpi_scl_stamt")
+                    ),
+                    "EQUIV_PAY_AT_BASE_CPI": _parse_dec(
+                        data.get("equiv_pay_at_base_cpi")
+                    ),
+                    "CLASS": _parse_int(data.get("class_cd")),
+                    "EMP_DOD": _parse_date(data.get("emp_dod")),
+                    "REMARKS": _str(data.get("remarks"))[:200] or None,
+                }
+
+                if exists:
+                    cur.execute(
+                        """
+                        UPDATE fi_pn_mh_fpen_caclaim SET
+                            CLM_CA_TYPE=%(CLM_CA_TYPE)s,
+                            CA_NO=%(CA_NO)s,
+                            EMP_CD=%(EMP_CD)s,
+                            APPCN_NO=%(APPCN_NO)s,
+                            APPCN_DATE=%(APPCN_DATE)s,
+                            APPCN_STATUS=%(APPCN_STATUS)s,
+                            DOUBLE_FPEN_ELIGIBILITY=%(DOUBLE_FPEN_ELIGIBILITY)s,
+                            DOUBLE_FPEN_UPTO=%(DOUBLE_FPEN_UPTO)s,
+                            APPLICANT_TYPE=%(APPLICANT_TYPE)s,
+                            APPLICANT_NAME=%(APPLICANT_NAME)s,
+                            APPLICANT_ADDRESS=%(APPLICANT_ADDRESS)s,
+                            DOD_EMP_PENSIONER=%(DOD_EMP_PENSIONER)s,
+                            GURDIAN_RELATION_CD=%(GURDIAN_RELATION_CD)s,
+                            DOB_GUARDIAN=%(DOB_GUARDIAN)s,
+                            SERVICE_PENSION_AMT=%(SERVICE_PENSION_AMT)s,
+                            FPEN_START_MNTH=%(FPEN_START_MNTH)s,
+                            FPRN_START_YR=%(FPRN_START_YR)s,
+                            RETIREMENT_CPI=%(RETIREMENT_CPI)s,
+                            PENSION_OPT=%(PENSION_OPT)s,
+                            LAST_FPEN_MTH=%(LAST_FPEN_MTH)s,
+                            LAST_FPEN_YR=%(LAST_FPEN_YR)s,
+                            SCALE_CD=%(SCALE_CD)s,
+                            LAST_BASIC_AT_RET=%(LAST_BASIC_AT_RET)s,
+                            FPENSION_ROLL_NO=%(FPENSION_ROLL_NO)s,
+                            INCENTIVE_HOLDER_FLG=%(INCENTIVE_HOLDER_FLG)s,
+                            CONSOLID_CPI_SCL_STAMT=%(CONSOLID_CPI_SCL_STAMT)s,
+                            EQUIV_PAY_AT_BASE_CPI=%(EQUIV_PAY_AT_BASE_CPI)s,
+                            CLASS=%(CLASS)s,
+                            EMP_DOD=%(EMP_DOD)s,
+                            REMARKS=%(REMARKS)s,
+                            DATE_MODIFIED=%(DATE_MODIFIED)s,
+                            MODIFIED_BY=%(MODIFIED_BY)s
+                        WHERE CLMCA_ID=%(CLMCA_ID)s
+                        """,
+                        {
+                            **master_vals,
+                            "DATE_MODIFIED": now,
+                            "MODIFIED_BY": user,
+                        },
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO fi_pn_mh_fpen_caclaim (
+                            CLMCA_ID, CLM_CA_TYPE, CA_NO, EMP_CD,
+                            APPCN_NO, APPCN_DATE, APPCN_STATUS,
+                            DOUBLE_FPEN_ELIGIBILITY, DOUBLE_FPEN_UPTO,
+                            APPLICANT_TYPE, APPLICANT_NAME, APPLICANT_ADDRESS,
+                            DOD_EMP_PENSIONER, GURDIAN_RELATION_CD, DOB_GUARDIAN,
+                            SERVICE_PENSION_AMT,
+                            DATE_CREATED, CREATED_BY,
+                            FPEN_START_MNTH, FPRN_START_YR, RETIREMENT_CPI, PENSION_OPT,
+                            LAST_FPEN_MTH, LAST_FPEN_YR, SCALE_CD, LAST_BASIC_AT_RET,
+                            FPENSION_ROLL_NO, INCENTIVE_HOLDER_FLG,
+                            CONSOLID_CPI_SCL_STAMT, EQUIV_PAY_AT_BASE_CPI,
+                            CLASS, EMP_DOD, REMARKS
+                        ) VALUES (
+                            %(CLMCA_ID)s, %(CLM_CA_TYPE)s, %(CA_NO)s, %(EMP_CD)s,
+                            %(APPCN_NO)s, %(APPCN_DATE)s, %(APPCN_STATUS)s,
+                            %(DOUBLE_FPEN_ELIGIBILITY)s, %(DOUBLE_FPEN_UPTO)s,
+                            %(APPLICANT_TYPE)s, %(APPLICANT_NAME)s, %(APPLICANT_ADDRESS)s,
+                            %(DOD_EMP_PENSIONER)s, %(GURDIAN_RELATION_CD)s, %(DOB_GUARDIAN)s,
+                            %(SERVICE_PENSION_AMT)s,
+                            %(DATE_CREATED)s, %(CREATED_BY)s,
+                            %(FPEN_START_MNTH)s, %(FPRN_START_YR)s, %(RETIREMENT_CPI)s, %(PENSION_OPT)s,
+                            %(LAST_FPEN_MTH)s, %(LAST_FPEN_YR)s, %(SCALE_CD)s, %(LAST_BASIC_AT_RET)s,
+                            %(FPENSION_ROLL_NO)s, %(INCENTIVE_HOLDER_FLG)s,
+                            %(CONSOLID_CPI_SCL_STAMT)s, %(EQUIV_PAY_AT_BASE_CPI)s,
+                            %(CLASS)s, %(EMP_DOD)s, %(REMARKS)s
+                        )
+                        """,
+                        {
+                            **master_vals,
+                            "DATE_CREATED": now,
+                            "CREATED_BY": user,
+                        },
+                    )
+
+                cur.execute(
+                    "DELETE FROM fi_pn_md_fpen_appcn WHERE CLMCA_ID = %s",
+                    [clmca_id],
                 )
-                """,
-                {
-                    **master_vals,
-                    "DATE_CREATED": now,
-                    "CREATED_BY": user,
-                },
-            )
-
-        cur.execute(
-            "DELETE FROM fi_pn_md_fpen_appcn WHERE CLMCA_ID = %s",
-            [clmca_id],
-        )
-        for i, app in enumerate(named, start=1):
-            sl_no = _parse_int(app.get("sl_no")) or i
-            cur.execute(
-                """
-                INSERT INTO fi_pn_md_fpen_appcn (
-                    SL_NO, NAME, CLMCA_ID, DOB, FPEN_ACTIVE,
-                    FPEN_START_MNTH, FPRN_START_YR, IMPL_MNTH, IMPL_YR,
-                    DATE_CREATED, CREATED_BY,
-                    RELATION_CD, BANK_CD, ACCOUNT_NO, LIC_BANK_CD,
-                    STATUS_FLG, SEX, FPEN_INACTIVE_FROM_DT, FPEN_CLOS_REASON,
-                    HANDICAP_FLG, PAN_NO
-                ) VALUES (
-                    %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s,
-                    %s, %s,
-                    %s, %s, %s, %s,
-                    %s, %s, %s, %s,
-                    %s, %s
-                )
-                """,
-                [
-                    sl_no,
-                    _str(app.get("name"))[:100],
-                    clmca_id,
-                    _parse_date(app.get("dob")),
-                    _parse_int(app.get("fpen_active"))
-                    if app.get("fpen_active") not in (None, "")
-                    else 1,
-                    _parse_int(app.get("fpen_start_mnth")),
-                    _parse_int(app.get("fprn_start_yr")),
-                    _parse_int(app.get("impl_mnth")),
-                    _parse_int(app.get("impl_yr")),
-                    now,
-                    user,
-                    _parse_int(app.get("relation_cd")),
-                    _str(app.get("bank_cd"))[:6] or None,
-                    _str(app.get("account_no"))[:20] or None,
-                    _str(app.get("lic_bank_cd"))[:6] or None,
-                    _str(app.get("status_flg"))[:1] or "S",
-                    _str(app.get("sex"))[:1] or None,
-                    _parse_date(app.get("fpen_inactive_from_dt")),
-                    _str(app.get("fpen_clos_reason"))[:2] or None,
-                    _str(app.get("handicap_flg"))[:1] or "N",
-                    _str(app.get("pan_no"))[:10] or None,
-                ],
-            )
+                for i, app in enumerate(named, start=1):
+                    sl_no = _parse_int(app.get("sl_no")) or i
+                    cur.execute(
+                        """
+                        INSERT INTO fi_pn_md_fpen_appcn (
+                            SL_NO, NAME, CLMCA_ID, DOB, FPEN_ACTIVE,
+                            FPEN_START_MNTH, FPRN_START_YR, IMPL_MNTH, IMPL_YR,
+                            DATE_CREATED, CREATED_BY,
+                            RELATION_CD, BANK_CD, ACCOUNT_NO, LIC_BANK_CD,
+                            STATUS_FLG, SEX, FPEN_INACTIVE_FROM_DT, FPEN_CLOS_REASON,
+                            HANDICAP_FLG, PAN_NO
+                        ) VALUES (
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s,
+                            %s, %s,
+                            %s, %s, %s, %s,
+                            %s, %s, %s, %s,
+                            %s, %s
+                        )
+                        """,
+                        [
+                            sl_no,
+                            _str(app.get("name"))[:100],
+                            clmca_id,
+                            _parse_date(app.get("dob")),
+                            _parse_int(app.get("fpen_active"))
+                            if app.get("fpen_active") not in (None, "")
+                            else 1,
+                            _parse_int(app.get("fpen_start_mnth")),
+                            _parse_int(app.get("fprn_start_yr")),
+                            _parse_int(app.get("impl_mnth")),
+                            _parse_int(app.get("impl_yr")),
+                            now,
+                            user or "SMPK",
+                            _parse_int(app.get("relation_cd")),
+                            _str(app.get("bank_cd"))[:6] or None,
+                            _str(app.get("account_no"))[:20] or None,
+                            _str(app.get("lic_bank_cd"))[:6] or None,
+                            _str(app.get("status_flg"))[:1] or "S",
+                            _str(app.get("sex"))[:1] or None,
+                            _parse_date(app.get("fpen_inactive_from_dt")),
+                            _str(app.get("fpen_clos_reason"))[:2] or None,
+                            _str(app.get("handicap_flg"))[:1] or "N",
+                            _str(app.get("pan_no"))[:10] or None,
+                        ],
+                    )
+    except Exception as exc:
+        return {"error": f"Save failed: {exc}"}
 
     claim = get_claim_by_id(clmca_id)
-    return {"exists": True, "claim": claim, "created": not exists}
+    if not claim:
+        return {
+            "error": (
+                f"Claim {clmca_id} was written but could not be reloaded. "
+                "Please Load by Claim ID."
+            )
+        }
+    return {"exists": True, "claim": claim, "created": created}

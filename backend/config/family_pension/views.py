@@ -14,6 +14,14 @@ from family_pension.services.list_service import (
     datatable_family_pensioners,
     list_family_pensioners,
 )
+from family_pension.services.first_fpension_service import (
+    FirstFamilyPensionError,
+    generate_first_family_pension,
+)
+from family_pension.services.proposal_report_service import (
+    FamilyPensionProposalReportError,
+    build_family_pension_proposal_report,
+)
 
 
 class FamilyPensionerListAPIView(APIView):
@@ -143,5 +151,84 @@ class FamilyPensionRelationListAPIView(APIView):
         except Exception as exc:
             return Response(
                 {"error": str(exc)},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+
+class FamilyPensionProposalReportAPIView(APIView):
+    """
+    Recommendation & Sanction of Family Pension (NORMAL) print data.
+    FI_PN_MH_FPENSION_PROPOSAL_RPT / fi_pn_mh_Fpension_Appl.
+    """
+
+    def get(self, request):
+        clmca_id = (request.query_params.get("clmca_id") or "").strip()
+        emp_cd = (request.query_params.get("emp_cd") or "").strip()
+        if not clmca_id and not emp_cd:
+            return Response(
+                {"error": "Provide clmca_id or emp_cd"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            report = build_family_pension_proposal_report(
+                clmca_id=clmca_id or None,
+                emp_cd=emp_cd or None,
+            )
+            return Response(report)
+        except FamilyPensionProposalReportError as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:
+            return Response(
+                {"error": f"Could not build family pension proposal report: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+
+class FamilyPensionGenerateFirstAPIView(APIView):
+    """
+    Generate First Family Pension (type N).
+
+    Amount from Methodology I; inserts into familypensioner + first-month TH/TD.
+    Body: { clmca_id, month?, year?, regenerate? }
+    """
+
+    def post(self, request):
+        data = request.data or {}
+        clmca_id = str(data.get("clmca_id") or "").strip()
+        if not clmca_id:
+            return Response(
+                {"error": "clmca_id is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = getattr(request.user, "username", None) or "SMPK"
+        month = data.get("month")
+        year = data.get("year")
+        regenerate = str(data.get("regenerate") or "").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
+        try:
+            result = generate_first_family_pension(
+                clmca_id=clmca_id,
+                month=month,
+                year=year,
+                user_id=user,
+                regenerate=regenerate,
+            )
+            return Response(result)
+        except FirstFamilyPensionError as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return Response(
+                {"error": f"Could not generate First Family Pension: {exc}"},
                 status=status.HTTP_502_BAD_GATEWAY,
             )

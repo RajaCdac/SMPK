@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import API from "../services/Api";
+import FamilyPensionProposalPrint from "../components/FamilyPensionProposalPrint";
+import { printPensionReport } from "../utils/pensionReportPrint";
 import "../styles/FamilyPensionClaim.css";
+import "../styles/FamilyPensionProposalReport.css";
 
 /** FI_PN_MH_FPENSION_CLAIM_E.fmb — Family Pension Claim entry */
 
@@ -38,7 +41,16 @@ const APPLICANT_TYPE_OPTIONS = [
   ["10", "10 - DEPENDENT MOTHER"],
 ];
 
+function currentMonthYear() {
+  const now = new Date();
+  return {
+    month: String(now.getMonth() + 1),
+    year: String(now.getFullYear()),
+  };
+}
+
 function emptyClaim() {
+  const { month, year } = currentMonthYear();
   return {
     clmca_id: "",
     clm_ca_type: "CM",
@@ -58,12 +70,12 @@ function emptyClaim() {
     disp_relation: "",
     dob_guardian: "",
     service_pension_amt: "",
-    fpen_start_mnth: "",
-    fprn_start_yr: "",
+    fpen_start_mnth: month,
+    fprn_start_yr: year,
     retirement_cpi: "",
     pension_opt: "",
-    last_fpen_mth: "",
-    last_fpen_yr: "",
+    last_fpen_mth: month,
+    last_fpen_yr: year,
     scale_cd: "",
     last_basic_at_ret: "",
     incentive_holder_flg: "",
@@ -89,6 +101,19 @@ function emptyApplicantRow(slNo = 1) {
   };
 }
 
+function apiErrorMessage(err, fallback = "Request failed") {
+  const data = err?.response?.data;
+  if (!data) return err?.message || fallback;
+  if (typeof data === "string") return data.slice(0, 400);
+  if (data.error) return String(data.error);
+  if (data.detail) {
+    return typeof data.detail === "string"
+      ? data.detail
+      : JSON.stringify(data.detail);
+  }
+  return fallback;
+}
+
 function Field({ label, children, w = "fpc-w-md" }) {
   return (
     <div className={`fpc-field ${w}`}>
@@ -108,6 +133,19 @@ export default function FamilyPension() {
   const [saving, setSaving] = useState(false);
   const [isNewMode, setIsNewMode] = useState(false);
   const [prefilling, setPrefilling] = useState(false);
+  const [report, setReport] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [generatingFp, setGeneratingFp] = useState(false);
+  const savingRef = useRef(false);
+  const autoPrintRef = useRef(false);
+
+  useEffect(() => {
+    if (autoPrintRef.current && report?.pages?.length) {
+      autoPrintRef.current = false;
+      const t = setTimeout(() => printPensionReport(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [report]);
 
   useEffect(() => {
     API.get("family-pension/relations/")
@@ -176,9 +214,7 @@ export default function FamilyPension() {
         setError(data.error || "Claim not found");
       }
     } catch (err) {
-      setError(
-        err?.response?.data?.error || err?.message || "Failed to load claim"
-      );
+      setError(apiErrorMessage(err, "Failed to load claim"));
     } finally {
       setLoading(false);
     }
@@ -207,12 +243,21 @@ export default function FamilyPension() {
         return;
       }
       const prefill = data?.prefill || {};
+      const { month, year } = currentMonthYear();
       setForm((prev) => ({
         ...prev,
         ...prefill,
         // Keep blank Claim ID while creating a new claim
         clmca_id: isNewMode ? "" : prev.clmca_id,
         emp_cd,
+        // Always blank for user input on new/search prefill
+        dod_emp_pensioner: "",
+        // Default start / last pension period = current month-year
+        fpen_start_mnth: prefill.fpen_start_mnth ?? month,
+        fprn_start_yr: prefill.fprn_start_yr ?? year,
+        last_fpen_mth: prefill.last_fpen_mth ?? month,
+        last_fpen_yr: prefill.last_fpen_yr ?? year,
+        last_basic_at_ret: isNewMode ? "" : prev.last_basic_at_ret,
         applicants: prev.applicants?.length
           ? prev.applicants
           : [emptyApplicantRow(1)],
@@ -227,11 +272,7 @@ export default function FamilyPension() {
         setMessage(`Prefill done for employee ${emp_cd}`);
       }
     } catch (err) {
-      setError(
-        err?.response?.data?.error ||
-          err?.message ||
-          "Failed to prefill from Emp Code"
-      );
+      setError(apiErrorMessage(err, "Failed to prefill from Emp Code"));
     } finally {
       setPrefilling(false);
     }
@@ -247,16 +288,62 @@ export default function FamilyPension() {
     setError("");
   };
 
+  const loadProposalReport = useCallback(async (opts = {}, { autoPrint = false } = {}) => {
+    const clmca_id = String(opts.clmca_id || form.clmca_id || "").trim();
+    const emp_cd = String(opts.emp_cd || form.emp_cd || "").trim();
+    if (!clmca_id && !emp_cd) {
+      setError("Save or load a claim before printing the report");
+      return null;
+    }
+
+    setReportLoading(true);
+    try {
+      const params = {};
+      if (clmca_id) params.clmca_id = clmca_id;
+      else params.emp_cd = emp_cd;
+      const { data } = await API.get(
+        "family-pension/proposal-sanction-report/",
+        { params }
+      );
+      autoPrintRef.current = !!autoPrint;
+      setReport(data);
+      return data;
+    } catch (err) {
+      autoPrintRef.current = false;
+      setReport(null);
+      setError(apiErrorMessage(err, "Could not load proposal report"));
+      return null;
+    } finally {
+      setReportLoading(false);
+    }
+  }, [form.clmca_id, form.emp_cd]);
+
   const handleSave = async () => {
-    if (!String(form.emp_cd || "").trim()) {
+    if (savingRef.current) return;
+
+    const emp_cd = String(form.emp_cd || "").trim();
+    if (!emp_cd) {
       setError("Employee Code is required to save");
       return;
     }
+
+    savingRef.current = true;
     setSaving(true);
     setError("");
     setMessage("");
     try {
-      const { data } = await API.post("family-pension/claim/", form);
+      const payload = {
+        ...form,
+        emp_cd,
+        // New form must not send an old Claim ID
+        clmca_id: isNewMode ? "" : String(form.clmca_id || "").trim(),
+        incentive_holder_flg: form.incentive_holder_flg || "Y",
+      };
+      const { data } = await API.post("family-pension/claim/", payload);
+      if (data?.error) {
+        setError(data.error);
+        return;
+      }
       if (data?.claim) {
         applyClaim(data.claim);
         setMessage(
@@ -264,15 +351,116 @@ export default function FamilyPension() {
             ? `Saved new claim ${data.claim.clmca_id}`
             : `Updated claim ${data.claim.clmca_id}`
         );
+        await loadProposalReport(
+          {
+            clmca_id: data.claim.clmca_id,
+            emp_cd: data.claim.emp_cd || emp_cd,
+          },
+          { autoPrint: true }
+        );
       } else {
-        setError(data?.error || "Save failed");
+        setError("Save failed — empty response from server");
       }
     } catch (err) {
-      setError(
-        err?.response?.data?.error || err?.message || "Failed to save claim"
-      );
+      setError(apiErrorMessage(err, "Failed to save claim"));
     } finally {
+      savingRef.current = false;
       setSaving(false);
+    }
+  };
+
+  const handleGenerateFirstFp = async () => {
+    const clmca_id = String(form.clmca_id || "").trim();
+    if (!clmca_id) {
+      setError("Save or load a claim first (Claim ID required)");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Generate First Family Pension (type N) for claim ${clmca_id}?\n` +
+          "Amount will be calculated using Methodology-1."
+      )
+    ) {
+      return;
+    }
+    setGeneratingFp(true);
+    setError("");
+    setMessage("");
+    try {
+      const { data } = await API.post("family-pension/generate-first-fp/", {
+        clmca_id,
+        month: form.fpen_start_mnth || undefined,
+        year: form.fprn_start_yr || undefined,
+        regenerate: false,
+      });
+      if (data?.error) {
+        if (String(data.error).toLowerCase().includes("already generated")) {
+          if (
+            window.confirm(
+              `${data.error}\n\nRegenerate and replace existing First FP rows?`
+            )
+          ) {
+            const res2 = await API.post("family-pension/generate-first-fp/", {
+              clmca_id,
+              month: form.fpen_start_mnth || undefined,
+              year: form.fprn_start_yr || undefined,
+              regenerate: true,
+            });
+            if (res2.data?.error) {
+              setError(res2.data.error);
+              return;
+            }
+            const amt =
+              res2.data?.methodology1?.selected_amount ??
+              res2.data?.bills?.[0]?.fpension_amt;
+            setMessage(
+              `First FP regenerated. Amount ₹${amt}. Bill: ${
+                res2.data?.bills?.[0]?.fam_fmpen_id || "—"
+              }`
+            );
+            return;
+          }
+        }
+        setError(data.error);
+        return;
+      }
+      const amt =
+        data?.methodology1?.selected_amount ?? data?.bills?.[0]?.fpension_amt;
+      setMessage(
+        `First FP generated. Amount ₹${amt} (M1 CPI ${data?.methodology1?.process_cpi}). ` +
+          `Bill: ${data?.bills?.[0]?.fam_fmpen_id || "—"}`
+      );
+    } catch (err) {
+      const msg = apiErrorMessage(err, "First FP generation failed");
+      if (String(msg).toLowerCase().includes("already generated")) {
+        if (
+          window.confirm(`${msg}\n\nRegenerate and replace existing First FP rows?`)
+        ) {
+          try {
+            const res2 = await API.post("family-pension/generate-first-fp/", {
+              clmca_id,
+              month: form.fpen_start_mnth || undefined,
+              year: form.fprn_start_yr || undefined,
+              regenerate: true,
+            });
+            const amt =
+              res2.data?.methodology1?.selected_amount ??
+              res2.data?.bills?.[0]?.fpension_amt;
+            setMessage(
+              `First FP regenerated. Amount ₹${amt}. Bill: ${
+                res2.data?.bills?.[0]?.fam_fmpen_id || "—"
+              }`
+            );
+            return;
+          } catch (err2) {
+            setError(apiErrorMessage(err2, "First FP regenerate failed"));
+            return;
+          }
+        }
+      }
+      setError(msg);
+    } finally {
+      setGeneratingFp(false);
     }
   };
 
@@ -333,10 +521,35 @@ export default function FamilyPension() {
             >
               {saving ? "Saving…" : "Save"}
             </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-warning"
+              disabled={
+                loading ||
+                saving ||
+                generatingFp ||
+                reportLoading ||
+                !form.clmca_id
+              }
+              onClick={handleGenerateFirstFp}
+              title="Generate First Family Pension using Methodology-1 amount"
+            >
+              {generatingFp ? "Generating…" : "Generate First FP"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline-primary"
+              disabled={
+                loading || saving || reportLoading || (!form.clmca_id && !form.emp_cd)
+              }
+              onClick={() => loadProposalReport({}, { autoPrint: true })}
+            >
+              {reportLoading ? "Report…" : "Print Report"}
+            </button>
           </div>
         </div>
-        {message ? <span className="fpc-msg ok">{message}</span> : null}
-        {error ? <span className="fpc-msg err">{error}</span> : null}
+        {message ? <div className="fpc-msg ok">{message}</div> : null}
+        {error ? <div className="fpc-msg err">{error}</div> : null}
         {matches.length > 0 ? (
           <div className="fpc-match-list">
             {matches.map((m) => (
@@ -752,6 +965,11 @@ export default function FamilyPension() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Hidden print root — used after Save / Print Report */}
+      <div className="d-none">
+        <FamilyPensionProposalPrint report={report} />
       </div>
     </div>
   );

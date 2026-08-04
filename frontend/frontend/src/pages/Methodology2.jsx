@@ -15,6 +15,8 @@ export default function Methodology2() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkSummary, setBulkSummary] = useState(null);
   const [bulkError, setBulkError] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState("");
 
   const [retirementDate, setRetirementDate] = useState("");
   const [scale, setScale] = useState("");
@@ -348,13 +350,65 @@ export default function Methodology2() {
     }
   };
 
+  const downloadReport = async () => {
+    setReportError("");
+    setReportBusy(true);
+    try {
+      const res = await API.get("methodology2/report/", {
+        responseType: "blob",
+        timeout: 0,
+      });
+      const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const cd = res.headers["content-disposition"] || "";
+      const match = cd.match(/filename="?([^"]+)"?/);
+      link.download = match ? match[1] : "M2_consolidation_report.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      if (err?.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const json = JSON.parse(text);
+          setReportError(json.error || "Report download failed");
+        } catch {
+          setReportError("Report download failed");
+        }
+      } else {
+        setReportError(
+          String(
+            err?.response?.data?.error ||
+              err?.message ||
+              "Report download failed"
+          )
+        );
+      }
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
   return (
     <div className="container-fluid mt-3 mt-md-4 px-2 px-md-3 methodology-page">
       <div className="row justify-content-center mb-3">
         <div className="col-12 col-xl-10">
           <div className="card shadow">
-            <div className="card-header bg-dark text-white">
+            <div className="card-header bg-dark text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
               <h5 className="mb-0">Bulk upload (Class 1/2 &amp; 3/4)</h5>
+              <button
+                type="button"
+                className="btn btn-sm btn-success"
+                onClick={downloadReport}
+                disabled={reportBusy || bulkBusy}
+              >
+                {reportBusy ? "Preparing…" : "Report (Excel)"}
+              </button>
             </div>
             <div className="card-body">
               <p className="text-muted small mb-3">
@@ -362,6 +416,8 @@ export default function Methodology2() {
                 <code>name</code>, <code>roll_no</code>). Each employee is
                 calculated, consolidation saved, and PDF written to Desktop{" "}
                 <code>M2_YYYY-MM-DD</code> as <code>case_no.pdf</code>.
+                Click <strong>Report (Excel)</strong> to export all saved
+                consolidation rows from the database.
               </p>
               <form onSubmit={runBulkUpload} className="row g-2 align-items-end">
                 <div className="col-12 col-md-8">
@@ -385,6 +441,9 @@ export default function Methodology2() {
               </form>
               {bulkError ? (
                 <div className="alert alert-danger mt-3 mb-0">{bulkError}</div>
+              ) : null}
+              {reportError ? (
+                <div className="alert alert-danger mt-3 mb-0">{reportError}</div>
               ) : null}
               {bulkSummary ? (
                 <div className="mt-3">

@@ -3,7 +3,7 @@ export const PENSION_REPORT_PRINT_CLASS = "pension-report-printing";
 export const PRINT_PORTAL_ID = "pension-print-portal";
 
 const PRINT_ROOT_SELECTOR =
-  ".lic-report-print, .bill-abstract-print, .proposal-sanction-print, .fp-advice-print, .comm-sanction-print, .sepcom-bill-print, .journal-summary-print";
+  ".lic-report-print, .bill-abstract-print, .proposal-sanction-print, .fp-proposal-print, .fp-advice-print, .comm-sanction-print, .sepcom-bill-print, .journal-summary-print";
 
 function resolvePrintScope(trigger) {
   if (trigger?.closest) {

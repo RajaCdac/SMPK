@@ -14,6 +14,7 @@ from .views import (
     ScaleTypeView,
 )
 from .views_bulk import BulkUploadView
+from .views_report import ConsolidationReportView
 
 
 urlpatterns = [
@@ -30,4 +31,5 @@ urlpatterns = [
     path("consolidation/", ConsolidationSnapshotView.as_view()),
     path("consolidation/<str:emp_id>/", ConsolidationSnapshotView.as_view()),
     path("bulk/", BulkUploadView.as_view()),
+    path("report/", ConsolidationReportView.as_view()),
 ]

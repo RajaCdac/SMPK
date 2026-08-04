@@ -53,16 +53,23 @@
 }
 
 .fpc-msg {
-  font-size: 0.8rem;
-  align-self: center;
+  font-size: 0.85rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
 }
 
 .fpc-msg.ok {
   color: #166534;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
 }
 
 .fpc-msg.err {
-  color: #b91c1c;
+  color: #991b1b;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  font-weight: 600;
 }
 
 .fpc-match-list {

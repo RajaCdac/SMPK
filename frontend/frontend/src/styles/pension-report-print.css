@@ -50,6 +50,7 @@
 
   /* Other pension reports — landscape, single flow. */
   html.pension-report-printing .proposal-sanction-print__page,
+  html.pension-report-printing .fp-proposal-print__page,
   html.pension-report-printing .comm-sanction-print__page,
   html.pension-report-printing .sepcom-bill-print__page {
     width: 100% !important;
@@ -65,6 +66,7 @@
   }
 
   html.pension-report-printing .proposal-sanction-print__page:last-child,
+  html.pension-report-printing .fp-proposal-print__page:last-child,
   html.pension-report-printing .comm-sanction-print__page:last-child,
   html.pension-report-printing .sepcom-bill-print__page:last-child {
     page-break-after: auto;

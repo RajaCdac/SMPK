@@ -5,7 +5,7 @@ Follows form logic (not chart factor alone for TQS 20–33):
   option 0: (E×15×TCCS)/26 + ceilings
   option 1: (E×min(TQS,33))/2 + max-adm tables
   option 2 (death / First FP): E × multi_factor + death ceilings,
-    with multi_factor rebuilt from TQS Y/M/D when 20 ≤ TQS < 33.
+    with multi_factor rebuilt from TQS Y/M/D (3/9 rule) when 20 ≤ TQS < 33.
 """
 
 from __future__ import annotations
@@ -208,31 +208,94 @@ def _sum_suspension_days(emp: str) -> float:
     return float((row or {}).get("days") or 0)
 
 
-def _round_tqs_months_to_years(tqs_months: float) -> float:
+def _round_tqs_from_ymd(tqs_yr: int, tqs_month: int) -> float:
     """
-    Oracle FFunc_TQS_Round_2 remainder-on-12 rules (TQS still in months).
+    FFunc_TQS_Round_2 rounding on GLOBAL.TQS_MONTH (after nopay subtract).
 
-    rem < 3:         floor years
-    3 < rem < 9:     floor + 0.5
-    9 < rem < 12:    floor + 1
-    rem == 3 or 9:   not rewritten in form (fall-through); treat as floor / +0.5
-                    → match half-year intent: rem<=3 floor, rem<9 half, else full year
+    month < 3:          years
+    3 <= month < 9:     years + 0.5
+    9 <= month < 12:    years + 1
     """
-    rem = tqs_months % 12
-    base = int(tqs_months // 12)
-    if rem < 3 or abs(rem - 0) < 1e-9:
-        # rem=0 falls under rem < 3 in PL/SQL
-        return float(base)
-    if rem > 3 and rem < 9:
-        return float(base) + 0.5
-    if rem > 9 and rem < 12:
-        return float(base + 1)
-    # rem exactly 3 or 9 (unhandled in Oracle): use multi-factor spirit
-    if rem >= 9:
-        return float(base + 1)
-    if rem > 3:
-        return float(base) + 0.5
-    return float(base)
+    y = int(tqs_yr or 0)
+    m = int(tqs_month or 0)
+    if m < 3:
+        return float(y)
+    if m < 9:
+        return float(y) + 0.5
+    if m < 12:
+        return float(y + 1)
+    return float(y)
+
+
+def fproc_pn_calc_age(year, month, day, sub_days):
+    """
+    FPROC_PN_CALC_AGE: subtract P_Sub_Day_Tot from Y/M/D using 30-day months.
+
+    Emp 45038: 26y 5m 7d minus 181 nopay → 25y 11m 6d.
+    """
+    sub = int(round(float(sub_days or 0)))
+    yrs = int(year or 0)
+    months = int(month or 0)
+    days = int(day or 0)
+    if sub <= 0:
+        return yrs, months, days
+
+    sub_mth = sub // 30
+    sub_yr = 0
+    if sub_mth >= 12:
+        sub_yr = sub_mth // 12
+        sub_mth = sub_mth % 12
+    sub_day = sub % 30
+
+    if days >= sub_day:
+        new_day = days - sub_day
+    else:
+        new_day = (days + 30) - sub_day
+        sub_mth += 1
+
+    if months >= sub_mth:
+        new_mth = months - sub_mth
+    else:
+        new_mth = (months + 12) - sub_mth
+        sub_yr += 1
+
+    if yrs >= sub_yr:
+        new_yr = yrs - sub_yr
+    else:
+        new_yr = (yrs + 1) - sub_yr
+    return int(new_yr), int(new_mth), int(new_day)
+
+
+def _oldbill_mh(emp: str) -> dict:
+    if not _table_exists("fi_pn_mh_oldbill_param"):
+        return {}
+    return (
+        _fetchone(
+            """
+            SELECT dnon_days, susp_days, edn_lv_days,
+                   npay_prior_10mth, npay_morethan_240_dys, boy_serv_days
+            FROM fi_pn_mh_oldbill_param
+            WHERE emp_cd = %s
+            LIMIT 1
+            """,
+            [emp],
+        )
+        or {}
+    )
+
+
+def _oldbill_md_nopay(emp: str) -> float:
+    if not _table_exists("fi_pn_md_oldbill_param"):
+        return 0.0
+    row = _fetchone(
+        """
+        SELECT COALESCE(SUM(no_days), 0) AS days
+        FROM fi_pn_md_oldbill_param
+        WHERE emp_cd = %s
+        """,
+        [emp],
+    )
+    return float((row or {}).get("days") or 0)
 
 
 def compute_tqs(emp_cd) -> TqsResult:
@@ -267,34 +330,52 @@ def compute_tqs(emp_cd) -> TqsResult:
         if join_dt < boy18:
             boy_days = float((boy18 - join_dt).days)
 
-    dies_non = _sum_attend(emp, "D-NON")
-    susp = _sum_suspension_days(emp)
-    days_to_subtract = dies_non + boy_days + susp
+    mh = _oldbill_mh(emp)
+    has_oldbill = bool(mh)
 
+    if has_oldbill:
+        dies_non = float(mh.get("dnon_days") or 0)
+        susp = float(mh.get("susp_days") or 0)
+        edn = float(mh.get("edn_lv_days") or 0)
+        if mh.get("boy_serv_days"):
+            boy_days = float(mh.get("boy_serv_days") or 0)
+    else:
+        dies_non = _sum_attend(emp, "D-NON")
+        susp = _sum_suspension_days(emp)
+        edn = 0.0
+
+    pos_yr, pos_month, pos_days = yr_month_day(join_dt, sep_dt)
     pos_months = round(months_between(sep_dt, join_dt), 2)
     pos_years = round(pos_months / 12.0, 2)
 
-    # TCCS path: subtract dies-non/boy/susp from separation, then NPL rules
-    adj_sep_tccs = sep_dt - timedelta(days=int(round(days_to_subtract)))
-    tccs_months = round(months_between(adj_sep_tccs, join_dt), 2)
+    days_to_subtract = dies_non + boy_days + edn + susp
+    tccs_yr, tccs_month, tccs_days = fproc_pn_calc_age(
+        pos_yr, pos_month, pos_days, days_to_subtract
+    )
+    more_240 = int(float(mh.get("npay_morethan_240_dys") or 0)) if has_oldbill else 0
+    if more_240 > 0:
+        tccs_yr = max(0, tccs_yr - more_240)
 
-    nopay_years = _sum_nopay_by_year(emp)
-    days_to_sub = 0.0
-    for _yr, nopay in nopay_years.items():
-        if nopay >= 240:
-            tccs_months -= 12
-        else:
-            days_to_sub += nopay
+    nopay = 0.0
+    if has_oldbill:
+        nopay += float(mh.get("npay_prior_10mth") or 0)
+        nopay += _oldbill_md_nopay(emp)
+    else:
+        for _yr, npl in _sum_nopay_by_year(emp).items():
+            if npl >= 240:
+                tccs_yr = max(0, tccs_yr - 1)
+            else:
+                nopay += npl
 
-    # TQS end date after all day subtractions
-    total_day_sub = days_to_subtract + days_to_sub
-    tqs_end = sep_dt - timedelta(days=int(round(total_day_sub)))
-    tqs_months = round(months_between(tqs_end, join_dt), 2)
+    # TQS = TCCS Y/M/D minus nopay (Fproc_pn_calc_Age).
+    # TCCS display also nets nopay so both match Oracle case (45038: 25y 11m).
+    tqs_yr, tqs_month, tqs_days = fproc_pn_calc_age(
+        tccs_yr, tccs_month, tccs_days, nopay
+    )
+    tccs_yr, tccs_month, tccs_days = tqs_yr, tqs_month, tqs_days
 
-    tqs_yr, tqs_month, tqs_days = yr_month_day(join_dt, tqs_end)
-
-    tccs_years = round(tccs_months / 12.0, 2)
-    tqs_years = _round_tqs_months_to_years(tqs_months)
+    tqs_years = _round_tqs_from_ymd(tqs_yr, tqs_month)
+    tccs_years = round(tccs_yr + tccs_month / 12.0, 2)
 
     return TqsResult(
         tqs=float(tqs_years),
@@ -442,6 +523,9 @@ def compute_gratuity_emoluments(
                 ada = basic * rate
 
     raw = basic + ada
+    # FFUNC_DCR_GRATUITY always calls FFunc_Avg_Basic(..., 'G', 'N').
+    # Incentive /3 is cafeteria pay for pension emoluments, not death DCR.
+    # Emp 45038: 43525/3 × 26.5 ≈ 384471 (wrong) vs Oracle 43525 × 26.
     if str(incentive_holder or "N").upper() == "Y":
         emol = raw / 3.0
     else:
@@ -468,13 +552,15 @@ def compute_basic_only_from_salout(emp_cd) -> float:
 
 def death_multi_factor_from_ymd(tqs_yr: int, tqs_month: int, tqs_days: int) -> float:
     """
-    Oracle override when VN_TQS >= 20 and VN_TQS < 33:
+    Oracle override when VN_TQS >= 20 and VN_TQS < 33 (uses TQS after nopay):
 
       months > 9                   → years + 1
       months = 9 and days > 0      → years + 1
       3 < months < 9               → years + 0.5
       months = 3 and days > 0      → years + 0.5
       else                         → years
+
+    Emp 45038: POS 26y 5m, nopay 181 → TQS 25y 11m → factor 26.
     """
     y = int(tqs_yr or 0)
     m = int(tqs_month or 0)
@@ -490,27 +576,94 @@ def death_multi_factor_from_ymd(tqs_yr: int, tqs_month: int, tqs_days: int) -> f
     return float(y)
 
 
+# Statutory ceiling when MH chart row is missing (align with First Pension chart service).
+DEFAULT_DEATH_GRATUITY_CAP = 2_000_000.0
+
+
 def _death_mh_limits(separation_dt: date) -> dict:
-    row = _fetchone(
-        """
-        SELECT inception_dt, before_inception_max_lt, after_inception_max_lt, wef_dt
-        FROM fi_pn_mh_death_gratchart
-        WHERE gratuity_type = 2
-          AND wef_dt = (
-              SELECT MAX(wef_dt) FROM fi_pn_mh_death_gratchart
-              WHERE %s > wef_dt AND gratuity_type = 2
-          )
-        LIMIT 1
-        """,
-        [separation_dt],
-    )
+    """
+    FI_PN_MH_DEATH_GRATCHART for gratuity_type = 2 (death).
+
+    Oracle: latest WEF with sep > wef_dt.
+    MySQL mirror may be incomplete or store type as char; try several matches.
+    If still missing, fall back to statutory after-inception cap (First Pension
+    behaviour) so First FP is not blocked for otherwise-valid employees.
+    """
+    sep = _as_date(separation_dt)
+    if not sep:
+        raise DcrGratuityError(
+            "Separation date not available — cannot resolve Death gratuity MH chart"
+        )
+
+    row = None
+    # Prefer rows with WEF on/before separation (Oracle uses strict '>', we allow '=')
+    for gtype in (2, "2"):
+        row = _fetchone(
+            """
+            SELECT inception_dt, before_inception_max_lt, after_inception_max_lt, wef_dt
+            FROM fi_pn_mh_death_gratchart
+            WHERE CAST(gratuity_type AS CHAR) = CAST(%s AS CHAR)
+              AND wef_dt <= %s
+            ORDER BY wef_dt DESC
+            LIMIT 1
+            """,
+            [gtype, sep],
+        )
+        if row:
+            break
+        # Legacy strict inequality (Oracle)
+        row = _fetchone(
+            """
+            SELECT inception_dt, before_inception_max_lt, after_inception_max_lt, wef_dt
+            FROM fi_pn_mh_death_gratchart
+            WHERE CAST(gratuity_type AS CHAR) = CAST(%s AS CHAR)
+              AND wef_dt = (
+                  SELECT MAX(wef_dt) FROM fi_pn_mh_death_gratchart
+                  WHERE %s > wef_dt
+                    AND CAST(gratuity_type AS CHAR) = CAST(%s AS CHAR)
+              )
+            LIMIT 1
+            """,
+            [gtype, sep, gtype],
+        )
+        if row:
+            break
+
     if not row:
-        raise DcrGratuityError("Death gratuity data not available in master (MH chart)")
+        # Any latest death chart row (table present but WEF all after sep, or bad dates)
+        row = _fetchone(
+            """
+            SELECT inception_dt, before_inception_max_lt, after_inception_max_lt, wef_dt
+            FROM fi_pn_mh_death_gratchart
+            WHERE CAST(gratuity_type AS CHAR) IN ('2')
+            ORDER BY wef_dt DESC
+            LIMIT 1
+            """,
+        )
+
+    if not row:
+        # No master data — do not block generation; use statutory default ceiling
+        return {
+            "inception_dt": date(1, 1, 1),  # treat service as post-inception
+            "before_max": DEFAULT_DEATH_GRATUITY_CAP,
+            "after_max": DEFAULT_DEATH_GRATUITY_CAP,
+            "wef_dt": None,
+            "chart_missing": True,
+        }
+
+    after_max = float(row.get("after_inception_max_lt") or 0)
+    before_max = float(row.get("before_inception_max_lt") or 0)
+    if after_max <= 0:
+        after_max = DEFAULT_DEATH_GRATUITY_CAP
+    if before_max <= 0:
+        before_max = DEFAULT_DEATH_GRATUITY_CAP
+
     return {
         "inception_dt": _as_date(row.get("inception_dt")),
-        "before_max": float(row.get("before_inception_max_lt") or 0),
-        "after_max": float(row.get("after_inception_max_lt") or 0),
+        "before_max": before_max,
+        "after_max": after_max,
         "wef_dt": _as_date(row.get("wef_dt")),
+        "chart_missing": False,
     }
 
 
@@ -608,10 +761,13 @@ def ffunc_dcr_gratuity(
     p_tccs = float(tqs_info.tccs or 0)
     p_tqs = float(tqs_info.tqs or 0)
 
+    # Oracle FFUNC_DCR_GRATUITY hard-codes incentive 'N' on FFunc_Avg_Basic.
+    dcr_incentive = "N" if option == 2 else (incentive_holder or "N")
+
     emo = compute_gratuity_emoluments(
         emp,
         pension_option=pension_option,
-        incentive_holder=incentive_holder,
+        incentive_holder=dcr_incentive,
         last_basic_fallback=last_basic_fallback,
         emp_class=emp_class,
         as_of=sep,
@@ -689,12 +845,17 @@ def ffunc_dcr_gratuity(
     inception = mh["inception_dt"]
     after_max = mh["after_max"]
     before_max = mh["before_max"]
+    if mh.get("chart_missing"):
+        result["death_chart_note"] = (
+            "MH death gratuity chart not found; applied statutory default ceiling "
+            f"{int(DEFAULT_DEATH_GRATUITY_CAP)}"
+        )
 
     if inception and sep >= inception:
         emo_death = compute_gratuity_emoluments(
             emp,
             pension_option=pension_option,
-            incentive_holder=incentive_holder,
+            incentive_holder=dcr_incentive,
             last_basic_fallback=last_basic_fallback,
             emp_class=emp_class,
             as_of=sep,
@@ -727,8 +888,12 @@ def ffunc_dcr_gratuity(
             tqs_info.tqs_yr, tqs_info.tqs_month, tqs_info.tqs_days
         )
     elif multi is None:
+        # Detail chart missing: use TQS years (same spirit as First Pension)
+        multi = float(tqs) if tqs > 0 else None
+    if multi is None:
         raise DcrGratuityError(
-            f"Multiplication factor for TQS {tqs} not defined for Death Gratuity"
+            f"Multiplication factor for TQS {tqs} not defined for Death Gratuity "
+            f"(emp {emp}, sep {sep})"
         )
 
     result["multi_factor"] = float(multi)

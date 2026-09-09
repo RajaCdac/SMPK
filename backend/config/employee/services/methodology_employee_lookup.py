@@ -1,6 +1,6 @@
 """Employee lookup for Methodology I / II from MySQL Oracle mirror tables."""
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from employee.oracle_mirror import (
     FiXxMdFinscale,
@@ -9,10 +9,8 @@ from employee.oracle_mirror import (
     FiXxMhEmpFin,
     FiXxMhEmpPer,
 )
-from employee.services.scale_desc_service import (
-    fetch_scale_desc,
-    resolve_scale_from_employee_cache,
-)
+from employee.services.scale_desc_service import fetch_scale_desc
+
 
 CLASS_3_4 = frozenset({"III", "IV", "3", "4"})
 CLASS_1_2 = frozenset({"I", "II", "1", "2"})
@@ -51,6 +49,14 @@ def _format_date_for_input(value):
     return parsed.strftime("%Y-%m-%d")
 
 
+def _methodology_calc_as_of_date(separation_dt):
+    """Day before separation for finscale / scale calc (matches Methodology 2 WEF rule)."""
+    sep = _as_date(separation_dt)
+    if not sep:
+        return separation_dt
+    return sep - timedelta(days=1)
+
+
 def _scale_year(scale_sl):
     if not scale_sl:
         return None
@@ -75,6 +81,18 @@ def _normalize_class(value):
         return digit_map.get(str(int(float(text))), text)
     except (TypeError, ValueError):
         return text
+
+
+def _payscale_cpi_label(revision_column: str) -> str:
+    """Human CPI/revision label for errors, e.g. '2007(126 CPI)' → '126 CPI'."""
+    text = str(revision_column or "").strip()
+    if not text:
+        return "PayScale"
+    if "(" in text and text.endswith(")"):
+        inner = text[text.find("(") + 1 : -1].strip()
+        if inner:
+            return inner
+    return text
 
 
 def _full_name(per):
@@ -275,9 +293,15 @@ def fetch_employee_for_methodology(
     if fin and str(fin.scale_sl or "").strip():
         scale_sl = str(fin.scale_sl).strip()
 
-    finscale = _select_finscale(emp_key, scale_sl, separation_dt)
-    if not scale_sl and finscale and str(finscale.scale_sl or "").strip():
-        scale_sl = str(finscale.scale_sl).strip()
+    # Finscale as on day before separation (new revision WEF does not apply yet).
+    calc_as_of = _methodology_calc_as_of_date(separation_dt)
+    finscale = _select_finscale(emp_key, scale_sl, calc_as_of)
+    if finscale and str(finscale.scale_sl or "").strip():
+        fs_sl = str(finscale.scale_sl).strip()
+        # EMP_FIN may already hold the post-revision scale code while last service
+        # day (day before separation) is still on the previous revision.
+        if not scale_sl or _scale_year(fs_sl) != _scale_year(scale_sl):
+            scale_sl = fs_sl
 
     oracle_basic_amt = _basic_amount(finscale)
     basic_amt = _convert_basic_for_target_scale(emp_key, finscale, scale_sl)
@@ -285,27 +309,20 @@ def fetch_employee_for_methodology(
     separation_date = _format_date_for_input(separation_dt)
     scale_cd = extract_scale_cd(scale_sl) if scale_sl else None
     scale_desc = fetch_scale_desc(scale_cd) if scale_cd else None
+    revision = get_revision_column(separation_date)
+    cpi_label = _payscale_cpi_label(revision)
+    # resolve_scale_string / get_revision_column also use day-before internally
     scale_string = resolve_scale_string(
         scale_sl, separation_date, scale_desc=scale_desc
     )
 
-    if not scale_string:
-        scale_string = resolve_scale_from_employee_cache(emp_key)
-
     category = category_from_emp_class(emp_class)
 
-    # Oracle payscale band is authoritative when Excel class3/4 mapping misses
-    # (common for class 1/2 officer codes like 2007/RE/019 → 16400-40500).
-    if not scale_string and scale_desc:
-        scale_string = str(scale_desc).strip()
-
     if not scale_string:
+        scale_label = scale_sl or scale_cd or "(unknown)"
+        desc_bit = f" ({scale_desc})" if scale_desc else ""
         return {
-            "error": (
-                f"Could not map scale '{scale_sl}' to PayScale lookup "
-                f"for retirement date {separation_date}."
-                + (f" (scale_cd={scale_cd})" if scale_cd else "")
-            ),
+            "error": f"Scale '{scale_label}'{desc_bit} missing in {cpi_label}.",
             "emp_id": emp_key,
             "name": name,
             "separation_date": separation_date,
@@ -313,6 +330,7 @@ def fetch_employee_for_methodology(
             "oracle_scale_cd": scale_cd or "",
             "oracle_scale_desc": scale_desc or "",
             "oracle_basic_amt": oracle_basic_amt,
+            "revision": revision,
             "emp_class": emp_class or "",
             "category": category,
             "data_source": "mysql_mirror",
@@ -341,7 +359,7 @@ def fetch_employee_for_methodology(
         "oracle_scale_cd": scale_cd or "",
         "oracle_scale_desc": scale_desc or "",
         "oracle_basic_amt": oracle_basic_amt,
-        "revision": get_revision_column(separation_date),
+        "revision": revision,
         "emp_class": emp_class or "",
         "category": category,
         "data_source": "mysql_mirror",

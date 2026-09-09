@@ -7,6 +7,8 @@ and notional basic pay for category 3/4 at 277 / 359 CPI.
 Scale input by category:
 - Category 1/2: executive grade (E-1, E-2, … E-25)
 - Category 3/4: full pay-scale string (1030 CPI period only); null/0 otherwise
+- Old class 3/4 with no scale: ``equiv_pay_at_base_cpi`` (607 pay) can replace
+  the scale mapping (Oracle EQUIV_PAY_AT_BASE_CPI / “Base CPI Pay when not matched”).
 """
 
 from methodology1.services.cpi_chain_service import (
@@ -66,36 +68,75 @@ def _fp_output(fp_277, fp_359):
     }
 
 
-def _calculate_class_34(separation_date, last_pay, scale):
+def _apply_scale_or_equiv_607(separation_date, last_pay, scale, equiv_pay, error_msg):
+    """
+    Resolve Excel scale map, or use entered 607 equivalent when scale is missing.
+
+    Returns (last_pay, equivalent_scales, pay_source, error_dict).
+    """
+    if scale:
+        equivalent_scales = get_equivalent_scales_by_scale(separation_date, scale)
+        if equivalent_scales:
+            return last_pay, equivalent_scales, "last_basic", None
+        if equiv_pay:
+            return equiv_pay, None, "equiv_pay_at_base_cpi", None
+        return (
+            last_pay,
+            None,
+            None,
+            {"error": f"Could not resolve pay scale '{scale}' in PayScale table"},
+        )
+    if equiv_pay:
+        return equiv_pay, None, "equiv_pay_at_base_cpi", None
+    return last_pay, None, None, {"error": error_msg}
+
+
+def _fp_result(fp_277, fp_359, *, calc_pay, pay_source):
+    out = _fp_output(fp_277, fp_359)
+    out["calc_pay"] = calc_pay
+    out["pay_source"] = pay_source
+    return out
+
+
+def _calculate_class_34(
+    separation_date, last_pay, scale, equiv_pay_at_base_cpi=None
+):
     scale_revision = get_revision_column(separation_date)
     start_revision = get_calculation_start_revision(separation_date)
     equivalent_scales = None
+    pay_source = "last_basic"
+    equiv_pay = _parse_pay(equiv_pay_at_base_cpi)
 
     if is_pre_1988_separation(separation_date):
-        if not scale:
-            return {
-                "error": (
-                    "scale is required when separation date is before "
-                    "01/01/1988"
-                )
-            }
-        equivalent_scales = get_equivalent_scales_by_scale(separation_date, scale)
-        if not equivalent_scales:
-            return {"error": f"Could not resolve pay scale '{scale}' in PayScale table"}
+        last_pay, equivalent_scales, pay_source, err = _apply_scale_or_equiv_607(
+            separation_date,
+            last_pay,
+            scale,
+            equiv_pay,
+            (
+                "scale is required when separation date is before "
+                "01/01/1988 (or enter Base CPI Pay when not matched)"
+            ),
+        )
+        if err:
+            return err
 
     if scale_revision == CPI_1030_REVISION and not is_1030_direct_607_period(
         separation_date
     ):
-        if not scale:
-            return {
-                "error": (
-                    "scale is required when separation date falls in "
-                    "1030 CPI period (1993-1994)"
-                )
-            }
-        equivalent_scales = get_equivalent_scales_by_scale(separation_date, scale)
-        if not equivalent_scales:
-            return {"error": f"Could not resolve pay scale '{scale}' in PayScale table"}
+        last_pay, equivalent_scales, pay_source, err = _apply_scale_or_equiv_607(
+            separation_date,
+            last_pay,
+            scale,
+            equiv_pay,
+            (
+                "scale is required when separation date falls in "
+                "1030 CPI period (1993-1994) "
+                "(or enter Base CPI Pay when not matched)"
+            ),
+        )
+        if err:
+            return err
 
     cpi_359 = compute_359(
         last_pay,
@@ -109,11 +150,15 @@ def _calculate_class_34(separation_date, last_pay, scale):
 
     # Already on 359 CPI (e.g. separation year 2022+): 30% of last pay only.
     if _already_on_359_scale(scale_revision, separation_date):
-        return _fp_output(None, cpi_359["notional"])
+        return _fp_result(
+            None, cpi_359["notional"], calc_pay=last_pay, pay_source=pay_source
+        )
 
     # Start at 359 from an earlier scale: 359 result only (no 277 rebuild).
     if start_revision == CPI_359_REVISION:
-        return _fp_output(None, cpi_359["notional"])
+        return _fp_result(
+            None, cpi_359["notional"], calc_pay=last_pay, pay_source=pay_source
+        )
 
     cpi_277 = compute_277(
         last_pay,
@@ -125,9 +170,11 @@ def _calculate_class_34(separation_date, last_pay, scale):
     if not cpi_277:
         return {"error": "Could not compute CPI revision chain for given inputs"}
 
-    return _fp_output(
+    return _fp_result(
         cpi_277["notional"],
         cpi_359["notional"],
+        calc_pay=last_pay,
+        pay_source=pay_source,
     )
 
 
@@ -149,9 +196,13 @@ def calculate_family_pension(
     pay,
     scale=None,
     grade=None,
+    equiv_pay_at_base_cpi=None,
 ):
     """
     Methodology I unified calculation.
+
+    ``equiv_pay_at_base_cpi``: 607 equivalent when last basic is not a scale
+    stage / salary scale is missing (family pension claim field).
 
     Returns ``{"FP_277_cpi": ..., "FP_359_cpi": ...}`` on success
     or ``{"error": "..."}``.
@@ -163,7 +214,10 @@ def calculate_family_pension(
     if cat is None:
         return {"error": "category must be 1, 2, 3, or 4"}
 
+    equiv_pay = _parse_pay(equiv_pay_at_base_cpi)
     last_pay = _parse_pay(pay)
+    if last_pay is None:
+        last_pay = equiv_pay
     if last_pay is None:
         return {"error": "pay must be a positive number"}
 
@@ -183,4 +237,9 @@ def calculate_family_pension(
     if scale_value:
         scale_value = resolve_full_scale(separation_date, scale_value)
 
-    return _calculate_class_34(separation_date, last_pay, scale_value)
+    return _calculate_class_34(
+        separation_date,
+        last_pay,
+        scale_value,
+        equiv_pay_at_base_cpi=equiv_pay,
+    )

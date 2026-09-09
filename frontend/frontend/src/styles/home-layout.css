@@ -1,4 +1,4 @@
-/* Full-viewport home: header + bar + carousel + footer — no page scroll */
+/* Full-viewport home: header + bar + hero + footer — no page scroll */
 body.page-home {
   overflow: hidden;
 }
@@ -8,38 +8,50 @@ body.page-home #root {
   max-height: 100dvh;
   min-height: 100dvh;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 body.page-home .header {
   flex-shrink: 0;
+  width: 100%;
 }
 
-body.page-home .navbar {
+body.page-home .smpk-topbar {
   flex-shrink: 0;
 }
 
-body.page-home .footer {
+body.page-home .smpk-footer {
   flex-shrink: 0;
 }
 
 body.page-home .main-content--home {
+  display: flex;
+  flex-direction: column;
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
+  padding: 0;
 }
 
 body.page-home .home-page {
-  height: 100%;
-  min-height: 0;
-}
-
-body.page-home .carousel {
-  height: 100%;
-  min-height: 0;
+  display: flex;
+  flex-direction: column;
   flex: 1 1 0;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
 }
 
-/* Shorter viewports: compact header so carousel keeps more room */
+body.page-home .smpk-hero {
+  position: relative;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: calc(100dvh - 220px);
+  width: 100%;
+  overflow: hidden;
+}
+
 @media (max-height: 720px) {
   body.page-home .header {
     min-height: 0;
@@ -59,15 +71,19 @@ body.page-home .carousel {
   body.page-home .center .header-goi {
     font-size: clamp(0.6rem, 1.6vh, 0.8rem);
   }
+
+  body.page-home .smpk-hero {
+    min-height: calc(100dvh - 160px);
+  }
 }
 
 @media (max-height: 560px) {
-  body.page-home .navbar-bar-only {
+  body.page-home .smpk-topbar {
     height: 8px;
     min-height: 8px;
   }
 
-  body.page-home .footer {
+  body.page-home .smpk-footer {
     padding: 4px 8px;
     font-size: 11px;
   }

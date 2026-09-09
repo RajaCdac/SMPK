@@ -183,6 +183,8 @@ export default function Methodology2PensionSummary({
   retirementDate,
   scale,
   lastPay,
+  stagnationAmount = "",
+  effectivePay = null,
   empId = "",
   employeeName = "",
   category = "",
@@ -241,14 +243,25 @@ export default function Methodology2PensionSummary({
     const m2_359 = effectivePension.family_pension_359_cpi;
     const m1_277 = master.m1_family_pension_277 ?? null;
     const m1_359 = master.m1_family_pension_359 ?? null;
+    const stagNum = Number(stagnationAmount);
+    const stagnation =
+      stagnationAmount !== "" &&
+      stagnationAmount != null &&
+      !Number.isNaN(stagNum)
+        ? stagNum
+        : null;
     return {
       emp_cd: empId || master.emp_cd || "",
       name: employeeName || master.name || "",
       wage_emp_name: master.wage_emp_name || "",
       pensioner_name: master.pensioner_name || "",
       is_employee_pension: master.is_employee_pension || false,
+      date_of_death: master.date_of_death || null,
+      double_fpension_upto: master.double_fpension_upto || null,
+      enhanced_family_pension: !!master.enhanced_family_pension,
       case_no: master.case_no || "",
       roll_no: master.roll_no || "",
+      retirement_type: master.retirement_type || "",
       retirement_date: retirementDate || master.retirement_date || null,
       category: String(category || master.category || ""),
       designation: master.designation || "",
@@ -256,8 +269,10 @@ export default function Methodology2PensionSummary({
       tqs_yr: master.tqs_yr,
       tqs_month: master.tqs_month,
       tqs_days: master.tqs_days,
+      // Header: Average Pay and Last Pay both show actual last pay.
       average_pay: lastPay,
       last_pay: lastPay,
+      stagnation_amount: stagnation,
       scale: effectiveScale,
       start_revision: effectiveStart,
       revision_blocks: liveBlocks,
@@ -287,6 +302,7 @@ export default function Methodology2PensionSummary({
     retirementDate,
     category,
     lastPay,
+    stagnationAmount,
     effectiveScale,
     effectiveStart,
     liveBlocks,

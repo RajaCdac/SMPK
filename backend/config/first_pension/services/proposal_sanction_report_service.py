@@ -4,14 +4,11 @@ Recommendation & Sanction of Pension report (FI_PN_MH_PENSION_PROPOSAL_BMP).
 
 from django.utils import timezone
 
-from employee.oracle_mirror import FiXxMhEmpAdm, FiXxMhEmpPer
-from employee.services.emp_data_service import (
-    resolve_department_from_posting,
-    resolve_nature_of_service,
-)
+from employee.oracle_mirror import FiXxMhEmpPer
+from employee.services.dept_wise_service import resolve_dept_wise_department
+from employee.services.emp_data_service import resolve_employee_designation_name
 from employee.services.oracle_service import get_oracle_connection
 from employee.utils.age import calculate_age
-from master_data.models import FiXxMhDesig
 from master_data.services.earndedn_service import lookup_earndedn_by_code
 
 from ..models import PensionCase, PensionProposal, PensionProposalEarndedn, PensionSummary
@@ -143,63 +140,6 @@ def _employee_name(emp_cd, case=None, proposal=None, pensioner=None):
     return ""
 
 
-def _lookup_desig_desc(desig_cd):
-    if desig_cd in (None, ""):
-        return ""
-    try:
-        code = int(desig_cd)
-    except (TypeError, ValueError):
-        return ""
-
-    row = FiXxMhDesig.objects.filter(desig_cd=code).first()
-    if row and row.desig_desc:
-        return row.desig_desc.strip().upper()
-
-    try:
-        conn = get_oracle_connection()
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT DESIG_DESC
-            FROM FINANCE.FI_XX_MH_DESIG
-            WHERE DESIG_CD = :cd
-            """,
-            {"cd": code},
-        )
-        row = cur.fetchone()
-        cur.close()
-        conn.close()
-        if row and row[0]:
-            return str(row[0]).strip().upper()
-    except Exception:
-        pass
-    return ""
-
-
-def _resolve_desig_cd(emp_cd, case=None, pensioner=None):
-    if pensioner and pensioner.desig_cd is not None:
-        return pensioner.desig_cd
-    adm = FiXxMhEmpAdm.objects.filter(emp_cd=_clip(emp_cd, 5)).first()
-    if adm and adm.desig_cd is not None:
-        return adm.desig_cd
-    if case and case.designation:
-        text = str(case.designation).strip()
-        if text.isdigit():
-            return int(text)
-    return None
-
-
-def _designation_name(emp_cd, case=None, pensioner=None):
-    desc = _lookup_desig_desc(_resolve_desig_cd(emp_cd, case, pensioner))
-    if desc:
-        return desc
-    if case and case.designation:
-        text = str(case.designation).strip()
-        if text and not text.isdigit():
-            return text.upper()
-    return ""
-
-
 def _department_name(emp_cd):
     emp_key = _clip(emp_cd, 5)
     from employee.oracle_mirror import FiXxMhEmpData
@@ -319,22 +259,73 @@ def _proposal_earning_deduction_rows(active_proposal, ca_number):
     return rows
 
 
-def _deduction_note_text(row):
+def _deduction_gl_as_of_date(active_proposal, emp_cd=None):
+    """Prefer proposal pension start month for fin-year in GL (ALOC2)."""
+    from datetime import date as date_cls
+
+    if active_proposal is not None:
+        sm = getattr(active_proposal, "start_month", None)
+        sy = getattr(active_proposal, "start_year", None)
+        if sm and sy:
+            try:
+                return date_cls(int(sy), int(sm), 1)
+            except (TypeError, ValueError):
+                pass
+        sep = getattr(active_proposal, "separation_date", None)
+        if sep:
+            if hasattr(sep, "date") and callable(sep.date):
+                try:
+                    return sep.date()
+                except Exception:
+                    pass
+            return sep
+    if emp_cd:
+        case = reload_pension_case_from_db(emp_cd)
+        if case and case.retirement_date:
+            return case.retirement_date
+    return timezone.localdate()
+
+
+def _deduction_credit_gl(earn_cd, *, as_of_date=None):
+    """ALOC1/ALOC2/ALOC3 from journal masters (e.g. 596/2026/000)."""
+    try:
+        from .voucher_generation_service import credit_gl_triplet_for_earn
+
+        return credit_gl_triplet_for_earn(earn_cd, as_of_date=as_of_date)
+    except Exception:
+        return None
+
+
+def _deduction_note_text(row, *, as_of_date=None):
     desc = str(row.get("desc") or "").strip()
     if not desc:
         desc = str(row.get("code") or "").strip()
     amount = row.get("amount")
     if amount in (None, ""):
-        return f"Rs 0 is to be deducted towards {desc}." if desc else ""
-    amt_text = _format_amount_int(amount)
-    if desc:
-        return f"Rs.{amt_text}/- is to be deducted towards {desc}."
-    return f"Rs.{amt_text}/- is to be deducted."
+        base = f"Rs 0 is to be deducted towards {desc}." if desc else ""
+    else:
+        amt_text = _format_amount_int(amount)
+        if desc:
+            base = f"Rs.{amt_text}/- is to be deducted towards {desc}."
+        else:
+            base = f"Rs.{amt_text}/- is to be deducted."
+
+    if not base:
+        return ""
+
+    code = str(row.get("code") or "").strip()
+    gl = _deduction_credit_gl(code, as_of_date=as_of_date) if code else None
+    if gl:
+        # Drop trailing period before appending credit clause.
+        base = base.rstrip().rstrip(".")
+        return f"{base} and credited to {gl}."
+    return base if base.endswith(".") else f"{base}."
 
 
-def _proposal_deduction_notes(active_proposal, ca_number):
+def _proposal_deduction_notes(active_proposal, ca_number, *, emp_cd=None):
     notes = []
     seen = set()
+    as_of = _deduction_gl_as_of_date(active_proposal, emp_cd)
     for row in _proposal_earning_deduction_rows(active_proposal, ca_number):
         row_type = str(row.get("type") or "").strip().upper()
         if row_type not in ("D", "DEDN", "DEDUCTION"):
@@ -343,7 +334,7 @@ def _proposal_deduction_notes(active_proposal, ca_number):
         if not code or code in seen:
             continue
         seen.add(code)
-        text = _deduction_note_text(row)
+        text = _deduction_note_text(row, as_of_date=as_of)
         if text:
             notes.append(text)
     return notes
@@ -368,7 +359,9 @@ def _build_notes(proposal, pronoun, base_cpi, *, emp_cd, ca_number):
         notes.append(f"Relief to be given over {int(float(base_cpi))} CPI.")
     if not _is_id_card_submitted(proposal, emp_cd, ca_number):
         notes.append(ID_CARD_HOLDUP_LINE)
-    notes.extend(_proposal_deduction_notes(proposal, ca_number))
+    notes.extend(
+        _proposal_deduction_notes(proposal, ca_number, emp_cd=emp_cd)
+    )
     return notes
 
 
@@ -480,11 +473,10 @@ def _build_row(emp_cd):
         "scheme": _pension_scheme_label(pension_option),
         "last_pay": last_pay,
         "avg_emoluments": avg_emoluments,
-        "nature_of_service": resolve_nature_of_service(
-            emp_cd,
-            fallback=_designation_name(emp_cd, case, pensioner),
+        "nature_of_service": resolve_employee_designation_name(
+            emp_cd, case=case, pensioner=pensioner
         ),
-        "department": resolve_department_from_posting(
+        "department": resolve_dept_wise_department(
             emp_cd,
             fallback=_department_name(emp_cd),
         ),

@@ -88,7 +88,7 @@ class BankViewSet(ModelViewSet):
 class BankAbbrViewSet(ModelViewSet):
     """Admin CRUD for FI_PM_MH_BANKABBR (pension admin UI)."""
 
-    queryset = FiPmMhBankAbbr.objects.all().order_by("bank_name", "bank_type")
+    queryset = FiPmMhBankAbbr.objects.all().order_by("bank_type")
     serializer_class = FiPmMhBankAbbrSerializer
     permission_classes = [IsAdminRole]
     lookup_field = "bank_type"

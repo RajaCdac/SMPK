@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from ..oracle_mirror import FiPnTdJv, FiPnThJv, FiPnThPensionBill
 from .manual_journal_service import compute_journal_totals
+from .zonalmap_service import lookup_cpt_zonal
 
 ORG_NAME = "SYAMA PRASAD MOOKERJEE PORT, KOLKATA"
 REPORT_TITLE = "Summary of Journal"
@@ -184,6 +185,10 @@ def list_bills_for_journal_report(*, yr, mth):
     ).exclude(voucher_no="").values_list("bill_no", flat=True):
         refs.add(bill_no)
     for bill_no in FiPnThJv.objects.filter(
+        ref_no__startswith=f"PFN/{int(mth):02d}/{int(yr)}/"
+    ).values_list("ref_no", flat=True):
+        refs.add(bill_no)
+    for bill_no in FiPnThJv.objects.filter(
         ref_no__startswith=f"PPN/{int(mth):02d}/{int(yr)}/"
     ).values_list("ref_no", flat=True):
         refs.add(bill_no)
@@ -191,52 +196,6 @@ def list_bills_for_journal_report(*, yr, mth):
     items = [{"ref_no": r, "bill_no": r} for r in sorted(refs)]
     items.insert(0, {"ref_no": "ALL", "bill_no": "ALL"})
     return {"yr": int(yr), "mth": int(mth), "fin_yr": fin_yr, "bills": items}
-
-
-def _lookup_cpt_zonal_desc(zonal_cd):
-    try:
-        from django.db import connection
-
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT CPT_ZONAL_DES
-                FROM fi_ma_m_h_zonalmap
-                WHERE ZONAL_CD = %s
-                LIMIT 1
-                """,
-                [int(zonal_cd)],
-            )
-            row = cursor.fetchone()
-            if row and row[0]:
-                return _clip(row[0], 60)
-    except Exception:
-        pass
-
-    try:
-        from employee.services.oracle_service import (
-            oracle_reads_enabled,
-            try_oracle_connection,
-        )
-
-        if not oracle_reads_enabled():
-            return ""
-        conn = try_oracle_connection()
-        if not conn:
-            return ""
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT CPT_ZONAL_DES
-                FROM FINANCE.FI_MA_M_H_ZONALMAP
-                WHERE ZONAL_CD = :z
-                """,
-                {"z": int(zonal_cd)},
-            )
-            row = cursor.fetchone()
-            return _clip(row[0], 60) if row else ""
-    except Exception:
-        return ""
 
 
 def _fetch_abstract_from_mysql(*, ref_no, yr, mth):
@@ -338,16 +297,18 @@ def build_journal_summary_report(*, yr, mth, ref_no=""):
     for line in detail_qs:
         z = int(line.zonal_cd)
         if z not in zonal_cache:
-            zonal_cache[z] = _lookup_cpt_zonal_desc(z)
-        cpt_desc = zonal_cache[z]
-        zonal_label = f"{z} {cpt_desc}".strip() if cpt_desc else str(z)
+            # Display CPT_ZONAL_CD + desc (e.g. 12 → "10 REVENUE ACCOUNT")
+            zonal_cache[z] = lookup_cpt_zonal(z)
+        cpt = zonal_cache[z]
         amt = Decimal(str(line.amount or 0))
         is_debit = line.dr_cr_flag == "D"
         rows.append(
             {
                 "sl_no": line.sl_no,
                 "zonal_cd": z,
-                "zonal_label": zonal_label,
+                "cpt_zonal_cd": cpt["cpt_zonal_cd"],
+                "cpt_zonal_des": cpt["cpt_zonal_des"],
+                "zonal_label": cpt["zonal_label"],
                 "aloc_cd1": _format_alloc_cd(line.aloc_cd1),
                 "aloc_cd2": _format_alloc_cd(line.aloc_cd2),
                 "aloc_cd3": _format_alloc_cd(line.aloc_cd3),

@@ -7,7 +7,7 @@ Detail: smpk_pension.fi_pn_md_fpen_appcn
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from django.db import connections
@@ -41,6 +41,56 @@ def _str(value):
     return str(value).strip()
 
 
+def _normalize_emp_class(value):
+    """Map APP_CLASS / CLASS to 1–4; blank if unknown."""
+    if value in (None, ""):
+        return ""
+    text = str(value).strip().upper()
+    mapping = {
+        "I": "1",
+        "II": "2",
+        "III": "3",
+        "IV": "4",
+        "O": "1",
+        "E": "3",
+        "1": "1",
+        "2": "2",
+        "3": "3",
+        "4": "4",
+    }
+    if text in mapping:
+        return mapping[text]
+    try:
+        n = int(float(text))
+    except (TypeError, ValueError):
+        return ""
+    return str(n) if n in (1, 2, 3, 4) else ""
+
+
+def _lookup_familypensioner_app_class(cur, emp_cd: str):
+    """APP_CLASS from fi_pn_mh_familypensioner (claim Class of emp)."""
+    code = _str(emp_cd)[:5]
+    if not code:
+        return ""
+    sql = """
+        SELECT APP_CLASS
+        FROM fi_pn_mh_familypensioner
+        WHERE EMP_CD = %s
+          AND APP_CLASS IS NOT NULL
+          AND CAST(APP_CLASS AS CHAR) <> ''
+        ORDER BY DATE_CREATED DESC
+        LIMIT 1
+    """
+    try:
+        cur.execute(sql, [code])
+        row = cur.fetchone()
+        if row and row[0] not in (None, ""):
+            return _normalize_emp_class(row[0])
+    except Exception:
+        pass
+    return ""
+
+
 def empty_claim_form():
     now = datetime.now()
     return {
@@ -54,6 +104,10 @@ def empty_claim_form():
         "appcn_status": "",
         "double_fpen_eligibility": 0,
         "double_fpen_upto": "",
+        "emp_birth_dt": "",
+        "separation_dt": "",
+        "exp_ret_dt": "",
+        "separation_type": "",
         "applicant_type": "",
         "applicant_name": "",
         "applicant_address": "",
@@ -97,7 +151,7 @@ def empty_applicant():
         "bank_cd": "",
         "account_no": "",
         "lic_bank_cd": "",
-        "status_flg": "S",
+        "status_flg": "",
         "fpen_inactive_from_dt": "",
         "fpen_clos_reason": "",
         "handicap_flg": "N",
@@ -146,6 +200,177 @@ def _lookup_emp_name(cur, emp_cd):
     return _str(row[0]) if row and row[0] else ""
 
 
+def _lookup_emp_birth_dt(cur, emp_cd):
+    if not emp_cd:
+        return ""
+    cur.execute(
+        """
+        SELECT BIRTH_DT FROM fi_xx_mh_emp_per
+        WHERE EMP_CD = %s
+        LIMIT 1
+        """,
+        [emp_cd],
+    )
+    row = cur.fetchone()
+    return _fmt_date(row[0]) if row else ""
+
+
+def _as_plain_date(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    parsed = _parse_date(value)
+    if isinstance(parsed, datetime):
+        return parsed.date()
+    return parsed
+
+
+def _lookup_separation_info(cur, emp_cd):
+    """
+    Returns dict: separation_dt, exp_ret_dt, separation_type (ISO/str blanks).
+    Prefers emp_adm; falls back to pensioner EMP_RET_DT for separation only.
+    """
+    code = _str(emp_cd)[:5]
+    info = {"separation_dt": "", "exp_ret_dt": "", "separation_type": ""}
+    if not code:
+        return info
+    cur.execute(
+        """
+        SELECT SEPARATION_DT, EXP_RET_DT, SEPARATION_TYPE
+        FROM fi_xx_mh_emp_adm
+        WHERE EMP_CD = %s
+        LIMIT 1
+        """,
+        [code],
+    )
+    row = cur.fetchone()
+    if row:
+        info["separation_dt"] = _fmt_date(row[0]) if row[0] else ""
+        info["exp_ret_dt"] = _fmt_date(row[1]) if row[1] else ""
+        info["separation_type"] = _str(row[2]) if row[2] is not None else ""
+    if not info["separation_dt"]:
+        cur.execute(
+            """
+            SELECT EMP_RET_DT
+            FROM fi_pn_mh_pensioner
+            WHERE EMP_CD = %s
+            LIMIT 1
+            """,
+            [code],
+        )
+        prow = cur.fetchone()
+        if prow and prow[0]:
+            info["separation_dt"] = _fmt_date(prow[0])
+    return info
+
+
+def _lookup_separation_dt(cur, emp_cd):
+    """Separation preferred; fall back to expected retirement / pensioner ret date."""
+    info = _lookup_separation_info(cur, emp_cd)
+    return info["separation_dt"] or info["exp_ret_dt"] or ""
+
+
+def _is_death_separation(sep_type) -> bool:
+    return _str(sep_type).upper() in {"DT", "DE", "D", "DEATH"}
+
+
+def _minus_one_day(value) -> str:
+    d = _as_plain_date(value)
+    if not d:
+        return ""
+    return _fmt_date(d - timedelta(days=1))
+
+
+def _lookup_emp_dod(cur, emp_cd: str) -> str:
+    """
+    Employee date of death (EMP_DOD).
+    Prefer a value already stored on a claim; else original (non-CE) pensioner
+    death; else death-in-service separation minus one day (KoPT sep = DOD+1).
+    """
+    code = _str(emp_cd)[:5]
+    if not code:
+        return ""
+    cur.execute(
+        """
+        SELECT EMP_DOD
+        FROM fi_pn_mh_fpen_caclaim
+        WHERE EMP_CD = %s AND EMP_DOD IS NOT NULL
+        ORDER BY CASE
+            WHEN UPPER(LEFT(IFNULL(CLM_CA_TYPE, ''), 2)) = 'CE' THEN 0
+            ELSE 1
+        END, CLMCA_ID
+        LIMIT 1
+        """,
+        [code],
+    )
+    row = cur.fetchone()
+    if row and row[0]:
+        return _fmt_date(row[0])
+    cur.execute(
+        """
+        SELECT DOD_EMP_PENSIONER
+        FROM fi_pn_mh_fpen_caclaim
+        WHERE EMP_CD = %s
+          AND DOD_EMP_PENSIONER IS NOT NULL
+          AND UPPER(LEFT(IFNULL(CLM_CA_TYPE, ''), 2)) <> 'CE'
+        ORDER BY CLMCA_ID
+        LIMIT 1
+        """,
+        [code],
+    )
+    row = cur.fetchone()
+    if row and row[0]:
+        return _fmt_date(row[0])
+    info = _lookup_separation_info(cur, code)
+    if _is_death_separation(info.get("separation_type")) and info.get(
+        "separation_dt"
+    ):
+        return _minus_one_day(info["separation_dt"])
+    return ""
+
+
+def _compute_double_fpen_upto(
+    separation_value,
+    emp_birth_value,
+    emp_class=None,
+    dod_value=None,
+    separation_type=None,
+    exp_ret_value=None,
+):
+    """
+    Normal: MIN(sep/ret + 7y, DOB + age) − 1 day.
+    Die-in-harness (type DT and sep < exp ret): straight sep + 10y − 1 day
+    (no age cap; sep is next day after death).
+    Returns date or None.
+    """
+    from family_pension.services.double_fpension_service import (
+        resolve_double_fpen_upto,
+    )
+
+    separation_dt = _as_plain_date(separation_value)
+    emp_dob = _as_plain_date(emp_birth_value)
+    dod = _as_plain_date(dod_value)
+    exp_ret = _as_plain_date(exp_ret_value)
+
+    if not separation_dt and not dod:
+        return None
+    try:
+        return resolve_double_fpen_upto(
+            separation_dt=separation_dt,
+            emp_dob=emp_dob,
+            emp_class=emp_class,
+            claim_upto=None,
+            dod=dod,
+            separation_type=separation_type,
+            exp_ret_dt=exp_ret,
+        )
+    except Exception:
+        return None
+
+
 def _lookup_relation_desc(cur, relation_cd):
     if relation_cd in (None, ""):
         return ""
@@ -160,6 +385,69 @@ def _lookup_relation_desc(cur, relation_cd):
     return _str(row[0]) if row else ""
 
 
+def lookup_bank(bank_cd: str) -> dict:
+    """
+    Oracle LOV_BANK style: bank name + branch (desc) for a bank code.
+
+    fi_pm_mh_bank.BANK_DESC  -> branch description
+    fi_pm_mh_bankabbr.BANK_NAME (via type = first 2 of bank_cd) -> bank name
+    """
+    code = _str(bank_cd)[:6]
+    empty = {
+        "bank_cd": code,
+        "bank_name": "",
+        "bank_branch": "",
+        "bank_id": "",
+        "bank_short_name": "",
+        "found": False,
+    }
+    if not code:
+        return empty
+
+    conn = connections["default"]
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                a.BANK_CD,
+                a.BANK_DESC,
+                a.BANK_ID,
+                b.BANK_NAME,
+                b.BANK_SHORT_NAME
+            FROM fi_pm_mh_bank a
+            LEFT JOIN fi_pm_mh_bankabbr b
+              ON SUBSTR(a.BANK_CD, 1, 2) = b.BANK_TYPE
+            WHERE a.BANK_CD = %s
+            LIMIT 1
+            """,
+            [code],
+        )
+        row = cur.fetchone()
+    if not row:
+        return empty
+    return {
+        "bank_cd": _str(row[0]),
+        "bank_branch": _str(row[1]),
+        "bank_id": _str(row[2]),
+        "bank_name": _str(row[3]),
+        "bank_short_name": _str(row[4]),
+        "found": True,
+    }
+
+
+def _enrich_applicant_bank(app: dict) -> dict:
+    """Attach display bank name / branch for code on the applicant row."""
+    bank = lookup_bank(app.get("bank_cd"))
+    app["bank_name"] = bank.get("bank_name") or ""
+    app["bank_branch"] = bank.get("bank_branch") or ""
+    app["bank_id"] = bank.get("bank_id") or ""
+    app["bank_short_name"] = bank.get("bank_short_name") or ""
+    lic = lookup_bank(app.get("lic_bank_cd"))
+    app["lic_bank_name"] = lic.get("bank_name") or ""
+    app["lic_bank_branch"] = lic.get("bank_branch") or ""
+    return app
+
+
 def _fetch_applicants(cur, clmca_id):
     cur.execute(
         """
@@ -168,7 +456,7 @@ def _fetch_applicants(cur, clmca_id):
             a.FPEN_ACTIVE, a.FPEN_START_MNTH, a.FPRN_START_YR,
             a.IMPL_MNTH, a.IMPL_YR, a.BANK_CD, a.ACCOUNT_NO, a.LIC_BANK_CD,
             a.STATUS_FLG, a.FPEN_INACTIVE_FROM_DT, a.FPEN_CLOS_REASON,
-            a.HANDICAP_FLG, a.PAN_NO
+            a.HANDICAP_FLG, a.PAN_NO, a.RELIEF_TAG
         FROM fi_pn_md_fpen_appcn a
         LEFT JOIN fi_pm_mh_relation r ON r.RELATION_CD = a.RELATION_CD
         WHERE a.CLMCA_ID = %s
@@ -178,29 +466,29 @@ def _fetch_applicants(cur, clmca_id):
     )
     out = []
     for row in cur.fetchall():
-        out.append(
-            {
-                "sl_no": row[0],
-                "name": _str(row[1]),
-                "dob": _fmt_date(row[2]),
-                "sex": _str(row[3]),
-                "relation_cd": row[4] if row[4] is not None else "",
-                "relation_desc": _str(row[5]),
-                "fpen_active": row[6],
-                "fpen_start_mnth": row[7] if row[7] is not None else "",
-                "fprn_start_yr": row[8] if row[8] is not None else "",
-                "impl_mnth": row[9] if row[9] is not None else "",
-                "impl_yr": row[10] if row[10] is not None else "",
-                "bank_cd": _str(row[11]),
-                "account_no": _str(row[12]),
-                "lic_bank_cd": _str(row[13]),
-                "status_flg": _str(row[14]) or "S",
-                "fpen_inactive_from_dt": _fmt_date(row[15]),
-                "fpen_clos_reason": _str(row[16]),
-                "handicap_flg": _str(row[17]) or "N",
-                "pan_no": _str(row[18]),
-            }
-        )
+        app = {
+            "sl_no": row[0],
+            "name": _str(row[1]),
+            "dob": _fmt_date(row[2]),
+            "sex": _str(row[3]),
+            "relation_cd": row[4] if row[4] is not None else "",
+            "relation_desc": _str(row[5]),
+            "fpen_active": row[6],
+            "fpen_start_mnth": row[7] if row[7] is not None else "",
+            "fprn_start_yr": row[8] if row[8] is not None else "",
+            "impl_mnth": row[9] if row[9] is not None else "",
+            "impl_yr": row[10] if row[10] is not None else "",
+            "bank_cd": _str(row[11]),
+            "account_no": _str(row[12]),
+            "lic_bank_cd": _str(row[13]),
+            "status_flg": _str(row[14]),
+            "fpen_inactive_from_dt": _fmt_date(row[15]),
+            "fpen_clos_reason": _str(row[16]),
+            "handicap_flg": _str(row[17]) or "N",
+            "pan_no": _str(row[18]),
+            "relief_tag": _str(row[19]),
+        }
+        out.append(_enrich_applicant_bank(app))
     return out
 
 
@@ -268,11 +556,35 @@ def get_claim_by_id(clmca_id: str):
             "incentive_holder_flg": _str(row[25]),
             "consolid_cpi_scl_stamt": _num(row[26]),
             "equiv_pay_at_base_cpi": _num(row[27]),
-            "class_cd": row[28] if row[28] is not None else "",
+            "class_cd": (
+                _normalize_emp_class(row[28])
+                or _lookup_familypensioner_app_class(cur, emp_cd)
+            ),
             "emp_dod": _fmt_date(row[29]),
             "remarks": _str(row[30]),
+            "emp_birth_dt": _lookup_emp_birth_dt(cur, emp_cd),
             "applicants": _fetch_applicants(cur, claim_id),
         }
+        sep_info = _lookup_separation_info(cur, emp_cd)
+        form["separation_dt"] = sep_info["separation_dt"] or form.get("separation_dt")
+        form["exp_ret_dt"] = sep_info["exp_ret_dt"]
+        form["separation_type"] = sep_info["separation_type"]
+        if not form.get("emp_dod"):
+            form["emp_dod"] = _lookup_emp_dod(cur, emp_cd)
+        # Refresh upto from rule when eligible + separation/DOB available
+        if form["double_fpen_eligibility"] == 1 and (
+            form.get("separation_dt") or form.get("dod_emp_pensioner")
+        ):
+            computed = _compute_double_fpen_upto(
+                form.get("separation_dt"),
+                form.get("emp_birth_dt"),
+                emp_class=form.get("class_cd"),
+                dod_value=form.get("dod_emp_pensioner"),
+                separation_type=form.get("separation_type"),
+                exp_ret_value=form.get("exp_ret_dt"),
+            )
+            if computed:
+                form["double_fpen_upto"] = _fmt_date(computed)
         return form
 
 
@@ -308,6 +620,7 @@ def prefill_from_emp(emp_cd: str, clm_ca_type: str | None = None) -> dict:
     """
     Prefill claim fields when Emp Code is entered (FI_PN_MH_FPENSION_CLAIM_E behaviour).
     Sources: emp_per, emp_adm, emp_fin, pensioner, pension_proposal.
+    Ret CPI only when proposal has it; otherwise blank for user entry.
     """
     code = _str(emp_cd)[:5]
     if not code:
@@ -335,9 +648,21 @@ def prefill_from_emp(emp_cd: str, clm_ca_type: str | None = None) -> dict:
             "last_fpen_mth": datetime.now().month,
             "last_fpen_yr": datetime.now().year,
             "dod_emp_pensioner": "",
+            "emp_dod": "",
+            "emp_birth_dt": _lookup_emp_birth_dt(cur, code),
+            "retirement_cpi": "",
+            "class_cd": "",
         }
+        fp_class = _lookup_familypensioner_app_class(cur, code)
+        if fp_class:
+            prefill["class_cd"] = fp_class
+        sep_info = _lookup_separation_info(cur, code)
+        prefill["separation_dt"] = sep_info["separation_dt"]
+        prefill["exp_ret_dt"] = sep_info["exp_ret_dt"]
+        prefill["separation_type"] = sep_info["separation_type"]
+        prefill["emp_dod"] = _lookup_emp_dod(cur, code)
 
-        # Separation date is available on emp_adm but Pensioner Death On stays blank for user input.
+        # Separation / class for Double FP upto; pensioner death stays blank for user input.
         cur.execute(
             """
             SELECT SCALE_SL, EMP_CLASS
@@ -351,8 +676,8 @@ def prefill_from_emp(emp_cd: str, clm_ca_type: str | None = None) -> dict:
         if fin:
             if fin[0] is not None:
                 prefill["scale_cd"] = _str(fin[0])
-            if fin[1] is not None:
-                prefill["class_cd"] = fin[1]
+            if not prefill.get("class_cd") and fin[1] is not None:
+                prefill["class_cd"] = _normalize_emp_class(fin[1])
 
         cur.execute(
             """
@@ -390,8 +715,7 @@ def prefill_from_emp(emp_cd: str, clm_ca_type: str | None = None) -> dict:
             prefill["double_fpen_eligibility"] = (
                 1 if prop[0] in (1, "1", True) else 0
             )
-            if prop[1]:
-                prefill["double_fpen_upto"] = _fmt_date(prop[1])
+            # DOUBLE_FPEN_UPTO is computed from DOD + emp DOB (form rule), not proposal alone
             if prop[2] and not prefill.get("ca_no"):
                 prefill["ca_no"] = _str(prop[2])
             if prop[3]:
@@ -400,6 +724,10 @@ def prefill_from_emp(emp_cd: str, clm_ca_type: str | None = None) -> dict:
                 prefill["incentive_holder_flg"] = _str(prop[4])[:1]
             if prop[5] is not None:
                 prefill["retirement_cpi"] = _num(prop[5])
+
+        if claim_type == "CE":
+            prefill["double_fpen_eligibility"] = 0
+            prefill["double_fpen_upto"] = ""
 
         matches = find_claims_by_emp(code)
         return {
@@ -456,9 +784,178 @@ def allocate_claim_id(cur, clm_ca_type: str) -> str:
     return f"{claim_type}/{next_sl}"
 
 
+def _applicant_row_values(app, sl_no, clmca_id, user, now):
+    """Column values shared by applicant INSERT / UPDATE."""
+    active = (
+        _parse_int(app.get("fpen_active"))
+        if app.get("fpen_active") not in (None, "")
+        else 1
+    )
+    vals = {
+        "sl_no": sl_no,
+        "name": _str(app.get("name"))[:100],
+        "clmca_id": clmca_id,
+        "dob": _parse_date(app.get("dob")),
+        "fpen_active": active,
+        "fpen_start_mnth": _parse_int(app.get("fpen_start_mnth")),
+        "fprn_start_yr": _parse_int(app.get("fprn_start_yr")),
+        "impl_mnth": _parse_int(app.get("impl_mnth")),
+        "impl_yr": _parse_int(app.get("impl_yr")),
+        "relation_cd": _parse_int(app.get("relation_cd")),
+        "bank_cd": _str(app.get("bank_cd"))[:6] or None,
+        "account_no": _str(app.get("account_no"))[:20] or None,
+        "lic_bank_cd": _str(app.get("lic_bank_cd"))[:6] or None,
+        "status_flg": _str(app.get("status_flg"))[:1] or None,
+        "sex": _str(app.get("sex"))[:1] or None,
+        "fpen_inactive_from_dt": _parse_date(app.get("fpen_inactive_from_dt")),
+        "fpen_clos_reason": _str(app.get("fpen_clos_reason"))[:2] or None,
+        "handicap_flg": _str(app.get("handicap_flg"))[:1] or "N",
+        "pan_no": _str(app.get("pan_no"))[:10] or None,
+        "relief_tag": _str(app.get("relief_tag"))[:1] or None,
+        "user": (user or "SMPK")[:5],
+        "now": now,
+    }
+    return vals
+
+
+def _replace_applicants(cur, clmca_id, named, user, now):
+    """
+    Upsert claim applicants.
+
+    Bulk DELETE+INSERT fails when First FP has rows in
+    fi_pn_mh_familypensioner referencing (SL_NO, CLMCA_ID). Existing serial
+    numbers are updated in place; new ones inserted; only unreferenced
+    leftover rows are removed.
+    """
+    kept = []
+    for i, app in enumerate(named, start=1):
+        sl_no = _parse_int(app.get("sl_no")) or i
+        kept.append(sl_no)
+        v = _applicant_row_values(app, sl_no, clmca_id, user, now)
+
+        cur.execute(
+            """
+            UPDATE fi_pn_md_fpen_appcn SET
+                NAME = %s,
+                DOB = %s,
+                FPEN_ACTIVE = %s,
+                FPEN_START_MNTH = %s,
+                FPRN_START_YR = %s,
+                IMPL_MNTH = %s,
+                IMPL_YR = %s,
+                RELATION_CD = %s,
+                BANK_CD = %s,
+                ACCOUNT_NO = %s,
+                LIC_BANK_CD = %s,
+                STATUS_FLG = %s,
+                SEX = %s,
+                FPEN_INACTIVE_FROM_DT = %s,
+                FPEN_CLOS_REASON = %s,
+                HANDICAP_FLG = %s,
+                PAN_NO = %s,
+                RELIEF_TAG = %s
+            WHERE SL_NO = %s AND CLMCA_ID = %s
+            """,
+            [
+                v["name"],
+                v["dob"],
+                v["fpen_active"],
+                v["fpen_start_mnth"],
+                v["fprn_start_yr"],
+                v["impl_mnth"],
+                v["impl_yr"],
+                v["relation_cd"],
+                v["bank_cd"],
+                v["account_no"],
+                v["lic_bank_cd"],
+                v["status_flg"],
+                v["sex"],
+                v["fpen_inactive_from_dt"],
+                v["fpen_clos_reason"],
+                v["handicap_flg"],
+                v["pan_no"],
+                v["relief_tag"],
+                sl_no,
+                clmca_id,
+            ],
+        )
+        if cur.rowcount == 0:
+            cur.execute(
+                """
+                INSERT INTO fi_pn_md_fpen_appcn (
+                    SL_NO, NAME, CLMCA_ID, DOB, FPEN_ACTIVE,
+                    FPEN_START_MNTH, FPRN_START_YR, IMPL_MNTH, IMPL_YR,
+                    DATE_CREATED, CREATED_BY,
+                    RELATION_CD, BANK_CD, ACCOUNT_NO, LIC_BANK_CD,
+                    STATUS_FLG, SEX, FPEN_INACTIVE_FROM_DT, FPEN_CLOS_REASON,
+                    HANDICAP_FLG, PAN_NO, RELIEF_TAG
+                ) VALUES (
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s
+                )
+                """,
+                [
+                    sl_no,
+                    v["name"],
+                    clmca_id,
+                    v["dob"],
+                    v["fpen_active"],
+                    v["fpen_start_mnth"],
+                    v["fprn_start_yr"],
+                    v["impl_mnth"],
+                    v["impl_yr"],
+                    now,
+                    v["user"],
+                    v["relation_cd"],
+                    v["bank_cd"],
+                    v["account_no"],
+                    v["lic_bank_cd"],
+                    v["status_flg"],
+                    v["sex"],
+                    v["fpen_inactive_from_dt"],
+                    v["fpen_clos_reason"],
+                    v["handicap_flg"],
+                    v["pan_no"],
+                    v["relief_tag"],
+                ],
+            )
+
+    # Drop applicants no longer on the form, unless First FP still references them.
+    if kept:
+        placeholders = ", ".join(["%s"] * len(kept))
+        cur.execute(
+            f"""
+            DELETE a FROM fi_pn_md_fpen_appcn a
+            WHERE a.CLMCA_ID = %s
+              AND a.SL_NO NOT IN ({placeholders})
+              AND NOT EXISTS (
+                  SELECT 1 FROM fi_pn_mh_familypensioner f
+                  WHERE f.CLMCA_ID = a.CLMCA_ID AND f.SL_NO = a.SL_NO
+              )
+            """,
+            [clmca_id, *kept],
+        )
+    else:
+        cur.execute(
+            """
+            DELETE a FROM fi_pn_md_fpen_appcn a
+            WHERE a.CLMCA_ID = %s
+              AND NOT EXISTS (
+                  SELECT 1 FROM fi_pn_mh_familypensioner f
+                  WHERE f.CLMCA_ID = a.CLMCA_ID AND f.SL_NO = a.SL_NO
+              )
+            """,
+            [clmca_id],
+        )
+
+
 def save_claim(payload: dict, user_id: str = "SMPK") -> dict:
     """
-    Insert or update FI_PN_MH_FPEN_CACLAIM + replace FI_PN_MD_FPEN_APPCN rows.
+    Insert or update FI_PN_MH_FPEN_CACLAIM + upsert FI_PN_MD_FPEN_APPCN rows.
     Returns saved claim (via get_claim_by_id).
     """
     from django.db import transaction
@@ -504,6 +1001,58 @@ def save_claim(payload: dict, user_id: str = "SMPK") -> dict:
 
                 created = not exists
 
+                dbl_eligible = (
+                    1 if data.get("double_fpen_eligibility") in (1, "1", True) else 0
+                )
+                dod_parsed = _parse_date(data.get("dod_emp_pensioner"))
+                # Eligible double upto — DIH uses death+10y when type DT & sep < exp ret
+                if dbl_eligible:
+                    emp_birth = _lookup_emp_birth_dt(cur, emp_cd)
+                    adm_info = _lookup_separation_info(cur, emp_cd)
+                    sep_iso = (
+                        _str(data.get("separation_dt"))
+                        or adm_info["separation_dt"]
+                        or adm_info["exp_ret_dt"]
+                    )
+                    sep_type = (
+                        data.get("separation_type")
+                        if data.get("separation_type") not in (None, "")
+                        else adm_info["separation_type"]
+                    )
+                    exp_ret = (
+                        data.get("exp_ret_dt")
+                        if data.get("exp_ret_dt") not in (None, "")
+                        else adm_info["exp_ret_dt"]
+                    )
+                    class_cd = data.get("class_cd")
+                    if class_cd in (None, ""):
+                        class_cd = _lookup_familypensioner_app_class(cur, emp_cd)
+                    if class_cd in (None, ""):
+                        cur.execute(
+                            """
+                            SELECT EMP_CLASS FROM fi_xx_mh_emp_fin
+                            WHERE EMP_CD = %s LIMIT 1
+                            """,
+                            [emp_cd],
+                        )
+                        c_row = cur.fetchone()
+                        class_cd = c_row[0] if c_row else None
+                    computed_upto = _compute_double_fpen_upto(
+                        sep_iso,
+                        emp_birth,
+                        emp_class=class_cd,
+                        dod_value=dod_parsed,
+                        separation_type=sep_type,
+                        exp_ret_value=exp_ret,
+                    )
+                    double_upto_val = (
+                        datetime.combine(computed_upto, datetime.min.time())
+                        if computed_upto
+                        else _parse_date(data.get("double_fpen_upto"))
+                    )
+                else:
+                    double_upto_val = None
+
                 master_vals = {
                     "CLMCA_ID": clmca_id[:22],
                     "CLM_CA_TYPE": clm_ca_type,
@@ -512,15 +1061,13 @@ def save_claim(payload: dict, user_id: str = "SMPK") -> dict:
                     "APPCN_NO": _str(data.get("appcn_no"))[:22] or None,
                     "APPCN_DATE": _parse_date(data.get("appcn_date")),
                     "APPCN_STATUS": _parse_int(data.get("appcn_status")),
-                    "DOUBLE_FPEN_ELIGIBILITY": 1
-                    if data.get("double_fpen_eligibility") in (1, "1", True)
-                    else 0,
-                    "DOUBLE_FPEN_UPTO": _parse_date(data.get("double_fpen_upto")),
+                    "DOUBLE_FPEN_ELIGIBILITY": dbl_eligible,
+                    "DOUBLE_FPEN_UPTO": double_upto_val,
                     "APPLICANT_TYPE": _parse_int(data.get("applicant_type")),
                     "APPLICANT_NAME": _str(data.get("applicant_name"))[:60] or None,
                     "APPLICANT_ADDRESS": _str(data.get("applicant_address"))[:200]
                     or None,
-                    "DOD_EMP_PENSIONER": _parse_date(data.get("dod_emp_pensioner")),
+                    "DOD_EMP_PENSIONER": dod_parsed,
                     "GURDIAN_RELATION_CD": _parse_int(data.get("gurdian_relation_cd")),
                     "DOB_GUARDIAN": _parse_date(data.get("dob_guardian")),
                     "SERVICE_PENSION_AMT": _parse_dec(data.get("service_pension_amt")),
@@ -628,56 +1175,9 @@ def save_claim(payload: dict, user_id: str = "SMPK") -> dict:
                         },
                     )
 
-                cur.execute(
-                    "DELETE FROM fi_pn_md_fpen_appcn WHERE CLMCA_ID = %s",
-                    [clmca_id],
-                )
-                for i, app in enumerate(named, start=1):
-                    sl_no = _parse_int(app.get("sl_no")) or i
-                    cur.execute(
-                        """
-                        INSERT INTO fi_pn_md_fpen_appcn (
-                            SL_NO, NAME, CLMCA_ID, DOB, FPEN_ACTIVE,
-                            FPEN_START_MNTH, FPRN_START_YR, IMPL_MNTH, IMPL_YR,
-                            DATE_CREATED, CREATED_BY,
-                            RELATION_CD, BANK_CD, ACCOUNT_NO, LIC_BANK_CD,
-                            STATUS_FLG, SEX, FPEN_INACTIVE_FROM_DT, FPEN_CLOS_REASON,
-                            HANDICAP_FLG, PAN_NO
-                        ) VALUES (
-                            %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s,
-                            %s, %s,
-                            %s, %s, %s, %s,
-                            %s, %s, %s, %s,
-                            %s, %s
-                        )
-                        """,
-                        [
-                            sl_no,
-                            _str(app.get("name"))[:100],
-                            clmca_id,
-                            _parse_date(app.get("dob")),
-                            _parse_int(app.get("fpen_active"))
-                            if app.get("fpen_active") not in (None, "")
-                            else 1,
-                            _parse_int(app.get("fpen_start_mnth")),
-                            _parse_int(app.get("fprn_start_yr")),
-                            _parse_int(app.get("impl_mnth")),
-                            _parse_int(app.get("impl_yr")),
-                            now,
-                            user or "SMPK",
-                            _parse_int(app.get("relation_cd")),
-                            _str(app.get("bank_cd"))[:6] or None,
-                            _str(app.get("account_no"))[:20] or None,
-                            _str(app.get("lic_bank_cd"))[:6] or None,
-                            _str(app.get("status_flg"))[:1] or "S",
-                            _str(app.get("sex"))[:1] or None,
-                            _parse_date(app.get("fpen_inactive_from_dt")),
-                            _str(app.get("fpen_clos_reason"))[:2] or None,
-                            _str(app.get("handicap_flg"))[:1] or "N",
-                            _str(app.get("pan_no"))[:10] or None,
-                        ],
-                    )
+                # Upsert applicants — bulk DELETE fails once First FP has
+                # fi_pn_mh_familypensioner rows referencing (SL_NO, CLMCA_ID).
+                _replace_applicants(cur, clmca_id, named, user, now)
     except Exception as exc:
         return {"error": f"Save failed: {exc}"}
 

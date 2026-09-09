@@ -1,5 +1,4 @@
 import CommutationApplicationEntry from "./CommutationApplicationEntry";
-import PensionSepcomGeneration from "./PensionSepcomGeneration";
 import NoPayEntry from "./NoPayEntry";
 import PensionProposalEntry from "./PensionProposalEntry";
 import PensionAmountEntry from "./PensionAmountEntry";
@@ -124,9 +123,6 @@ export default function EmployeeProcessTabs({ employee, idPrefix = "emp" }) {
               : "Commutation Application"}
           </h5>
           <CommutationApplicationEntry employee={employee} />
-          {showSepcomGeneration && (
-            <PensionSepcomGeneration employee={employee} />
-          )}
         </div>
 
         <div

@@ -7,9 +7,10 @@ from datetime import date
 from django.utils import timezone
 
 from employee.oracle_mirror import FiXxMhEmpPer
+from employee.services.emp_data_service import resolve_employee_designation_name
 
 from ..models import CommutationApplication, PensionProposal, PensionSummary
-from ..oracle_mirror import FiPnMhApplication
+from ..oracle_mirror import FiPnMhApplication, FiPnMhPensioner
 from ..pension_calculation import (
     get_commutation_application_for_employee,
     reload_pension_case_from_db,
@@ -129,6 +130,8 @@ def _build_row(emp_cd):
     proposal = PensionProposal.objects.filter(emp_cd=str(emp_cd).strip()).first()
     if not proposal and str(emp_cd).strip().isdigit():
         proposal = PensionProposal.objects.filter(emp_cd=str(int(emp_cd))).first()
+
+    pensioner = FiPnMhPensioner.objects.filter(emp_cd=_clip(emp_cd, 5)).first()
 
     ca_number = ""
     if proposal and proposal.ca_number:
@@ -258,7 +261,9 @@ def _build_row(emp_cd):
         "emp_cd": _clip(emp_cd, 5),
         "fa_cao_report": _format_case_no(ca_number),
         "pensioner_name": _clean_report_name(case.name),
-        "designation": (case.designation or "").strip().upper(),
+        "designation": resolve_employee_designation_name(
+            emp_cd, case=case, pensioner=pensioner
+        ),
         "pension_amount": _format_money(pension_amount),
         "sanction_particulars": sanction_particulars.upper(),
         "amount_sought_commuted": _format_money(monthly_commuted),

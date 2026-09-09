@@ -12,6 +12,10 @@ Usage:
   python sync_finance_to_smpk.py --dry-run
   python sync_finance_to_smpk.py --yes
   python sync_finance_to_smpk.py --yes --no-recreate   # keep 3306 DDL, map columns
+  python sync_finance_to_smpk.py --yes --insert-ignore --no-recreate
+      # new rows only — existing smpk_pension rows are never updated or deleted
+  python sync_finance_to_smpk.py --yes --append --no-recreate
+      # upsert — refresh existing PKs from finance + insert new PKs
 """
 
 from __future__ import annotations
@@ -55,6 +59,7 @@ PREFERRED_ORDER = (
     "fi_pm_mh_bankabbr",
     "fi_pm_mh_bank",
     "fi_pm_mh_payscale",
+    "fi_pm_mh_earndedn",
     "fi_pn_mh_earndedn",
     "fi_pn_mh_erndednmap",
     "fi_pn_mh_jrnltype",
@@ -112,6 +117,57 @@ TARGET = {
     ),
     "database": os.environ.get("TARGET_MYSQL_DATABASE", "smpk_pension"),
 }
+
+TABLE_PREFIXES = ("fi_pn", "fi_pr", "fi_xx", "fi_pm", "fi_la")
+
+SALARY_TABLES = (
+    "fi_pr_th_salout",
+    "fi_pr_td_salout",
+    "fi_pm_mh_earndedn",
+    "fi_pn_mh_earndedn",
+    "fi_pr_mh_erndednmap",
+)
+
+SYNC_MODES = frozenset({"insert_ignore", "append", "recreate", "truncate"})
+
+
+def _merge_mysql_cfg(cfg: dict, raw: dict | None) -> dict:
+    out = dict(cfg)
+    if not raw:
+        return out
+    key_map = {
+        "host": ("host", "mysql_host"),
+        "port": ("port", "mysql_port"),
+        "user": ("user", "mysql_user"),
+        "password": ("password", "mysql_password"),
+        "database": ("database", "mysql_database"),
+    }
+    for key, aliases in key_map.items():
+        val = None
+        for alias in aliases:
+            if alias in raw and raw[alias] not in (None, ""):
+                val = raw[alias]
+                break
+        if val not in (None, ""):
+            out[key] = int(val) if key == "port" else val
+    return out
+
+
+def resolve_source_config(raw: dict | None = None) -> dict:
+    return _merge_mysql_cfg(SOURCE, raw)
+
+
+def resolve_target_config(raw: dict | None = None) -> dict:
+    return _merge_mysql_cfg(TARGET, raw)
+
+
+def public_mysql_config(cfg: dict) -> dict:
+    return {
+        "host": cfg.get("host"),
+        "port": cfg.get("port"),
+        "user": cfg.get("user"),
+        "database": cfg.get("database"),
+    }
 
 
 def connect(cfg: dict):
@@ -241,11 +297,15 @@ def sync_table(
     batch_size: int,
     dry_run: bool,
     recreate: bool,
+    append: bool = False,
+    insert_ignore: bool = False,
+    src_db: str | None = None,
+    tgt_db: str | None = None,
 ) -> tuple[int, str]:
-    src_db = SOURCE["database"]
-    tgt_db = TARGET["database"]
+    src_db = src_db or SOURCE["database"]
+    tgt_db = tgt_db or TARGET["database"]
 
-    if recreate and not dry_run:
+    if recreate and not dry_run and not append and not insert_ignore:
         create_table_like(src, tgt, table)
 
     src_cols = table_columns(src, src_db, table)
@@ -266,25 +326,47 @@ def sync_table(
     not_null = not_null_columns(tgt, tgt_db, table)
 
     src_n = row_count(src, table)
+    tgt_n = row_count(tgt, table)
     if dry_run:
-        mode = "recreate" if recreate else "truncate"
-        return src_n, f"dry-run {mode} ({src_n} rows, {len(keys)} cols)"
+        if insert_ignore:
+            mode = "insert-ignore"
+        elif append:
+            mode = "append-upsert"
+        elif recreate:
+            mode = "recreate"
+        else:
+            mode = "truncate"
+        return src_n, (
+            f"dry-run {mode} (source={src_n}, target={tgt_n}, {len(keys)} cols)"
+        )
 
     col_src = ", ".join(f"`{c}`" for c in src_list)
     col_tgt = ", ".join(f"`{c}`" for c in tgt_list)
     placeholders = ", ".join(["%s"] * len(keys))
     select_sql = f"SELECT {col_src} FROM `{table}`"
-    insert_sql = f"INSERT INTO `{table}` ({col_tgt}) VALUES ({placeholders})"
+    if insert_ignore:
+        insert_sql = (
+            f"INSERT IGNORE INTO `{table}` ({col_tgt}) VALUES ({placeholders})"
+        )
+    elif append:
+        assignments = ", ".join(f"`{c}`=VALUES(`{c}`)" for c in tgt_list)
+        insert_sql = (
+            f"INSERT INTO `{table}` ({col_tgt}) VALUES ({placeholders}) "
+            f"ON DUPLICATE KEY UPDATE {assignments}"
+        )
+    else:
+        insert_sql = f"INSERT INTO `{table}` ({col_tgt}) VALUES ({placeholders})"
 
     tcur = tgt.cursor()
     scur = src.cursor()
     try:
         tcur.execute("SET FOREIGN_KEY_CHECKS=0")
         tcur.execute("SET sql_mode = ''")  # allow soft NULL→default on strict targets
-        if not recreate:
+        if not recreate and not append and not insert_ignore:
             tcur.execute(f"TRUNCATE TABLE `{table}`")
         scur.execute(select_sql)
-        copied = 0
+        processed = 0
+        inserted = 0
         while True:
             rows = scur.fetchmany(batch_size)
             if not rows:
@@ -293,17 +375,226 @@ def sync_table(
                 _coerce_row(r, tgt_cols=tgt_list, not_null=not_null) for r in rows
             ]
             tcur.executemany(insert_sql, coerced)
-            copied += len(rows)
-            if copied % (batch_size * 5) == 0 or copied == src_n:
+            batch_n = len(rows)
+            processed += batch_n
+            if insert_ignore:
+                inserted += tcur.rowcount
+            elif append:
+                inserted += batch_n
+            else:
+                inserted += batch_n
+            if processed % (batch_size * 5) == 0 or processed == src_n:
                 tgt.commit()
-                print(f"    … {copied}/{src_n}", flush=True)
+                if insert_ignore:
+                    print(
+                        f"    … scanned {processed}/{src_n}, inserted {inserted} new",
+                        flush=True,
+                    )
+                else:
+                    print(f"    … {processed}/{src_n}", flush=True)
         tgt.commit()
         tcur.execute("SET FOREIGN_KEY_CHECKS=1")
         tgt.commit()
-        return copied, "ok"
+        if insert_ignore:
+            return inserted, f"ok-insert-ignore ({inserted} new of {src_n} source rows)"
+        if append:
+            return processed, "ok-append-upsert"
+        return inserted, "ok"
     finally:
         scur.close()
         tcur.close()
+
+
+def select_tables_for_sync(
+    src_tables: set[str],
+    tgt_tables: set[str],
+    *,
+    tables: list[str] | None = None,
+    include_payroll: bool = False,
+    create_missing: bool = False,
+    recreate: bool = False,
+) -> list[str]:
+    overlap = src_tables & tgt_tables
+    if tables:
+        selected = {str(t).lower().strip() for t in tables if str(t).strip()}
+        unknown = selected - src_tables
+        if unknown:
+            raise ValueError(f"Not on finance source: {sorted(unknown)}")
+    else:
+        selected = set(overlap)
+
+    if not include_payroll:
+        selected -= SKIP_BY_DEFAULT
+
+    if create_missing or recreate:
+        for extra in EXTRA_CREATE_IF_MISSING:
+            if extra in src_tables:
+                selected.add(extra)
+
+    return ordered_tables(selected)
+
+
+def resolve_sync_flags(mode: str) -> dict:
+    if mode not in SYNC_MODES:
+        raise ValueError(f"Invalid sync mode: {mode}")
+    if mode == "insert_ignore":
+        return {
+            "append": False,
+            "insert_ignore": True,
+            "recreate": False,
+            "incremental": True,
+            "label": "insert-ignore (new rows only)",
+        }
+    if mode == "append":
+        return {
+            "append": True,
+            "insert_ignore": False,
+            "recreate": False,
+            "incremental": True,
+            "label": "append-upsert (insert + update existing PKs)",
+        }
+    if mode == "recreate":
+        return {
+            "append": False,
+            "insert_ignore": False,
+            "recreate": True,
+            "incremental": False,
+            "label": "recreate (DROP+CREATE+reload — destructive)",
+        }
+    return {
+        "append": False,
+        "insert_ignore": False,
+        "recreate": False,
+        "incremental": False,
+        "label": "truncate+reload (destructive)",
+    }
+
+
+def run_sync(
+    *,
+    source_cfg: dict | None = None,
+    target_cfg: dict | None = None,
+    tables: list[str] | None = None,
+    mode: str = "insert_ignore",
+    include_payroll: bool = False,
+    batch_size: int = 2000,
+    dry_run: bool = False,
+    log_fn=None,
+    on_table_done=None,
+) -> dict:
+    """Sync finance MySQL tables into smpk_pension (callable from Django admin job)."""
+
+    def _log(msg: str):
+        if log_fn:
+            log_fn(msg)
+        else:
+            print(msg, flush=True)
+
+    src_cfg = resolve_source_config(source_cfg)
+    tgt_cfg = resolve_target_config(target_cfg)
+    flags = resolve_sync_flags(mode)
+    prefixes = TABLE_PREFIXES
+
+    src = connect(src_cfg)
+    tgt = connect(tgt_cfg)
+    results: dict[str, dict] = {}
+    ok = fail = 0
+
+    try:
+        src_tables = list_tables(src, src_cfg["database"], prefixes)
+        tgt_tables = list_tables(tgt, tgt_cfg["database"], prefixes)
+        table_list = select_tables_for_sync(
+            src_tables,
+            tgt_tables,
+            tables=tables,
+            include_payroll=include_payroll,
+            create_missing=True,
+            recreate=flags["recreate"],
+        )
+        if not table_list:
+            raise ValueError("No tables selected for sync.")
+
+        if dry_run:
+            for table in table_list:
+                src_n = row_count(src, table) if table in src_tables else 0
+                tgt_n = row_count(tgt, table) if table in tgt_tables else 0
+                results[table] = {
+                    "rows": src_n,
+                    "status": f"dry-run {flags['label']} (source={src_n}, target={tgt_n})",
+                }
+            return {
+                "ok": len(table_list),
+                "fail": 0,
+                "results": results,
+                "mode": mode,
+                "source": public_mysql_config(src_cfg),
+                "target": public_mysql_config(tgt_cfg),
+            }
+
+        tcur = tgt.cursor()
+        tcur.execute("SET FOREIGN_KEY_CHECKS=0")
+        tgt.commit()
+        tcur.close()
+
+        for index, table in enumerate(table_list, start=1):
+            _log(f"--- [{index}/{len(table_list)}] {table} ---")
+            try:
+                if table not in src_tables:
+                    results[table] = {"rows": 0, "status": "skip (missing on source)"}
+                    continue
+                if (
+                    table not in tgt_tables
+                    and flags["incremental"]
+                ):
+                    _log(f"creating missing table {table} from finance DDL …")
+                    create_table_like(src, tgt, table)
+                    tgt_tables.add(table)
+                n, status = sync_table(
+                    src,
+                    tgt,
+                    table=table,
+                    batch_size=batch_size,
+                    dry_run=False,
+                    recreate=(flags["recreate"] or (table not in tgt_tables))
+                    and not flags["incremental"],
+                    append=flags["append"],
+                    insert_ignore=flags["insert_ignore"],
+                    src_db=src_cfg["database"],
+                    tgt_db=tgt_cfg["database"],
+                )
+                results[table] = {"rows": n, "status": status}
+                ok += 1
+                tgt_tables.add(table)
+                _log(f"OK {table}: {status} ({n})")
+                if on_table_done:
+                    on_table_done(table, index, len(table_list), results[table])
+            except Exception as exc:
+                fail += 1
+                results[table] = {"rows": 0, "status": f"error: {exc}"}
+                _log(f"FAIL {table}: {exc}")
+                if on_table_done:
+                    on_table_done(table, index, len(table_list), results[table])
+                try:
+                    tgt.rollback()
+                except Exception:
+                    pass
+
+        tcur = tgt.cursor()
+        tcur.execute("SET FOREIGN_KEY_CHECKS=1")
+        tgt.commit()
+        tcur.close()
+    finally:
+        src.close()
+        tgt.close()
+
+    return {
+        "ok": ok,
+        "fail": fail,
+        "results": results,
+        "mode": mode,
+        "source": public_mysql_config(src_cfg),
+        "target": public_mysql_config(tgt_cfg),
+    }
 
 
 def main() -> int:
@@ -335,115 +626,107 @@ def main() -> int:
         action="store_true",
         help="Also sync huge FI_PR_*_SALOUT tables (~1M / ~13M rows)",
     )
+    parser.add_argument(
+        "--append",
+        action="store_true",
+        help=(
+            "Do not drop/truncate. Upsert rows into existing smpk_pension tables "
+            "(INSERT ... ON DUPLICATE KEY UPDATE). Updates existing PKs from finance."
+        ),
+    )
+    parser.add_argument(
+        "--insert-ignore",
+        action="store_true",
+        help=(
+            "Do not drop/truncate/update existing rows. Insert only brand-new PKs "
+            "from finance (INSERT IGNORE). Recommended for incremental sync."
+        ),
+    )
     parser.add_argument("--table", action="append", dest="tables", default=[])
     parser.add_argument("--batch-size", type=int, default=2000)
     parser.add_argument("--yes", action="store_true")
     args = parser.parse_args()
 
-    prefixes = ("fi_pn", "fi_pr", "fi_xx", "fi_pm", "fi_la")
+    if args.append and args.insert_ignore:
+        print("ERROR: use only one of --append / --insert-ignore")
+        return 1
 
+    if args.insert_ignore:
+        mode = "insert_ignore"
+    elif args.append:
+        mode = "append"
+    elif args.recreate:
+        mode = "recreate"
+    else:
+        mode = "truncate"
+
+    src_cfg = resolve_source_config()
+    tgt_cfg = resolve_target_config()
+    flags = resolve_sync_flags(mode)
     print(
-        f"Source: {SOURCE['host']}:{SOURCE['port']}/{SOURCE['database']}\n"
-        f"Target: {TARGET['host']}:{TARGET['port']}/{TARGET['database']}\n"
-        f"Recreate DDL: {args.recreate}"
+        f"Source: {src_cfg['host']}:{src_cfg['port']}/{src_cfg['database']}\n"
+        f"Target: {tgt_cfg['host']}:{tgt_cfg['port']}/{tgt_cfg['database']}\n"
+        f"Mode: {flags['label']}"
     )
 
-    src = connect(SOURCE)
-    tgt = connect(TARGET)
-    try:
-        src_tables = list_tables(src, SOURCE["database"], prefixes)
-        tgt_tables = list_tables(tgt, TARGET["database"], prefixes)
-        overlap = src_tables & tgt_tables
-        selected = set(t.lower() for t in args.tables) if args.tables else set(overlap)
+    if args.list_only:
+        src = connect(src_cfg)
+        tgt = connect(tgt_cfg)
+        try:
+            src_tables = list_tables(src, src_cfg["database"], TABLE_PREFIXES)
+            tgt_tables = list_tables(tgt, tgt_cfg["database"], TABLE_PREFIXES)
+            table_list = select_tables_for_sync(
+                src_tables,
+                tgt_tables,
+                tables=args.tables or None,
+                include_payroll=args.include_payroll,
+                create_missing=args.create_missing or args.recreate,
+                recreate=flags["recreate"],
+            )
+            print(f"\nTables ({len(table_list)}):")
+            for t in table_list:
+                flag = " [CREATE]" if t not in tgt_tables else ""
+                print(f"  - {t}{flag}")
+        finally:
+            src.close()
+            tgt.close()
+        return 0
 
-        if args.tables:
-            unknown = selected - src_tables
-            if unknown:
-                print(f"ERROR: not on source: {sorted(unknown)}")
-                return 1
-        elif not args.include_payroll:
-            skipped = selected & SKIP_BY_DEFAULT
-            selected -= SKIP_BY_DEFAULT
-            if skipped:
-                print(
-                    f"Skipping huge payroll tables (use --include-payroll): "
-                    f"{', '.join(sorted(skipped))}"
-                )
-
-        if args.create_missing or args.recreate:
-            for extra in EXTRA_CREATE_IF_MISSING:
-                if extra in src_tables:
-                    selected.add(extra)
-
-        tables = ordered_tables(selected)
-        if not tables:
-            print("No tables selected.")
-            return 1
-
-        print(f"\nTables ({len(tables)}):")
-        for t in tables:
-            flag = ""
-            if t not in tgt_tables:
-                flag = " [CREATE]"
-            print(f"  - {t}{flag}")
-
-        if args.list_only:
-            return 0
-
-        if not args.yes and not args.dry_run:
+    if not args.yes and not args.dry_run:
+        if args.insert_ignore:
+            print(
+                "\nINSERT IGNORE — only new PKs from finance will be added."
+                "\nExisting smpk_pension rows will NOT be updated or deleted."
+            )
+        elif args.append:
+            print(
+                "\nAPPEND/UPSERT — new PKs insert; matching PKs refresh from finance."
+            )
+        else:
             print(
                 "\nWARNING: selected target tables will be replaced from finance dump."
             )
-            print("SMPK-only tables (first_pension_*) are NOT touched.")
-            ans = input("Continue? [y/N] ").strip().lower()
-            if ans not in ("y", "yes"):
-                print("Aborted.")
-                return 1
+        print("SMPK-only tables (first_pension_*) are NOT touched.")
+        ans = input("Continue? [y/N] ").strip().lower()
+        if ans not in ("y", "yes"):
+            print("Aborted.")
+            return 1
 
-        # Global FK off for the whole run (recreate order + children).
-        tcur = tgt.cursor()
-        tcur.execute("SET FOREIGN_KEY_CHECKS=0")
-        tgt.commit()
-        tcur.close()
-
-        ok = fail = 0
-        t0 = time.time()
-        for table in tables:
-            print(f"\n[{table}]")
-            try:
-                if table not in src_tables:
-                    print("  skip (missing on source)")
-                    continue
-                n, status = sync_table(
-                    src,
-                    tgt,
-                    table=table,
-                    batch_size=args.batch_size,
-                    dry_run=args.dry_run,
-                    recreate=args.recreate or (table not in tgt_tables),
-                )
-                print(f"  {status} — {n} rows")
-                ok += 1
-                tgt_tables.add(table)
-            except Exception as exc:
-                fail += 1
-                print(f"  ERROR: {exc}")
-                try:
-                    tgt.rollback()
-                except Exception:
-                    pass
-
-        tcur = tgt.cursor()
-        tcur.execute("SET FOREIGN_KEY_CHECKS=1")
-        tgt.commit()
-        tcur.close()
-
-        elapsed = time.time() - t0
-        print(f"\nDone in {elapsed:.1f}s — ok={ok} fail={fail}")
-        return 1 if fail else 0
-    finally:
-        src.close()
-        tgt.close()
+    t0 = time.time()
+    summary = run_sync(
+        source_cfg=src_cfg,
+        target_cfg=tgt_cfg,
+        tables=args.tables or None,
+        mode=mode,
+        include_payroll=args.include_payroll,
+        batch_size=args.batch_size,
+        dry_run=args.dry_run,
+    )
+    elapsed = time.time() - t0
+    print(f"\nDone in {elapsed:.1f}s — ok={summary['ok']} fail={summary['fail']}")
+    for table, info in summary.get("results", {}).items():
+        print(f"  {table}: {info.get('status')} ({info.get('rows')})")
+    return 1 if summary["fail"] else 0
 
 
 if __name__ == "__main__":

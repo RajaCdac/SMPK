@@ -218,3 +218,34 @@ class FiXxMhEmpData(models.Model):
 
     def __str__(self):
         return f"{self.emp_cd} {self.alloc_desc or self.desig}"
+
+
+class FiXxDeptWiseEmpDtl(models.Model):
+    """
+    Oracle FINANCE.FI_XX_DEPT_WISE_EMP_DTL (MySQL VIEW).
+    Department from FA / budget centre — used for First Pension Advice Through office.
+    """
+
+    emp_cd = models.CharField(max_length=5, primary_key=True)
+    first_name = models.CharField(max_length=20, blank=True, default="")
+    middle_name = models.CharField(max_length=20, blank=True, default="")
+    last_name = models.CharField(max_length=20, blank=True, default="")
+    fa_no = models.CharField(max_length=5, blank=True, default="")
+    fa_desc = models.CharField(max_length=50, blank=True, default="")
+    srf_no = models.CharField(max_length=7, blank=True, default="")
+    pf_no = models.CharField(max_length=7, blank=True, default="")
+    leave_ac_no = models.CharField(max_length=20, blank=True, default="")
+    old_emp_no = models.CharField(max_length=6, blank=True, default="")
+    budcntr_cd = models.CharField(max_length=3, blank=True, default="")
+    alloc_desc = models.CharField(max_length=100, blank=True, default="")
+    dept_cd = models.CharField(max_length=2, blank=True, default="")
+    dept_desc = models.CharField(max_length=100, blank=True, default="")
+
+    class Meta:
+        managed = False
+        db_table = "fi_xx_dept_wise_emp_dtl"
+        verbose_name = "Dept-wise employee detail (Oracle view)"
+        ordering = ["emp_cd"]
+
+    def __str__(self):
+        return f"{self.emp_cd} {self.dept_desc}"

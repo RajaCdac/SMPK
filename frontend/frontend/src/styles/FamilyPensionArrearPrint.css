@@ -1,0 +1,150 @@
+.fp-arrear-print {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #000;
+  background: #fff;
+}
+
+.fp-arrear-print__page {
+  width: 210mm;
+  min-height: 250mm;
+  margin: 0 auto 1.5rem;
+  padding: 10mm 12mm;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.fp-arrear-print__band {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+
+.fp-arrear-print__title {
+  text-align: center;
+  font-weight: 700;
+  font-size: 15px;
+  text-decoration: underline;
+  margin: 4px 0 16px;
+  letter-spacing: 0.2px;
+}
+
+.fp-arrear-print__meta {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 14px;
+}
+
+.fp-arrear-print__meta td {
+  padding: 3px 4px;
+  vertical-align: top;
+  border: none;
+}
+
+.fp-arrear-print__meta .lbl {
+  white-space: nowrap;
+  width: 1%;
+  font-weight: 400;
+}
+
+.fp-arrear-print__meta .sep {
+  width: 1%;
+  padding-left: 2px;
+  padding-right: 6px;
+}
+
+.fp-arrear-print__meta .val {
+  font-weight: 600;
+}
+
+.fp-arrear-print__table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-top: 4px;
+}
+
+.fp-arrear-print__table th,
+.fp-arrear-print__table td {
+  border: 1px solid #000;
+  padding: 5px 6px;
+  vertical-align: middle;
+}
+
+.fp-arrear-print__table thead th {
+  text-align: center;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.fp-arrear-print__table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fp-arrear-print__table .ctr {
+  text-align: center;
+}
+
+.fp-arrear-print__table .tot-lbl {
+  font-weight: 700;
+}
+
+.fp-arrear-print__table .payable {
+  font-weight: 700;
+  text-align: right;
+}
+
+.fp-arrear-print__empty {
+  text-align: center;
+  padding: 18px 8px;
+  font-style: italic;
+}
+
+/* Screen-only container */
+.fp-arrear-print-screen {
+  border: 1px solid #cfd8e3;
+  border-radius: 6px;
+  background: #f7f9fc;
+  padding: 12px;
+  overflow: auto;
+}
+
+.fp-arrear-print-screen .fp-arrear-print__page {
+  border: 1px solid #ddd;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+#fp-arrear-print-portal {
+  display: none;
+}
+
+html.fp-arrear-printing body > *:not(#fp-arrear-print-portal) {
+  display: none !important;
+}
+
+html.fp-arrear-printing #fp-arrear-print-portal {
+  display: block !important;
+}
+
+html.fp-arrear-printing #fp-arrear-print-portal .fp-arrear-print__page {
+  margin: 0;
+  box-shadow: none;
+  border: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  html.fp-arrear-printing #fp-arrear-print-portal .fp-arrear-print__page {
+    width: auto;
+    min-height: auto;
+    padding: 0;
+  }
+}

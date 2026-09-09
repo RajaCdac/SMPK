@@ -441,13 +441,84 @@ def get_last_drawn_basic_from_salout(emp_cd):
     return None
 
 
+def _as_date_value(value):
+    if value is None:
+        return None
+    if isinstance(value, date) and not hasattr(value, "hour"):
+        return value
+    if hasattr(value, "date") and callable(value.date):
+        try:
+            return value.date()
+        except Exception:
+            pass
+    return value
+
+
+def _emoluments_as_of(emp_cd):
+    """
+    Last day of service for last-pay / finscale as-on lookup.
+
+    Pension start month (e.g. 01-Jul) → basic as on 30-Jun (last day before start).
+    """
+    pension_start = _pension_start_for_emp(emp_cd)
+    if pension_start:
+        return pension_start - timedelta(days=1)
+    case = PensionCase.objects.filter(emp_code=_clip_emp(emp_cd)).first()
+    if not case and str(emp_cd).strip().isdigit():
+        case = PensionCase.objects.filter(emp_code=str(int(str(emp_cd).strip()))).first()
+    if case and case.retirement_date:
+        return _as_date_value(case.retirement_date) - timedelta(days=1)
+    if case and case.separation_date:
+        return _as_date_value(case.separation_date) - timedelta(days=1)
+    return None
+
+
+def get_finscale_basic_as_of(emp_cd, as_of=None):
+    """
+    Latest FI_XX_MD_FINSCALE.BASIC_AMT with WEF on/before as_of
+    (e.g. 30-Jun → WEF 01-Jan-2026 for emp who got Jan GI to 158570).
+    """
+    from datetime import datetime, timezone as dt_tz
+
+    from employee.oracle_mirror import FiXxMdFinscale
+
+    emp_key = _clip_emp(emp_cd)
+    qs = FiXxMdFinscale.objects.filter(emp_cd=emp_key)
+    as_of = _as_date_value(as_of) if as_of is not None else _emoluments_as_of(emp_key)
+    if as_of:
+        exclusive_end = datetime(
+            as_of.year, as_of.month, as_of.day, tzinfo=dt_tz.utc
+        ) + timedelta(days=1)
+        # WEF stored as UTC midnight calendar day — avoid __date (TZ bug).
+        qs = qs.filter(wef_dt__lt=exclusive_end)
+
+    row = qs.order_by("-wef_dt", "-sl_no").first()
+    if not row:
+        return None
+    if row.basic_amt is not None and float(row.basic_amt) > 0:
+        return float(row.basic_amt)
+    if row.stag_pay_amt is not None and float(row.stag_pay_amt) > 0:
+        return float(row.stag_pay_amt)
+    return None
+
+
 def resolve_emoluments_basic(emp_cd, *, fallback_last_basic=None):
     """
-    Pension calculation basic: salout last drawn, else case.last_basic fallback.
+    Pension emoluments (last pay) for calc:
+
+    1. PN salout last drawn month before pension start (actual payroll)
+    2. Finscale basic as on day before pension start (covers GI after case was
+       opened, e.g. case still has 153950 while finscale is 158570 from 01-Jan)
+    3. case.last_basic fallback
     """
     salout_basic = get_last_drawn_basic_from_salout(emp_cd)
     if salout_basic is not None and salout_basic > 0:
         return salout_basic, "salout"
+
+    fin_basic = get_finscale_basic_as_of(emp_cd)
+    if fin_basic is not None and fin_basic > 0:
+        return fin_basic, "finscale"
+
     if fallback_last_basic is not None:
         return float(fallback_last_basic), "case_last_basic"
     return 0.0, "none"

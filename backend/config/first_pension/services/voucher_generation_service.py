@@ -38,10 +38,12 @@ class VoucherGenerationError(Exception):
 
 DOC_ABV_PNJV = "PNJV"
 TRAN_TYPE_PPN = "PNJV/P"
+TRAN_TYPE_PFN = "PNJV/F"
 MAP_CD_BALANCE = 112
 LIC_EXCLUDED_EARN = frozenset({"200", "202", "208", "210"})
 LIC_GRAT_EARN = frozenset({"205", "201"})
 LIC_COMM_EARN = frozenset({"203"})
+FP_GRATUITY_EARN = frozenset({"205", "104", "204"})
 
 
 def _user_code(user):
@@ -124,6 +126,7 @@ def _format_voucher_no(fin_yr, jv_month, serial):
 
 
 def _normalize_zonal(zonal_cd):
+    """Oracle live JV maps earn zonal 11 → 30 when posting PPN lines."""
     z = int(zonal_cd or 0)
     return 30 if z == 11 else z
 
@@ -160,23 +163,90 @@ def _deduction_earn_codes():
 
 
 def _jrnl_md_match(*, bill_type, zonal_cd, alloc_cd1, dr_cr):
+    """
+    Lookup FI_PN_MD_JRNLTYPE for bill type + GL keys.
+
+    Earn master often stores ZONAL_CD=11 while MD credit/alloc rows for the
+    same ALOC (e.g. 186 telephone/loan) exist only under ZONAL_CD=30.
+    Try raw zonal first, then normalize 11→30 (Oracle PPN convention).
+    """
     jrnal = FiPnMhJrnltype.objects.filter(type=_clip(bill_type, 6)).first()
     if not jrnal:
         raise VoucherGenerationError(f"Journal type {bill_type} not found in MySQL.")
 
-    rows = FiPnMdJrnltype.objects.filter(
-        jrnal_srl_no=jrnal.jrnal_srl_no,
-        zonal_cd=int(zonal_cd),
-        aloc_cd1=_clip(alloc_cd1, 4),
-        dr_cr_flg=_clip(dr_cr, 1),
+    z_raw = int(zonal_cd or 0)
+    z_norm = _normalize_zonal(z_raw)
+    # Prefer padded and unpadded forms of alloc (186 / 0186)
+    a1 = _clip(alloc_cd1, 4)
+    alloc_keys = []
+    for cand in (a1, a1.lstrip("0") or "0", a1.zfill(3), a1.zfill(4)):
+        c = _clip(cand, 4)
+        if c and c not in alloc_keys:
+            alloc_keys.append(c)
+
+    dr = _clip(dr_cr, 1)
+    tried = []
+    for z in (z_raw, z_norm):
+        if z in tried:
+            continue
+        tried.append(z)
+        for akey in alloc_keys:
+            row = FiPnMdJrnltype.objects.filter(
+                jrnal_srl_no=jrnal.jrnal_srl_no,
+                zonal_cd=z,
+                aloc_cd1=akey,
+                dr_cr_flg=dr,
+            ).first()
+            if row:
+                return row
+
+    raise VoucherGenerationError(
+        f"No journal allocation for type={bill_type}, zonal={z_raw}"
+        + (f" (also tried {z_norm})" if z_norm != z_raw else "")
+        + f", alloc={a1}, dr_cr={dr}. "
+        "Sync masters: python manage.py sync_voucher_masters_from_oracle"
     )
-    row = rows.first()
-    if not row:
-        raise VoucherGenerationError(
-            f"No journal allocation for type={bill_type}, zonal={zonal_cd}, "
-            f"alloc={alloc_cd1}, dr_cr={dr_cr}."
+
+
+def credit_gl_triplet_for_earn(
+    earn_cd,
+    *,
+    bill_type="PPN",
+    as_of_date=None,
+    dr_cr="C",
+):
+    """
+    Journal credit GL key for an earn/dedn code — same mapping as PPN JV lines.
+
+    Returns 'ALOC1/ALOC2/ALOC3' e.g. '596/2026/000' for MISC ADV (645)
+    or '186/2026/000' for telephone booking (606). None if unmapped.
+    """
+    code = _clip(earn_cd, 3)
+    if not code:
+        return None
+    try:
+        zonal_raw, alloc_raw = _earn_account(code)
+        md = _jrnl_md_match(
+            bill_type=bill_type,
+            zonal_cd=zonal_raw,
+            alloc_cd1=alloc_raw,
+            dr_cr=dr_cr,
         )
-    return row
+    except VoucherGenerationError:
+        return None
+    except Exception:
+        return None
+
+    a1 = _clip(md.aloc_cd1, 4) or _clip(alloc_raw, 4)
+    a2 = _clip(md.aloc_cd2, 4)
+    a3 = _clip(md.aloc_cd3, 7)
+    as_of = as_of_date or timezone.localdate()
+    if str(a2) in ("", "0", "000"):
+        a2 = str(_calendar_fin_year_for_alloc(as_of))
+    if str(a3) in ("", "0"):
+        a3 = "000"
+    # Keep alloc codes as stored/displayed on JV (no stripping of meaningful zeros)
+    return f"{a1}/{a2}/{a3}"
 
 
 def _lic_alloc_decode(earn_cd, alloc_cd1, alloc_cd3, fin_year_label):
@@ -568,10 +638,27 @@ def get_voucher_status(*, bill_no):
         jv = FiPnThJv.objects.filter(voucher_no=bill.voucher_no).first()
 
     header = FiPnThFirstMonthPension.objects.filter(bill_no=bill_no).first()
+    fp_header = None
+    if not header and bill_no.upper().startswith("PFN"):
+        fp_header = _finance_fetchone(
+            """
+            SELECT emp_cd, clmca_id, fpension_month, fpension_year
+            FROM fi_pn_th_first_month_fpension
+            WHERE bill_no = %s
+            LIMIT 1
+            """,
+            [bill_no],
+        )
+
     default_narration = ""
     if not jv or not (jv.narration or "").strip():
+        emp_for_narr = None
+        if header:
+            emp_for_narr = header.emp_cd
+        elif fp_header:
+            emp_for_narr = fp_header.get("EMP_CD")
         default_narration = build_default_journal_narration(
-            emp_cd=header.emp_cd if header else None,
+            emp_cd=emp_for_narr,
             bill_no=bill_no,
         )
 
@@ -603,9 +690,21 @@ def get_voucher_status(*, bill_no):
 
     return _enrich_voucher_status_from_finance(
         payload,
-        emp_cd=header.emp_cd if header else None,
-        bill_month=bill.bill_month or (header.pension_month if header else None),
-        bill_yr=bill.bill_yr or (header.pension_yr if header else None),
+        emp_cd=(
+            header.emp_cd
+            if header
+            else _clip(fp_header.get("EMP_CD") if fp_header else "", 5)
+        ),
+        bill_month=(
+            bill.bill_month
+            or (header.pension_month if header else None)
+            or (fp_header.get("FPENSION_MONTH") if fp_header else None)
+        ),
+        bill_yr=(
+            bill.bill_yr
+            or (header.pension_yr if header else None)
+            or (fp_header.get("FPENSION_YEAR") if fp_header else None)
+        ),
     )
 
 
@@ -619,19 +718,23 @@ def preview_ppn_voucher(
     if not bill:
         raise VoucherGenerationError(f"Bill {bill_no} not found.")
 
+    from .zonalmap_service import enrich_journal_line_zonal
+
     groups = _build_ppn_jv_groups(bill, jv_month=int(jv_month), jv_year=int(jv_year))
     lines = []
     total_dr = total_cr = Decimal("0")
     for (dr_cr, zonal, a1, a2, a3), amt in sorted(groups.items()):
         lines.append(
-            {
-                "dr_cr_flag": dr_cr,
-                "zonal_cd": zonal,
-                "aloc_cd1": a1,
-                "aloc_cd2": a2,
-                "aloc_cd3": a3,
-                "amount": float(amt),
-            }
+            enrich_journal_line_zonal(
+                {
+                    "dr_cr_flag": dr_cr,
+                    "zonal_cd": zonal,
+                    "aloc_cd1": a1,
+                    "aloc_cd2": a2,
+                    "aloc_cd3": a3,
+                    "amount": float(amt),
+                }
+            )
         )
         if dr_cr == "D":
             total_dr += amt
@@ -646,15 +749,17 @@ def preview_ppn_voucher(
             jv_year=jv_year,
         )
         lines.append(
-            {
-                "dr_cr_flag": "C",
-                "zonal_cd": bal["zonal_cd"],
-                "aloc_cd1": bal["aloc_cd1"],
-                "aloc_cd2": bal["aloc_cd2"],
-                "aloc_cd3": bal["aloc_cd3"],
-                "amount": float(balance),
-                "balancing": True,
-            }
+            enrich_journal_line_zonal(
+                {
+                    "dr_cr_flag": "C",
+                    "zonal_cd": bal["zonal_cd"],
+                    "aloc_cd1": bal["aloc_cd1"],
+                    "aloc_cd2": bal["aloc_cd2"],
+                    "aloc_cd3": bal["aloc_cd3"],
+                    "amount": float(balance),
+                    "balancing": True,
+                }
+            )
         )
         total_cr += balance
 
@@ -842,6 +947,351 @@ def generate_ppn_voucher(
         created_by=user_code,
         created_on=today,
         voucher_for="P",
+    )
+    FiPnTdJv.objects.bulk_create(detail_rows)
+
+    bill.voucher_no = out_voucher_no
+    if abstract_no:
+        bill.bill_abstract_no = _clip(abstract_no, 22)
+    parsed_abstract_dt = _parse_optional_date(abstract_date)
+    if parsed_abstract_dt:
+        bill.abstract_date = parsed_abstract_dt
+    bill.date_modified = today
+    bill.modified_by = user_code
+    bill.save(
+        update_fields=[
+            "voucher_no",
+            "bill_abstract_no",
+            "abstract_date",
+            "date_modified",
+            "modified_by",
+        ]
+    )
+
+    return {
+        "voucher_no": out_voucher_no,
+        "voucher_dt": voucher_dt.isoformat(),
+        "fin_yr": fin_yr,
+        "jv_month": jv_month,
+        "jv_year": jv_year,
+        "bill_no": bill_no,
+        "tot_amt": float(total_dr),
+        "total_dr": float(total_dr),
+        "total_cr": float(total_cr),
+        "line_count": len(detail_rows),
+        "abstract_no": bill.bill_abstract_no or "",
+        "abstract_date": bill.abstract_date.isoformat() if bill.abstract_date else "",
+        "regenerated": bool(regenerate and reuse_voucher_no),
+    }
+
+
+def _fp_gratuity_line(earn_cd, desc=""):
+    cd = _clip(earn_cd, 3)
+    if cd in FP_GRATUITY_EARN:
+        return True
+    return "GRATUITY" in str(desc or "").upper()
+
+
+def _build_pfn_jv_groups(bill, *, jv_month, jv_year):
+    """Family pension JV lines from fi_pn_th/td_first_month_fpension."""
+    bill_type = "PFN"
+    fin_year_label = _calendar_fin_year_for_alloc(
+        date(int(jv_year), int(jv_month), 1)
+    )
+    groups = defaultdict(lambda: Decimal("0"))
+    dedn_codes = set(_deduction_earn_codes())
+    lic_bill = str(bill.gen_lic_tag or "").upper() in ("G", "L")
+
+    headers = _finance_fetchall(
+        """
+        SELECT fam_fmpen_id, emp_cd, clmca_id, fpension_type, lic_bank_cd
+        FROM fi_pn_th_first_month_fpension
+        WHERE bill_no = %s
+        """,
+        [bill.bill_no],
+    )
+    for header in headers:
+        gratuity_only = (_clip(header.get("FPENSION_TYPE"), 1).upper() or "N") == "N"
+        lic = lic_bill or bool(str(header.get("LIC_BANK_CD") or "").strip())
+        lines = _finance_fetchall(
+            """
+            SELECT earn_dedn_type, earn_dedn_cd, amount
+            FROM fi_pn_td_first_month_fpension
+            WHERE fam_fmpen_id = %s
+            """,
+            [header.get("FAM_FMPEN_ID")],
+        )
+        for line in lines:
+            earn_cd = _clip(line.get("EARN_DEDN_CD"), 3)
+            et = _clip(line.get("EARN_DEDN_TYPE"), 1).upper() or "E"
+            amt = _dec(line.get("AMOUNT"))
+            if not amt:
+                continue
+
+            if lic and not gratuity_only:
+                if earn_cd in LIC_EXCLUDED_EARN:
+                    continue
+                if et == "E":
+                    if earn_cd not in LIC_GRAT_EARN | LIC_COMM_EARN:
+                        continue
+                if et == "D" and earn_cd not in dedn_codes:
+                    continue
+
+            if gratuity_only and et == "E":
+                desc = ""
+                row = FiPnMhEarndedn.objects.filter(earndedn_cd=earn_cd).first()
+                if row and row.earndedn_desc:
+                    desc = str(row.earndedn_desc)
+                if not _fp_gratuity_line(earn_cd, desc):
+                    continue
+
+            zonal_raw, alloc_raw = _earn_account(earn_cd)
+            md = _jrnl_md_match(
+                bill_type=bill_type,
+                zonal_cd=zonal_raw,
+                alloc_cd1=alloc_raw,
+                dr_cr="D" if et == "E" else "C",
+            )
+            zonal = _normalize_zonal(zonal_raw)
+            aloc1, aloc2, aloc3 = md.aloc_cd1, md.aloc_cd2, md.aloc_cd3
+
+            if lic and et == "E" and not gratuity_only:
+                aloc1, aloc2, aloc3 = _lic_alloc_decode(
+                    earn_cd, aloc1, aloc3, fin_year_label
+                )
+            elif str(aloc2) in ("0", "000"):
+                aloc2 = str(fin_year_label)
+            if str(aloc3) in ("0", "000") and et == "E":
+                if earn_cd in LIC_GRAT_EARN or (
+                    gratuity_only and earn_cd in FP_GRATUITY_EARN
+                ):
+                    aloc3 = "576"
+
+            _add_group(
+                groups,
+                dr_cr=md.dr_cr_flg,
+                zonal_cd=zonal,
+                aloc_cd1=aloc1,
+                aloc_cd2=aloc2,
+                aloc_cd3=aloc3,
+                amount=amt,
+            )
+
+    return groups
+
+
+def preview_pfn_voucher(*, bill_no, jv_month, jv_year):
+    bill = FiPnThPensionBill.objects.filter(bill_no=_clip(bill_no, 22)).first()
+    if not bill:
+        raise VoucherGenerationError(f"Bill {bill_no} not found.")
+    if not bill.bill_no.upper().startswith("PFN"):
+        raise VoucherGenerationError("Family pension JV preview requires a PFN bill.")
+
+    from .zonalmap_service import enrich_journal_line_zonal
+
+    groups = _build_pfn_jv_groups(bill, jv_month=int(jv_month), jv_year=int(jv_year))
+    lines = []
+    total_dr = total_cr = Decimal("0")
+    for (dr_cr, zonal, a1, a2, a3), amt in sorted(groups.items()):
+        lines.append(
+            enrich_journal_line_zonal(
+                {
+                    "dr_cr_flag": dr_cr,
+                    "zonal_cd": zonal,
+                    "aloc_cd1": a1,
+                    "aloc_cd2": a2,
+                    "aloc_cd3": a3,
+                    "amount": float(amt),
+                }
+            )
+        )
+        if dr_cr == "D":
+            total_dr += amt
+        else:
+            total_cr += amt
+
+    balance = total_dr - total_cr
+    if balance:
+        bal = _balance_credit_row("PFN", jv_month=jv_month, jv_year=jv_year)
+        lines.append(
+            enrich_journal_line_zonal(
+                {
+                    "dr_cr_flag": "C",
+                    "zonal_cd": bal["zonal_cd"],
+                    "aloc_cd1": bal["aloc_cd1"],
+                    "aloc_cd2": bal["aloc_cd2"],
+                    "aloc_cd3": bal["aloc_cd3"],
+                    "amount": float(balance),
+                    "balancing": True,
+                }
+            )
+        )
+        total_cr += balance
+
+    return {
+        "bill_no": bill.bill_no,
+        "jv_month": int(jv_month),
+        "jv_year": int(jv_year),
+        "lines": lines,
+        "total_dr": float(total_dr),
+        "total_cr": float(total_cr),
+    }
+
+
+@transaction.atomic
+def generate_pfn_voucher(
+    *,
+    bill_no,
+    jv_month,
+    jv_year,
+    abstract_no="",
+    abstract_date=None,
+    narration="",
+    user=None,
+    regenerate=False,
+    voucher_no=None,
+):
+    """Generate PFN journal voucher (Oracle FI_PN_T_H_JRVOUCHR_E / PNJV/F)."""
+    bill_no = _clip(bill_no, 22)
+    bill = FiPnThPensionBill.objects.filter(bill_no=bill_no).first()
+    if not bill:
+        raise VoucherGenerationError(f"Bill {bill_no} not found.")
+    if not bill_no.upper().startswith("PFN"):
+        raise VoucherGenerationError("Only PFN bills are supported for family pension JV.")
+
+    jv_month = int(jv_month)
+    jv_year = int(jv_year)
+    fin_yr = _resolve_fin_year_for_jv_month(jv_month, jv_year)
+    user_code = _user_code(user)
+    today = timezone.localdate()
+    voucher_dt = _parse_optional_date(abstract_date) or today
+
+    fp_header = _finance_fetchone(
+        """
+        SELECT emp_cd, clmca_id
+        FROM fi_pn_th_first_month_fpension
+        WHERE bill_no = %s
+        LIMIT 1
+        """,
+        [bill_no],
+    )
+    if not str(narration or "").strip():
+        narration = build_default_journal_narration(
+            emp_cd=fp_header.get("EMP_CD") if fp_header else None,
+            bill_no=bill_no,
+        )
+
+    existing = _existing_voucher(bill_no, fin_yr, jv_month)
+    reuse_voucher_no = (
+        _clip(voucher_no, 25)
+        or _clip(bill.voucher_no, 25)
+        or (_clip(existing.voucher_no, 25) if existing else "")
+    )
+
+    if reuse_voucher_no and not regenerate:
+        raise VoucherGenerationError(
+            f"Voucher already exists: {reuse_voucher_no}. Use regenerate to replace."
+        )
+
+    old_voucher_dt = existing.voucher_dt if existing else None
+    if reuse_voucher_no and not old_voucher_dt:
+        prior = FiPnThJv.objects.filter(voucher_no=reuse_voucher_no).first()
+        if prior:
+            old_voucher_dt = prior.voucher_dt
+
+    if regenerate or existing or reuse_voucher_no:
+        _delete_jv_for_bill(bill_no, fin_yr, jv_month)
+        if reuse_voucher_no:
+            FiPnTdJv.objects.filter(voucher_no=reuse_voucher_no).delete()
+            FiPnThJv.objects.filter(voucher_no=reuse_voucher_no).delete()
+        if bill.voucher_no and bill.voucher_no != reuse_voucher_no:
+            FiPnTdJv.objects.filter(voucher_no=bill.voucher_no).delete()
+            FiPnThJv.objects.filter(voucher_no=bill.voucher_no).delete()
+
+    if reuse_voucher_no:
+        out_voucher_no = reuse_voucher_no
+        if not _parse_optional_date(abstract_date) and old_voucher_dt:
+            voucher_dt = old_voucher_dt
+    else:
+        serial = _allocate_pnjv_serial(fin_yr, user_code, today)
+        out_voucher_no = _format_voucher_no(fin_yr, jv_month, serial)
+
+    groups = _build_pfn_jv_groups(bill, jv_month=jv_month, jv_year=jv_year)
+    if not groups:
+        raise VoucherGenerationError(
+            f"No earn/dedn lines on bill {bill_no} for journal voucher."
+        )
+
+    total_dr = Decimal("0")
+    total_cr = Decimal("0")
+    sl_no = 0
+    detail_rows = []
+
+    for (dr_cr, zonal, a1, a2, a3), amt in sorted(groups.items()):
+        sl_no += 1
+        detail_rows.append(
+            FiPnTdJv(
+                voucher_no=out_voucher_no,
+                voucher_dt=voucher_dt,
+                yr=fin_yr,
+                mth=jv_month,
+                sl_no=sl_no,
+                zonal_cd=zonal,
+                aloc_cd1=a1,
+                aloc_cd2=a2,
+                aloc_cd3=a3,
+                dr_cr_flag=dr_cr,
+                type_cd=1,
+                amount=amt,
+                ref=bill_no,
+                created_by=user_code,
+                created_on=today,
+            )
+        )
+        if dr_cr == "D":
+            total_dr += amt
+        else:
+            total_cr += amt
+
+    balance = total_dr - total_cr
+    if balance:
+        bal = _balance_credit_row("PFN", jv_month=jv_month, jv_year=jv_year)
+        sl_no += 1
+        detail_rows.append(
+            FiPnTdJv(
+                voucher_no=out_voucher_no,
+                voucher_dt=voucher_dt,
+                yr=fin_yr,
+                mth=jv_month,
+                sl_no=sl_no,
+                zonal_cd=bal["zonal_cd"],
+                aloc_cd1=bal["aloc_cd1"],
+                aloc_cd2=bal["aloc_cd2"],
+                aloc_cd3=bal["aloc_cd3"],
+                dr_cr_flag="C",
+                type_cd=bal["type_cd"],
+                amount=balance,
+                ref=bill_no,
+                created_by=user_code,
+                created_on=today,
+            )
+        )
+        total_cr += balance
+
+    FiPnThJv.objects.filter(voucher_no=out_voucher_no).delete()
+    FiPnThJv.objects.create(
+        voucher_no=out_voucher_no,
+        yr=fin_yr,
+        mth=jv_month,
+        voucher_dt=voucher_dt,
+        tran_type=TRAN_TYPE_PFN,
+        ref_no=bill_no,
+        ref_dt=bill.date_created or today,
+        narration=_clip(narration, 500),
+        tot_amt=total_dr,
+        created_by=user_code,
+        created_on=today,
+        voucher_for="F",
     )
     FiPnTdJv.objects.bulk_create(detail_rows)
 

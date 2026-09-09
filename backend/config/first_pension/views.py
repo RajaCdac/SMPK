@@ -557,7 +557,6 @@ def _build_employee_db_context(emp_id, *, include_oracle_intake=False):
     from .services.legacy_prefill_service import (
         enrich_proposal_defaults_from_legacy,
         load_amount_defaults,
-        load_no_pay_defaults,
     )
 
     existing_commutation = get_commutation_application_for_employee(emp_id)
@@ -591,36 +590,11 @@ def _build_employee_db_context(emp_id, *, include_oracle_intake=False):
         else load_commutation_defaults(emp_id)
     )
 
-    no_pay_defaults = load_no_pay_defaults(emp_id)
     no_pay_data = (
         serialize_no_pay_data(existing_no_pay) if existing_no_pay else None
     )
-    # Existing SMPK case with blank zeros: still surface Oracle oldbill values.
-    if (
-        existing_no_pay
-        and no_pay_data
-        and no_pay_defaults
-        and int(no_pay_data.get("no_pay_days") or 0) == 0
-        and int(no_pay_data.get("dies_non_days") or 0) == 0
-        and int(no_pay_data.get("no_pay_more_than_240_days") or 0) == 0
-        and int(no_pay_data.get("suspension_days") or 0) == 0
-        and int(no_pay_data.get("boys_serv_days") or 0) == 0
-        and (
-            int(no_pay_defaults.get("no_pay_days") or 0) > 0
-            or int(no_pay_defaults.get("dies_non_days") or 0) > 0
-            or int(no_pay_defaults.get("no_pay_more_than_240_days") or 0) > 0
-        )
-    ):
-        for key in (
-            "no_pay_days",
-            "dies_non_days",
-            "no_pay_more_than_240_days",
-            "suspension_days",
-            "boys_serv_days",
-        ):
-            no_pay_data[key] = no_pay_defaults.get(key, 0)
-        no_pay_data["legacy_prefill"] = True
-        no_pay_data["legacy_source"] = no_pay_defaults.get("source")
+    # Do not prefill no-pay from Oracle oldbill / mirror — user enters blank
+    # fields in SMPK when no local values exist (or uses stored SMPK values as-is).
 
     amount_data = None
     if existing_no_pay:
@@ -642,7 +616,8 @@ def _build_employee_db_context(emp_id, *, include_oracle_intake=False):
         "commutation_defaults": commutation_defaults,
         "no_pay_exists": bool(existing_no_pay),
         "no_pay_data": no_pay_data,
-        "no_pay_defaults": None if existing_no_pay else no_pay_defaults,
+        # Never auto-fill no-pay form from legacy/Oracle.
+        "no_pay_defaults": None,
         "process_intake_completed": process_intake_completed,
         "process_intake_data": (
             serialize_process_intake(case=existing_no_pay, emp_code=emp_id)
@@ -870,7 +845,7 @@ class NoPayLookupAPIView(APIView):
 
 
 class NoPayLeaveDetailsAPIView(APIView):
-    """No-pay (NPL) leave details for one employee, read live from Oracle."""
+    """No-pay (NPL) leave details for one employee from smpk_pension MySQL."""
 
     def get(self, request, emp_code):
         from employee.services.oracle_leave_service import (
@@ -881,7 +856,7 @@ class NoPayLeaveDetailsAPIView(APIView):
             data = get_no_pay_leave_details(emp_code)
         except Exception as exc:
             return Response(
-                {"error": f"Could not read leave details from Oracle: {exc}"},
+                {"error": f"Could not read leave details from smpk_pension: {exc}"},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 

@@ -33,16 +33,59 @@ def resolve_journal_narration_context(*, emp_cd=None, bill_no=None):
     emp_name = ""
 
     if bill_no:
-        headers = FiPnThFirstMonthPension.objects.filter(bill_no=_clip_bill(bill_no))
-        header = (
-            headers.filter(emp_cd=emp_key).first()
-            if emp_key
-            else headers.first()
-        )
-        if header:
-            if not emp_key:
-                emp_key = _clip_emp(header.emp_cd)
-            ca_no = str(header.ca_no or "").strip()
+        bill_key = _clip_bill(bill_no)
+        if bill_key.upper().startswith("PFN"):
+            from django.db import connection
+
+            with connection.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT emp_cd, clmca_id
+                    FROM fi_pn_th_first_month_fpension
+                    WHERE bill_no = %s
+                    LIMIT 1
+                    """,
+                    [bill_key],
+                )
+                row = cur.fetchone()
+                if row:
+                    emp_key = emp_key or _clip_emp(row[0])
+                    clmca_id = str(row[1] or "").strip()[:20]
+                    if clmca_id:
+                        cur.execute(
+                            """
+                            SELECT name FROM fi_pn_md_fpen_appcn
+                            WHERE clmca_id = %s AND fpen_active = 1
+                            ORDER BY sl_no LIMIT 1
+                            """,
+                            [clmca_id],
+                        )
+                        app = cur.fetchone()
+                        if app and app[0]:
+                            emp_name = str(app[0]).strip()
+                        if not emp_name:
+                            cur.execute(
+                                """
+                                SELECT applicant_name FROM fi_pn_mh_fpen_caclaim
+                                WHERE clmca_id = %s LIMIT 1
+                                """,
+                                [clmca_id],
+                            )
+                            claim = cur.fetchone()
+                            if claim and claim[0]:
+                                emp_name = str(claim[0]).strip()
+                        ca_no = ca_no or clmca_id
+        else:
+            headers = FiPnThFirstMonthPension.objects.filter(bill_no=bill_key)
+            header = (
+                headers.filter(emp_cd=emp_key).first()
+                if emp_key
+                else headers.first()
+            )
+            if header:
+                if not emp_key:
+                    emp_key = _clip_emp(header.emp_cd)
+                ca_no = str(header.ca_no or "").strip()
 
     if not emp_key:
         return {

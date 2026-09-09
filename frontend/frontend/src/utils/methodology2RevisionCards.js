@@ -11,11 +11,11 @@ export const REVISION_ORDER = [
 ];
 
 export const REVISION_CARD_GROUPS = [
-  { revisionKey: "1979(REVISED PAY SCALE)", rows: [27, 28, 29, 30] },
-  { revisionKey: "1984(REVISED PAY SCALE)", rows: [31, 32, 33, 34, 35] },
-  { revisionKey: "1988(607 CPI)", rows: [36, 37, 38, 39, 40, 41] },
-  { revisionKey: "1993(1030 CPI)", rows: [42, 43, 44, 45, 46, 47] },
-  { revisionKey: "1997(1708 CPI)", rows: [48, 49, 50, 51] },
+  { revisionKey: "1979(REVISED PAY SCALE)", rows: [197901, 197902, 197903, 197904, 197905] },
+  { revisionKey: "1984(REVISED PAY SCALE)", rows: [198401, 198402, 198403, 198404, 198405, 198406] },
+  { revisionKey: "1988(607 CPI)", rows: [198801, 198802, 198803, 198804, 198805, 198806, 198807] },
+  { revisionKey: "1993(1030 CPI)", rows: [199301, 199302, 199303, 199304, 199305, 199306, 199307] },
+  { revisionKey: "1997(1708 CPI)", rows: [199701, 199702, 199703, 199704, 199705] },
   { revisionKey: "2007(126 CPI)", rows: [200701, 200702, 200703, 200704, 200705] },
   { revisionKey: "2012(198 CPI)", rows: [201201, 201202, 201203, 201204, 201205, 201206] },
   { revisionKey: "2017(277 CPI)", rows: [201701, 201702, 201703, 201704, 201705, 201706] },
@@ -48,7 +48,7 @@ function rowHasValue(row) {
 
 /**
  * Build visible CPI cards from calculation rows.
- * Hides revisions before retirement (all-zero rows).
+ * Only shows the retirement start revision and later stages (no prior CPI cards).
  */
 export function buildRevisionCards(calculationRows, startRevision) {
   if (!calculationRows?.length) return [];
@@ -56,10 +56,10 @@ export function buildRevisionCards(calculationRows, startRevision) {
   const rowMap = new Map(
     calculationRows.map((r) => [r.row, r])
   );
-  const startIndex = getRevisionIndex(startRevision);
+  const startIdx = getRevisionIndex(startRevision);
 
-  return REVISION_CARD_GROUPS.filter((group, groupIndex) => {
-    if (groupIndex < startIndex) return false;
+  return REVISION_CARD_GROUPS.filter((group) => {
+    if (getRevisionIndex(group.revisionKey) < startIdx) return false;
 
     const lines = group.rows
       .map((rowNum) => rowMap.get(rowNum))

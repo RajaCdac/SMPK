@@ -1,0 +1,85 @@
+{
+  "status": "done",
+  "job_id": "20260827-170407",
+  "source": {
+    "host": "localhost",
+    "port": 3307,
+    "user": "root",
+    "database": "finance"
+  },
+  "target": {
+    "host": "localhost",
+    "port": 3306,
+    "user": "root",
+    "database": "smpk_pension"
+  },
+  "options": {
+    "mode": "recreate",
+    "include_payroll": false,
+    "batch_size": 2000,
+    "stop_on_error": false
+  },
+  "queue": [
+    "fi_pn_mh_billtype",
+    "fi_pn_md_edbilltype_map",
+    "fi_pn_th_billpass",
+    "fi_pn_td_billpass",
+    "fi_pn_mh_bill_print",
+    "fi_la_th_lvappl"
+  ],
+  "current_table": null,
+  "current_index": 6,
+  "total": 6,
+  "completed": [
+    "fi_pn_mh_billtype",
+    "fi_pn_md_edbilltype_map",
+    "fi_pn_th_billpass",
+    "fi_pn_td_billpass",
+    "fi_pn_mh_bill_print",
+    "fi_la_th_lvappl"
+  ],
+  "failed": {},
+  "results": {
+    "fi_pn_mh_billtype": {
+      "rows": 0,
+      "status": "ok"
+    },
+    "fi_pn_md_edbilltype_map": {
+      "rows": 0,
+      "status": "ok"
+    },
+    "fi_pn_th_billpass": {
+      "rows": 11259,
+      "status": "ok"
+    },
+    "fi_pn_td_billpass": {
+      "rows": 11272,
+      "status": "ok"
+    },
+    "fi_pn_mh_bill_print": {
+      "rows": 560,
+      "status": "ok"
+    },
+    "fi_la_th_lvappl": {
+      "rows": 473661,
+      "status": "ok"
+    }
+  },
+  "log": [
+    "[17:04:07] --- [1/6] fi_pn_mh_billtype ---",
+    "[17:04:07] OK fi_pn_mh_billtype: ok (0)",
+    "[17:04:07] --- [2/6] fi_pn_md_edbilltype_map ---",
+    "[17:04:07] OK fi_pn_md_edbilltype_map: ok (0)",
+    "[17:04:07] --- [3/6] fi_pn_th_billpass ---",
+    "[17:04:08] OK fi_pn_th_billpass: ok (11259)",
+    "[17:04:08] --- [4/6] fi_pn_td_billpass ---",
+    "[17:04:09] OK fi_pn_td_billpass: ok (11272)",
+    "[17:04:09] --- [5/6] fi_pn_mh_bill_print ---",
+    "[17:04:09] OK fi_pn_mh_bill_print: ok (560)",
+    "[17:04:09] --- [6/6] fi_la_th_lvappl ---",
+    "[17:04:37] OK fi_la_th_lvappl: ok (473661)"
+  ],
+  "started_at": "2026-08-27T17:04:07",
+  "finished_at": "2026-08-27T17:04:37",
+  "message": "Finished successfully: 6 table(s)."
+}

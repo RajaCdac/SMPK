@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import API from "../services/Api";
 import SmpkDataTable from "../components/DataTable/SmpkDataTable";
 import "../styles/Dashboard.css";
+import "../styles/FamilyPensionDashboard.css";
 
 function fmtAmt(value) {
   if (value == null || value === "") return "—";
@@ -11,6 +12,13 @@ function fmtAmt(value) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+function fmtCount(value) {
+  if (value == null || value === "") return "—";
+  const n = Number(value);
+  if (Number.isNaN(n)) return "—";
+  return n.toLocaleString("en-IN");
 }
 
 function fmtCpi(value) {
@@ -25,9 +33,42 @@ function dash(value) {
   return String(value);
 }
 
+const EMPTY_STATS = {
+  total_rows: null,
+  unique_emps: null,
+  from_eform: null,
+  from_proposal: null,
+  class_1_2: null,
+  class_3_4: null,
+  class_other: null,
+};
+
 export default function FamilyPensionCase() {
   const [error, setError] = useState("");
-  const [totalHint, setTotalHint] = useState(null);
+  const [stats, setStats] = useState(EMPTY_STATS);
+
+  useEffect(() => {
+    let cancelled = false;
+    API.get("family-pension/pensioners/", { params: { summary: 1 } })
+      .then(({ data }) => {
+        if (cancelled || !data || data.error) return;
+        setStats({
+          total_rows: data.total_rows,
+          unique_emps: data.unique_emps,
+          from_eform: data.from_eform,
+          from_proposal: data.from_proposal,
+          class_1_2: data.class_1_2,
+          class_3_4: data.class_3_4,
+          class_other: data.class_other,
+        });
+      })
+      .catch(() => {
+        /* table load has its own error path; cards stay as — */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const options = useMemo(
     () => ({
@@ -75,9 +116,6 @@ export default function FamilyPensionCase() {
         API.get("family-pension/pensioners/", { params })
           .then(({ data }) => {
             setError("");
-            if (typeof data?.recordsTotal === "number") {
-              setTotalHint(data.recordsTotal);
-            }
             callback({
               draw: data.draw,
               recordsTotal: data.recordsTotal,
@@ -107,26 +145,79 @@ export default function FamilyPensionCase() {
     []
   );
 
+  const cards = [
+    {
+      key: "records",
+      label: "Total records",
+      value: fmtCount(stats.total_rows),
+      hint: "Master rows",
+    },
+    {
+      key: "emps",
+      label: "Employees",
+      value: fmtCount(stats.unique_emps),
+      hint: "Distinct Emp ID",
+    },
+    {
+      key: "eform",
+      label: "From E-Form",
+      value: fmtCount(stats.from_eform),
+      hint: "Master rows · CM",
+    },
+    {
+      key: "proposal",
+      label: "From Proposal",
+      value: fmtCount(stats.from_proposal),
+      hint: "Master rows · CA",
+    },
+    {
+      key: "c12",
+      label: "Class I–II",
+      value: fmtCount(stats.class_1_2),
+      hint: "Employees",
+    },
+    {
+      key: "c34",
+      label: "Class III–IV",
+      value: fmtCount(stats.class_3_4),
+      hint: "Employees",
+    },
+    {
+      key: "coth",
+      label: "Class other",
+      value: fmtCount(stats.class_other),
+      hint: "Blank / not 1–4",
+    },
+  ];
+
   return (
-    <div className="container-fluid mt-3 mt-md-4 px-2 px-md-3">
-      <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-        <div>
-          <h4 className="mb-1">Dashboard</h4>
-          <p className="text-muted mb-0 small">
-            Family pensioners · Source:{" "}
-            <code>smpk_pension.fi_pn_mh_familypensioner</code>
-            {totalHint != null
-              ? ` · ${totalHint.toLocaleString("en-IN")} records`
-              : ""}
-            {" · server-side paging"}
+    <div className="fp-dashboard">
+      <header className="fp-dashboard__hero">
+        <h1 className="fp-dashboard__title">Dashboard</h1>
+        <div className="fp-dashboard__stats">
+          {cards.map((card) => (
+            <div key={card.key} className="fp-dashboard__stat">
+              <span className="fp-dashboard__stat-label">{card.label}</span>
+              <span className="fp-dashboard__stat-value">{card.value}</span>
+              {card.hint ? (
+                <span className="fp-dashboard__stat-hint">{card.hint}</span>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      </header>
+
+      {error ? <div className="fp-dashboard__alert">{error}</div> : null}
+
+      <section className="fp-dashboard__panel">
+        <div className="fp-dashboard__panel-head">
+          <h2 className="fp-dashboard__panel-title">Family pensioners</h2>
+          <p className="fp-dashboard__panel-hint">
+            Search tip: type <code>cm</code> or <code>ca</code> for claim source
+            (E-Form / Proposal); other text searches Emp / Roll / Claim / CA no
           </p>
         </div>
-      </div>
-
-      {error ? <div className="alert alert-danger">{error}</div> : null}
-
-      <div className="card shadow-sm">
-        <div className="card-body">
+        <div className="fp-dashboard__panel-body">
           <SmpkDataTable
             ready
             tableKey="fp-server-side"
@@ -150,7 +241,7 @@ export default function FamilyPensionCase() {
             </thead>
           </SmpkDataTable>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

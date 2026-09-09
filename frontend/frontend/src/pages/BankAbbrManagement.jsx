@@ -236,7 +236,7 @@ export default function BankAbbrManagement() {
           tableKey={tableKey}
           className="table table-striped table-hover w-100 smpk-datatable"
           options={{
-            order: [[1, "asc"]],
+            order: [[0, "asc"]],
             columnDefs: [{ targets: 4, orderable: false, searchable: false }],
             language: { emptyTable: "No bank abbreviations found" },
           }}

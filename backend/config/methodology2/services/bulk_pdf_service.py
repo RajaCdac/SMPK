@@ -99,6 +99,23 @@ def _money(value):
     return mark_safe(f"{_rupee_img_html()} {_format_card_value(value)}")
 
 
+def _last_pay_with_stagnation(last_pay, stagnation_amount):
+    base = _money(last_pay)
+    if base == "—":
+        return base
+    try:
+        if stagnation_amount is None or stagnation_amount == "":
+            return base
+        stag = float(stagnation_amount)
+        if stag == 0:
+            return base
+    except (TypeError, ValueError):
+        return base
+    return mark_safe(
+        f"{base} (Stagnation amount {_format_card_value(stag)})"
+    )
+
+
 def _format_date_en_in(raw) -> str:
     if not raw:
         return "—"
@@ -134,31 +151,78 @@ def _tqs_display(snapshot: dict) -> str:
 
 def _build_print_context(snapshot: dict) -> dict:
     s = snapshot or {}
+    comparison = s.get("pension_comparison") or {}
+    columns = comparison.get("columns") or []
     is_employee_pension = bool(s.get("is_employee_pension"))
+    has_death_split = bool(
+        comparison.get("has_death_split")
+        or s.get("date_of_death")
+        or comparison.get("double_fpension_upto")
+        or comparison.get("rate_cutover")
+    )
+    pension_section_title = comparison.get("section_title") or (
+        "EMPLOYEE PENSION" if is_employee_pension else "FAMILY PENSION"
+    )
 
-    if is_employee_pension:
-        m2_277_raw = s.get("m2_pension_277")
-        m2_359_raw = s.get("m2_pension_359")
-        pension_section_title = "EMPLOYEE PENSION"
+    # Legacy 2-column fallback when older snapshots have no comparison JSON.
+    if not columns:
+        if is_employee_pension:
+            m2_277_raw = s.get("m2_pension_277")
+            m2_359_raw = s.get("m2_pension_359")
+        else:
+            m2_277_raw = s.get("m2_family_pension_277")
+            m2_359_raw = s.get("m2_family_pension_359")
+        m1_277_raw = s.get("m1_family_pension_277")
+        m1_359_raw = s.get("m1_family_pension_359")
+
+        def _diff(a, b):
+            if a is None or b is None:
+                return None
+            try:
+                return float(a) - float(b)
+            except (TypeError, ValueError):
+                return None
+
+        columns = [
+            {
+                "key": "277",
+                "cpi": 277,
+                "header_lines": ["In 2017 (277 CPI)"],
+                "m2_display": _money(m2_277_raw),
+                "m1_display": _money(m1_277_raw),
+                "diff_display": _money(_diff(m2_277_raw, m1_277_raw)),
+            },
+            {
+                "key": "359",
+                "cpi": 359,
+                "header_lines": ["In 2022 (359 CPI)"],
+                "m2_display": _money(m2_359_raw),
+                "m1_display": _money(m1_359_raw),
+                "diff_display": _money(_diff(m2_359_raw, m1_359_raw)),
+            },
+        ]
     else:
-        m2_277_raw = s.get("m2_family_pension_277")
-        m2_359_raw = s.get("m2_family_pension_359")
-        pension_section_title = "FAMILY PENSION"
+        enriched = []
+        for col in columns:
+            enriched.append(
+                {
+                    **col,
+                    "m2_display": _money(col.get("m2")),
+                    "m1_display": _money(col.get("m1")),
+                    "diff_display": _money(col.get("diff")),
+                }
+            )
+        columns = enriched
 
-    m1_277_raw = s.get("m1_family_pension_277")
-    m1_359_raw = s.get("m1_family_pension_359")
-
-    def _diff(a, b):
-        if a is None or b is None:
-            return None
-        try:
-            return float(a) - float(b)
-        except (TypeError, ValueError):
-            return None
-
-    avg = s.get("average_pay")
+    avg = s.get("last_pay")
     if avg is None:
-        avg = s.get("last_pay")
+        avg = s.get("average_pay")
+    stag = (
+        s.get("stagnation_amount")
+        if s.get("stagnation_amount") is not None
+        else comparison.get("stagnation_amount")
+    )
+    last_pay_display = _last_pay_with_stagnation(avg, stag)
 
     blocks = []
     for block in s.get("revision_blocks") or []:
@@ -175,30 +239,61 @@ def _build_print_context(snapshot: dict) -> dict:
                     "amount_display": _format_card_value(row.get("value")),
                 }
             )
+        rev_key = str(block.get("revision_key") or "")
+        title = block.get("title") or rev_key or ""
+        is_277 = bool(
+            re.search(r"277", rev_key, re.I)
+            or re.search(r"CPI\s*277|277\s*CPI", str(title), re.I)
+        )
         blocks.append(
             {
-                "title": block.get("title") or block.get("revision_key") or "",
+                "revision_key": rev_key,
+                "title": title,
                 "rows": rows,
+                "page_break_after": is_277,
             }
         )
+
+    family_name = (
+        comparison.get("family_pensioner_name")
+        or s.get("pensioner_name")
+        or ""
+    )
+    dod_display = comparison.get("date_of_death_display") or _format_date_en_in(
+        s.get("date_of_death")
+    )
+    double_upto_display = comparison.get(
+        "double_fpension_upto_display"
+    ) or _format_date_en_in(comparison.get("double_fpension_upto"))
+    show_family_name = has_death_split or (not is_employee_pension and bool(family_name))
+    show_dod = bool(
+        dod_display
+        and (s.get("date_of_death") or comparison.get("date_of_death"))
+    )
+    show_double_upto = bool(
+        double_upto_display and comparison.get("double_fpension_upto")
+    )
 
     return {
         "s": s,
         "rupee_img": mark_safe(_rupee_img_html()),
         "generated_on": _format_date_en_in(date.today()),
         "retirement_date": _format_date_en_in(s.get("retirement_date")),
+        "retirement_type": s.get("retirement_type") or "—",
         "tqs": _tqs_display(s),
         "average_pay": _money(avg),
-        "last_pay": _money(s.get("last_pay")),
+        "last_pay": last_pay_display,
         "is_employee_pension": is_employee_pension,
+        "has_death_split": has_death_split,
+        "show_family_name": show_family_name,
+        "family_pensioner_name": family_name or "—",
+        "date_of_death_display": dod_display if show_dod else "",
+        "double_fpension_upto_display": (
+            double_upto_display if show_double_upto else ""
+        ),
         "pension_section_title": pension_section_title,
+        "comparison_columns": columns,
         "blocks": blocks,
-        "m2_277": _money(m2_277_raw),
-        "m2_359": _money(m2_359_raw),
-        "m1_277": _money(m1_277_raw),
-        "m1_359": _money(m1_359_raw),
-        "diff_277": _money(_diff(m2_277_raw, m1_277_raw)),
-        "diff_359": _money(_diff(m2_359_raw, m1_359_raw)),
     }
 
 
@@ -223,20 +318,17 @@ def write_consolidation_files(
     snapshot: dict, out_dir: Path, emp_cd: str, case_no: str = ""
 ) -> dict:
     """
-    Write HTML always; try PDF named ``{case_no}.pdf`` via xhtml2pdf.
+Write PDF only (HTML is built in-memory for xhtml2pdf; not saved to disk).
 
-    Layout matches Methodology2ConsolidationPrint (one-by-one print).
-    Returns {"html": path, "pdf": path|None, "pdf_error": str|None, "filename": stem}
-    """
+Layout matches Methodology2ConsolidationPrint (one-by-one print).
+Returns {"html": "", "pdf": path|None, "pdf_error": str|None, "filename": stem}
+"""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     emp = str(emp_cd).strip()
     case = str(case_no or (snapshot or {}).get("case_no") or "").strip()
 
     html = render_consolidation_html(snapshot)
-    html_name = safe_case_filename(case, emp, "html")
-    html_path = out_dir / html_name
-    html_path.write_text(html, encoding="utf-8")
 
     pdf_name = safe_case_filename(case, emp, "pdf")
     pdf_path = out_dir / pdf_name
@@ -259,7 +351,7 @@ def write_consolidation_files(
             maybe.unlink(missing_ok=True)
 
     return {
-        "html": str(html_path),
+        "html": "",
         "pdf": str(pdf_path) if pdf_path else None,
         "pdf_error": pdf_error,
         "filename": Path(pdf_name).stem,

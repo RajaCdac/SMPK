@@ -30,6 +30,13 @@ export default function AdminDashboard() {
           <h3>Master Data Management</h3>
           <p>Add, edit, or delete bank branches and bank abbreviation codes.</p>
         </Link>
+        <Link to="/dashboard/oracle-transfer" className="admin-quick-card">
+          <h3>Database transfer &amp; update</h3>
+          <p>
+            Oracle → MySQL finance dump, and finance → smpk_pension incremental
+            or full table update from Admin.
+          </p>
+        </Link>
       </div>
     </div>
   );

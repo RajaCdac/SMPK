@@ -1,0 +1,41 @@
+.nominee-page__header {
+  margin-bottom: 1rem;
+}
+
+.nominee-page__header h1 {
+  font-size: 1.45rem;
+  margin-bottom: 0.35rem;
+}
+
+.nominee-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: flex-end;
+}
+
+.nominee-search-row__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  min-width: 12rem;
+}
+
+.nominee-search-row__field input {
+  font-weight: 400;
+  min-width: 10rem;
+}
+
+.nominee-table th,
+.nominee-table td {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.nominee-add-card .form-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}

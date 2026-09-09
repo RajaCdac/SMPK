@@ -34,6 +34,7 @@ from .pension_bill_service import (
 )
 from .sepcom_commutation_generation_service import (
     COM_PROC_TAG,
+    _commutation_period,
     _get_comm_app,
     refresh_sepcom_commutation_amounts,
     resolve_commutation_amounts_for_sepcom,
@@ -312,6 +313,10 @@ def get_ppc_employee_status(emp_cd):
             today=timezone.localdate(),
         )
 
+    cm = cy = None
+    if comm:
+        cm, cy = _commutation_period(comm)
+
     return {
         "has_commutation_application": bool(comm),
         "sepcom_generated": bool(header),
@@ -320,8 +325,10 @@ def get_ppc_employee_status(emp_cd):
         "appcn_no": comm.appcn_no if comm else "",
         "ref_no": comm.ref_no if comm else "",
         "bill_no": bill_no,
-        "sepcom_month": header.sepcom_month if header else None,
-        "sepcom_year": header.sepcom_yr if header else None,
+        "sepcom_month": header.sepcom_month if header else cm,
+        "sepcom_year": header.sepcom_yr if header else cy,
+        "commutation_month": cm,
+        "commutation_year": cy,
         "ready_for_ppc": ready,
         "block_reason": block_reason,
         "ppc_bill": (

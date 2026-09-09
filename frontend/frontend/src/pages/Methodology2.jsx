@@ -17,10 +17,13 @@ export default function Methodology2() {
   const [bulkError, setBulkError] = useState("");
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState("");
+  const [reportFrom, setReportFrom] = useState("");
+  const [reportTo, setReportTo] = useState("");
 
   const [retirementDate, setRetirementDate] = useState("");
   const [scale, setScale] = useState("");
   const [lastPay, setLastPay] = useState("");
+  const [stagnationAmount, setStagnationAmount] = useState("");
   const [sda, setSda] = useState("");
   const [sdaOptions, setSdaOptions] = useState([]);
   const [category, setCategory] = useState("3");
@@ -36,6 +39,15 @@ export default function Methodology2() {
 
   const isClass12 = category === "1" || category === "2";
   const isCategory34 = category === "3" || category === "4";
+
+  /** Pay used in calc = last pay + stagnation increment (basic unchanged). */
+  const effectivePay = (() => {
+    const base = Number(lastPay);
+    if (!lastPay || Number.isNaN(base)) return "";
+    const stag = Number(stagnationAmount);
+    const stagVal = Number.isNaN(stag) ? 0 : stag;
+    return String(base + stagVal);
+  })();
 
   const getScaleOptionValue = (item) =>
     item && typeof item === "object" ? item.grade : item;
@@ -121,6 +133,7 @@ export default function Methodology2() {
     setPensionSummary(null);
     setClass12Result(null);
     setEquivalentScales(null);
+    setStagnationAmount("");
 
     try {
       const res = await API.get(`methodology2/employee/${trimmed}/`);
@@ -149,6 +162,10 @@ export default function Methodology2() {
         tqs_month: data.tqs_month,
         tqs_days: data.tqs_days,
         retirement_date: data.separation_date || null,
+        retirement_type: data.retirement_type || "",
+        date_of_death: data.date_of_death || null,
+        double_fpension_upto: data.double_fpension_upto || null,
+        enhanced_family_pension: !!data.enhanced_family_pension,
         category: empCategory,
         pensioner_name: data.pensioner_name || "",
         is_employee_pension: data.is_employee_pension || false,
@@ -279,6 +296,7 @@ export default function Methodology2() {
   const resetScaleAndPay = useCallback(() => {
     setScale("");
     setLastPay("");
+    setStagnationAmount("");
     setClass12Result(null);
     setCalculationRows([]);
     setPensionSummary(null);
@@ -298,22 +316,22 @@ export default function Methodology2() {
 
   useEffect(() => {
     if (isClass12) {
-      if (retirementDate && scale && lastPay) {
-        runClass12Calculation(retirementDate, scale, lastPay);
+      if (retirementDate && scale && effectivePay) {
+        runClass12Calculation(retirementDate, scale, effectivePay);
       } else {
         setClass12Result(null);
       }
       return;
     }
 
-    if (retirementDate && scale && lastPay) {
+    if (retirementDate && scale && effectivePay) {
       const sdaValue = isCategory34 ? sda : 0;
-      runCalculation(retirementDate, scale, lastPay, sdaValue, category);
+      runCalculation(retirementDate, scale, effectivePay, sdaValue, category);
     }
   }, [
     retirementDate,
     scale,
-    lastPay,
+    effectivePay,
     sda,
     category,
     isCategory34,
@@ -352,9 +370,20 @@ export default function Methodology2() {
 
   const downloadReport = async () => {
     setReportError("");
+    if (!reportFrom || !reportTo) {
+      setReportError(
+        "Select Updated From and Updated To dates before downloading the Excel report."
+      );
+      return;
+    }
+    if (reportFrom > reportTo) {
+      setReportError("Updated From cannot be after Updated To.");
+      return;
+    }
     setReportBusy(true);
     try {
       const res = await API.get("methodology2/report/", {
+        params: { from_date: reportFrom, to_date: reportTo },
         responseType: "blob",
         timeout: 0,
       });
@@ -366,7 +395,9 @@ export default function Methodology2() {
       link.href = url;
       const cd = res.headers["content-disposition"] || "";
       const match = cd.match(/filename="?([^"]+)"?/);
-      link.download = match ? match[1] : "M2_consolidation_report.xlsx";
+      link.download = match
+        ? match[1]
+        : `M2_consolidation_report_${reportFrom}_${reportTo}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -401,14 +432,41 @@ export default function Methodology2() {
           <div className="card shadow">
             <div className="card-header bg-dark text-white d-flex flex-wrap justify-content-between align-items-center gap-2">
               <h5 className="mb-0">Bulk upload (Class 1/2 &amp; 3/4)</h5>
-              <button
-                type="button"
-                className="btn btn-sm btn-success"
-                onClick={downloadReport}
-                disabled={reportBusy || bulkBusy}
-              >
-                {reportBusy ? "Preparing…" : "Report (Excel)"}
-              </button>
+              <div className="d-flex flex-wrap align-items-end gap-2">
+                <div>
+                  <label className="form-label text-white-50 small mb-1">
+                    Updated from
+                  </label>
+                  <input
+                    type="date"
+                    className="form-control form-control-sm"
+                    value={reportFrom}
+                    onChange={(e) => setReportFrom(e.target.value)}
+                    disabled={reportBusy || bulkBusy}
+                  />
+                </div>
+                <div>
+                  <label className="form-label text-white-50 small mb-1">
+                    Updated to
+                  </label>
+                  <input
+                    type="date"
+                    className="form-control form-control-sm"
+                    value={reportTo}
+                    onChange={(e) => setReportTo(e.target.value)}
+                    disabled={reportBusy || bulkBusy}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-success"
+                  onClick={downloadReport}
+                  disabled={reportBusy || bulkBusy}
+                  title="Export rows by updated_at date range"
+                >
+                  {reportBusy ? "Preparing…" : "Report (Excel)"}
+                </button>
+              </div>
             </div>
             <div className="card-body">
               <p className="text-muted small mb-3">
@@ -416,8 +474,10 @@ export default function Methodology2() {
                 <code>name</code>, <code>roll_no</code>). Each employee is
                 calculated, consolidation saved, and PDF written to Desktop{" "}
                 <code>M2_YYYY-MM-DD</code> as <code>case_no.pdf</code>.
-                Click <strong>Report (Excel)</strong> to export all saved
-                consolidation rows from the database.
+                Click <strong>Report (Excel)</strong> with an{" "}
+                <strong>Updated from / to</strong> range to export only rows
+                whose <code>updated_at</code> falls in that period (not the full
+                table).
               </p>
               <form onSubmit={runBulkUpload} className="row g-2 align-items-end">
                 <div className="col-12 col-md-8">
@@ -454,33 +514,43 @@ export default function Methodology2() {
                     total {bulkSummary.total} · ok {bulkSummary.ok} · skipped{" "}
                     {bulkSummary.skipped} · failed {bulkSummary.failed}
                   </p>
-                  <div className="table-responsive">
-                    <table className="table table-sm table-bordered mb-0">
-                      <thead>
-                        <tr>
-                          <th>EMP_CD</th>
-                          <th>case_no</th>
-                          <th>class</th>
-                          <th>status</th>
-                          <th>reason</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(bulkSummary.results || []).map((r) => (
-                          <tr key={r.emp_cd}>
-                            <td>{r.emp_cd}</td>
-                            <td>{r.case_no || ""}</td>
-                            <td>{r.category || ""}</td>
-                            <td>{r.status}</td>
-                            <td>
-                              {r.reason ||
-                                (r.pdf ? "pdf" : r.html ? "html" : "")}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  {(bulkSummary.results || []).filter(
+                    (r) => r.status === "skipped"
+                  ).length > 0 ? (
+                    <>
+                      <p className="mb-2 small fw-semibold">
+                        Skipped employees (with reason)
+                      </p>
+                      <div className="table-responsive">
+                        <table className="table table-sm table-bordered mb-0">
+                          <thead>
+                            <tr>
+                              <th>EMP_CD</th>
+                              <th>case_no</th>
+                              <th>class</th>
+                              <th>reason</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(bulkSummary.results || [])
+                              .filter((r) => r.status === "skipped")
+                              .map((r) => (
+                                <tr key={r.emp_cd}>
+                                  <td>{r.emp_cd}</td>
+                                  <td>{r.case_no || ""}</td>
+                                  <td>{r.category || ""}</td>
+                                  <td>{r.reason || "—"}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="mb-0 small text-muted">
+                      No employees were skipped.
+                    </p>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -527,8 +597,8 @@ export default function Methodology2() {
 
               <div className="text-center text-muted small mb-3">— OR —</div>
 
-              <div className="row g-3">
-                <div className="col-12 col-md-6 col-lg-3">
+              <div className="row g-2 g-lg-3 align-items-end">
+                <div className="col-6 col-md-4 col-xl-2">
                   <label className="form-label">Retirement / Separation Date</label>
                   <input
                     type="date"
@@ -541,7 +611,7 @@ export default function Methodology2() {
                   />
                 </div>
 
-                <div className="col-12 col-md-6 col-lg-3">
+                <div className="col-6 col-md-4 col-xl-2">
                   <label className="form-label">Category</label>
                   <select
                     className="form-select"
@@ -555,7 +625,7 @@ export default function Methodology2() {
                   </select>
                 </div>
 
-                <div className="col-12 col-md-6 col-lg-3">
+                <div className="col-6 col-md-4 col-xl-2">
                   <label className="form-label">Scale</label>
                   <select
                     className="form-select"
@@ -563,6 +633,7 @@ export default function Methodology2() {
                     onChange={(e) => {
                       setScale(e.target.value);
                       setLastPay("");
+                      setStagnationAmount("");
                       setCalculationRows([]);
                       setPensionSummary(null);
                       setClass12Result(null);
@@ -583,7 +654,7 @@ export default function Methodology2() {
                   </select>
                 </div>
 
-                <div className="col-12 col-md-6 col-lg-3">
+                <div className="col-6 col-md-4 col-xl-2">
                   <label className="form-label">Last Pay</label>
                   <select
                     className="form-select"
@@ -600,23 +671,39 @@ export default function Methodology2() {
                   </select>
                 </div>
 
-                {isCategory34 && (
-                  <div className="col-12 col-md-6 col-lg-3">
-                    <label className="form-label">S.D.A (Revision Order)</label>
-                    <select
-                      className="form-select"
-                      value={sda}
-                      onChange={(e) => setSda(e.target.value)}
-                    >
-                      <option value="">Select S.D.A</option>
-                      {sdaOptions.map((item, index) => (
+                <div className="col-6 col-md-4 col-xl-2">
+                  <label className="form-label">Stagnation Amount</label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    min="0"
+                    step="1"
+                    placeholder="0"
+                    value={stagnationAmount}
+                    onChange={(e) => setStagnationAmount(e.target.value)}
+                    disabled={!scale}
+                  />
+                </div>
+
+                <div className="col-6 col-md-4 col-xl-2">
+                  <label className="form-label">S.D.A (Revision Order)</label>
+                  <select
+                    className="form-select"
+                    value={isCategory34 ? sda : ""}
+                    onChange={(e) => setSda(e.target.value)}
+                    disabled={!isCategory34}
+                  >
+                    <option value="">
+                      {isCategory34 ? "Select S.D.A" : "N/A"}
+                    </option>
+                    {isCategory34 &&
+                      sdaOptions.map((item, index) => (
                         <option key={index} value={item}>
                           {item}
                         </option>
                       ))}
-                    </select>
-                  </div>
-                )}
+                  </select>
+                </div>
               </div>
 
               {!isClass12 && !isStageBased && (
@@ -684,6 +771,8 @@ export default function Methodology2() {
           retirementDate={retirementDate}
           scale={scale}
           lastPay={lastPay}
+          stagnationAmount={stagnationAmount}
+          effectivePay={effectivePay || lastPay}
           empId={empId}
           employeeName={employeeName}
           category={category}
@@ -698,6 +787,8 @@ export default function Methodology2() {
           retirementDate={retirementDate}
           scale={scale}
           lastPay={lastPay}
+          stagnationAmount={stagnationAmount}
+          effectivePay={effectivePay || lastPay}
           empId={empId}
           employeeName={employeeName}
           category={category}

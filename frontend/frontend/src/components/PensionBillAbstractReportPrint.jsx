@@ -1,9 +1,15 @@
 import "../styles/PensionBillAbstractReport.css";
 
-function EmployeePanel({ employee }) {
+function EmployeePanel({ employee, inline = false }) {
   if (!employee) return null;
   return (
-    <div className="bill-abstract-print__employee">
+    <div
+      className={
+        inline
+          ? "bill-abstract-print__employee bill-abstract-print__employee--inline"
+          : "bill-abstract-print__employee"
+      }
+    >
       <div>
         <span className="bill-abstract-print__emp-label">Emp CD :</span> {employee.emp_cd}
       </div>
@@ -29,6 +35,62 @@ function EmployeePanel({ employee }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function BillAbstractRows({ row, index }) {
+  const beneficiaries = row.beneficiaries?.length ? row.beneficiaries : [];
+  const detailRowCount = beneficiaries.length > 0 ? beneficiaries.length : 1;
+  const rowSpan = 1 + detailRowCount;
+
+  return (
+    <>
+      <tr key={`${row.bill_reg_no}-${index}-main`}>
+        <td rowSpan={rowSpan}>{row.bill_reg_no}</td>
+        <td rowSpan={rowSpan}>{row.bill_reg_dt}</td>
+        <td className="rendered">{row.rendered}</td>
+        <td className="amount">{row.amount_passed_display}</td>
+        <td className="amount">{row.deduction_display}</td>
+        <td className="amount">{row.net_payable_display}</td>
+        <td>{row.cheque_no}</td>
+        <td className="amount">{row.amt_parties_display}</td>
+        <td className="amount">{row.amt_treasurer_display}</td>
+      </tr>
+
+      {beneficiaries.length > 0 ? (
+        beneficiaries.map((beneficiary, benIndex) => (
+          <tr
+            key={`${row.bill_reg_no}-${index}-ben-${beneficiary.seq}`}
+            className="bill-abstract-print__beneficiary-row"
+          >
+            <td className="rendered bill-abstract-print__beneficiary-label">
+              {beneficiary.label}
+            </td>
+            <td />
+            <td />
+            <td className="amount bill-abstract-print__beneficiary-amount">
+              {beneficiary.amount_display}
+            </td>
+            {benIndex === 0 ? (
+              <td
+                colSpan={3}
+                rowSpan={beneficiaries.length}
+                className="bill-abstract-print__employee-cell"
+              >
+                <EmployeePanel employee={row.employee} inline />
+              </td>
+            ) : null}
+          </tr>
+        ))
+      ) : (
+        <tr key={`${row.bill_reg_no}-${index}-emp`} className="bill-abstract-print__detail-row">
+          <td colSpan={4} />
+          <td colSpan={3} className="bill-abstract-print__employee-cell">
+            <EmployeePanel employee={row.employee} inline />
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -71,17 +133,7 @@ export default function PensionBillAbstractReportPrint({ report }) {
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr key={`${row.bill_reg_no}-${index}`}>
-              <td>{row.bill_reg_no}</td>
-              <td>{row.bill_reg_dt}</td>
-              <td className="rendered">{row.rendered}</td>
-              <td className="amount">{row.amount_passed_display}</td>
-              <td className="amount">{row.deduction_display}</td>
-              <td className="amount">{row.net_payable_display}</td>
-              <td>{row.cheque_no}</td>
-              <td className="amount">{row.amt_parties_display}</td>
-              <td className="amount">{row.amt_treasurer_display}</td>
-            </tr>
+            <BillAbstractRows key={`${row.bill_reg_no}-${index}`} row={row} index={index} />
           ))}
         </tbody>
         <tfoot>
@@ -98,10 +150,6 @@ export default function PensionBillAbstractReportPrint({ report }) {
           </tr>
         </tfoot>
       </table>
-
-      {rows.map((row, index) => (
-        <EmployeePanel key={`emp-${index}`} employee={row.employee} />
-      ))}
 
       <div className="bill-abstract-print__words">
         <div>

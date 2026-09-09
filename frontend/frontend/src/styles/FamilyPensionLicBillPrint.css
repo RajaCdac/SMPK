@@ -1,0 +1,210 @@
+/* Oracle First_Fpen_Bill_Report_Lic — portrait monospaced */
+
+.fp-lic-bill-print {
+  font-family: "Courier New", Courier, monospace;
+  color: #000;
+  background: #fff;
+}
+
+.fp-lic-bill-print__page {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 10mm 12mm 12mm;
+  box-sizing: border-box;
+  background: #fff;
+  page-break-after: always;
+}
+
+.fp-lic-bill-print__page:last-child {
+  page-break-after: auto;
+}
+
+.fp-lic-bill-print__sheet {
+  width: 100%;
+  max-width: 186mm;
+  margin: 0 auto;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.fp-lic-bill-print__header {
+  position: relative;
+  text-align: center;
+  min-height: 1.4em;
+}
+
+.fp-lic-bill-print__page-no {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 11px;
+}
+
+.fp-lic-bill-print__org {
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.fp-lic-bill-print__subtitle {
+  text-align: center;
+  font-weight: 700;
+  font-size: 13px;
+  margin: 2px 0 4px;
+}
+
+.fp-lic-bill-print__rule {
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11px;
+  letter-spacing: -0.5px;
+  margin: 3px 0 4px;
+  color: #222;
+}
+
+.fp-lic-bill-print__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-weight: 600;
+  margin: 2px 0 4px;
+}
+
+.fp-lic-bill-print__identity {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 10px 18px;
+  margin: 4px 0 6px;
+}
+
+.fp-lic-bill-print__identity-left .lbl {
+  display: inline-block;
+  min-width: 9.5em;
+}
+
+.fp-lic-bill-print__identity-right {
+  text-align: left;
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+
+.fp-lic-bill-print__earn-head {
+  display: grid;
+  grid-template-columns: 1fr 110px;
+  gap: 8px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.fp-lic-bill-print__earn-head.muted {
+  font-weight: 600;
+  margin-top: 0;
+  margin-bottom: 4px;
+}
+
+.fp-lic-bill-print__earn-head .amt,
+.fp-lic-bill-print__earn-row .amt {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fp-lic-bill-print__earn-body {
+  min-height: 28mm;
+}
+
+.fp-lic-bill-print__earn-row {
+  display: grid;
+  grid-template-columns: 1fr 110px;
+  gap: 8px;
+  margin: 1px 0;
+}
+
+.fp-lic-bill-print__earn-row.totals {
+  margin-top: 8px;
+  font-weight: 700;
+}
+
+.fp-lic-bill-print__words {
+  margin-top: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.fp-lic-bill-print__bottom {
+  display: grid;
+  grid-template-columns: 0.85fr 1.15fr;
+  grid-template-rows: auto auto;
+  column-gap: 18px;
+  row-gap: 6px;
+  margin-top: 16px;
+  align-items: start;
+}
+
+.fp-lic-bill-print__bottom-spacer {
+  min-height: 1px;
+}
+
+.fp-lic-bill-print__ack {
+  justify-self: stretch;
+}
+
+.fp-lic-bill-print__ack-label {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.fp-lic-bill-print__ack-box {
+  width: 100%;
+  min-height: 32mm;
+  border: 1.5px solid #000;
+  box-sizing: border-box;
+}
+
+.fp-lic-bill-print__footer-sum {
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.fp-lic-bill-print__sum-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  font-weight: 700;
+  margin: 2px 0;
+  white-space: nowrap;
+}
+
+.fp-lic-bill-print__ack-tail {
+  min-width: 0;
+}
+
+.fp-lic-bill-print__treasurer {
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.fp-lic-bill-print__remarks {
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.fp-lic-bill-print__remarks > div {
+  margin-bottom: 4px;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  .fp-lic-bill-print__page {
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+  }
+}

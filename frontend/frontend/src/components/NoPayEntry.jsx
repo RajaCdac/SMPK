@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import API from "../services/Api";
 import NoPayLeaveDetailsModal from "./NoPayLeaveDetailsModal";
 
@@ -22,12 +23,22 @@ function applyNoPayData(setForm, data) {
   });
 }
 
-export default function NoPayEntry({ employee }) {
+export default function NoPayEntry({
+  employee,
+  showProposalNext = false,
+  proposalNextTo = "",
+  showNext = false,
+  nextTo = "",
+  nextLabel = "Next →",
+  onBack,
+  backLabel = "Back to ESR Check",
+}) {
   const [form, setForm] = useState(emptyForm);
   const [recordExists, setRecordExists] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showLeaveDetails, setShowLeaveDetails] = useState(false);
+  const [saveNotice, setSaveNotice] = useState("");
 
   useEffect(() => {
     if (!employee) return;
@@ -35,6 +46,7 @@ export default function NoPayEntry({ employee }) {
     const loadFromDb = async () => {
       setLoading(true);
       setShowLeaveDetails(false);
+      setSaveNotice("");
 
       let data = null;
       let exists = false;
@@ -58,19 +70,8 @@ export default function NoPayEntry({ employee }) {
         applyNoPayData(setForm, data);
         setRecordExists(true);
         setIsEditing(false);
-      } else if (employee.no_pay_defaults) {
-        const d = employee.no_pay_defaults;
-        setForm({
-          id: null,
-          no_pay_days: d.no_pay_days ?? 0,
-          dies_non_days: d.dies_non_days ?? 0,
-          no_pay_more_than_240_days: d.no_pay_more_than_240_days ?? 0,
-          suspension_days: d.suspension_days ?? 0,
-          boys_serv_days: d.boys_serv_days ?? 0,
-        });
-        setRecordExists(false);
-        setIsEditing(true);
       } else {
+        // No SMPK pension case / no-pay row → blank editable form.
         setRecordExists(false);
         setIsEditing(true);
         setForm({ ...emptyForm });
@@ -125,16 +126,16 @@ export default function NoPayEntry({ employee }) {
         ? "No-Pay Entry Updated Successfully"
         : "No-Pay Entry Saved Successfully";
 
-      alert(message);
-
       if (response.data.no_pay_data) {
         applyNoPayData(setForm, response.data.no_pay_data);
       }
 
       setRecordExists(true);
       setIsEditing(false);
+      setSaveNotice(message);
     } catch (error) {
       console.error(error);
+      setSaveNotice("");
       alert(error.response?.data?.error || "Save Failed");
     }
   };
@@ -153,21 +154,45 @@ export default function NoPayEntry({ employee }) {
 
   const fieldsDisabled = recordExists && !isEditing;
   const saveDisabled = recordExists && !isEditing;
+  const showNextProposal =
+    showProposalNext &&
+    Boolean(proposalNextTo) &&
+    recordExists &&
+    !isEditing;
+  const showNextForm =
+    showNext && Boolean(nextTo) && recordExists && !isEditing;
+  const nextHref = showNextProposal ? proposalNextTo : nextTo;
+  const nextText = showNextProposal ? "Next: Pension Proposal →" : nextLabel;
 
   return (
     <form onSubmit={handleSubmit} className="smpk-form">
-      {!recordExists && employee?.no_pay_defaults?.legacy && (
-        <div className="alert alert-info py-2 mb-3">
-          Prefill from Oracle oldbill ({employee.no_pay_defaults.source || "legacy"}).
-          Review and click Save to store in SMPK.
+      {saveNotice ? (
+        <div className="alert alert-success py-2 mb-3" role="status">
+          {saveNotice}
+          {showNextProposal ? (
+            <span className="ms-1">
+              Next: complete{" "}
+              <strong>Pension Proposal</strong> for this employee.
+            </span>
+          ) : showNextForm ? (
+            <span className="ms-1">
+              Continue to <strong>Commutation</strong> for this employee.
+            </span>
+          ) : null}
         </div>
-      )}
-      {recordExists && employee?.no_pay_data?.legacy_prefill && (
-        <div className="alert alert-info py-2 mb-3">
-          Values filled from Oracle oldbill ({employee.no_pay_data.legacy_source || "legacy"}).
-          Click Edit / Save to keep them in SMPK.
+      ) : null}
+
+      {showNextProposal && !saveNotice ? (
+        <div className="alert alert-info py-2 mb-3" role="status">
+          No-pay is saved. Continue to Pension Proposal for this employee.
         </div>
-      )}
+      ) : null}
+      {showNextForm && !saveNotice && !showNextProposal ? (
+        <div className="alert alert-info py-2 mb-3" role="status">
+          No-pay is saved. Continue to Commutation for this employee.
+        </div>
+      ) : null}
+
       <div className="row g-3">
         <div className="col-6 col-sm-6 col-md-3">
           <label className="form-label">No Pay Days (Prior to 10 Mnths)</label>
@@ -190,10 +215,19 @@ export default function NoPayEntry({ employee }) {
           <input type="number" min="0" className="form-control" name="boys_serv_days" placeholder="Enter Boys Serv Days" value={form.boys_serv_days} onChange={handleChange} disabled={fieldsDisabled} />
         </div>
       </div>
-      <div className="smpk-form-actions justify-content-end">
+      <div className="smpk-form-actions justify-content-end flex-wrap gap-2">
+        {onBack ? (
+          <button
+            type="button"
+            className="btn btn-outline-secondary me-auto"
+            onClick={onBack}
+          >
+            {backLabel}
+          </button>
+        ) : null}
         <button
           type="button"
-          className="btn btn-outline-primary me-2"
+          className="btn btn-outline-primary"
           onClick={() => setShowLeaveDetails(true)}
           disabled={!employee?.emp_id}
         >
@@ -202,7 +236,7 @@ export default function NoPayEntry({ employee }) {
         {recordExists && (
           <button
             type="button"
-            className="btn btn-secondary me-2"
+            className="btn btn-secondary"
             onClick={handleEdit}
             disabled={isEditing}
           >
@@ -216,6 +250,15 @@ export default function NoPayEntry({ employee }) {
         >
           Save
         </button>
+        {showNextProposal || showNextForm ? (
+          <Link
+            to={nextHref}
+            className="btn btn-primary"
+            title={nextText}
+          >
+            {nextText}
+          </Link>
+        ) : null}
       </div>
 
       <NoPayLeaveDetailsModal

@@ -80,19 +80,19 @@ ROW_LABELS = {
     47: "Notional basic pay over 1708 CPI",
     48: "Basic Pay in the existing scale as on 01-01-1997",
     49: "DA @ 78.2% on Basic",
-    50: "Fitment @ 23% on (Basic + DA)",
+    50: "Fitment @ 23% on (Basic+DA)",
     51: "Notional Pay (as on 01.01.1997)",
     52: "Basic Pay Over 126 CPI Points as on 01.01.2007",
     53: "Variable D.A OF 57.14%",
-    54: "Fitment of 10.5% of (Basic+DA)",
+    54: "Fitment @ 10.5% on (Basic+DA)",
     55: "Notional Pay (as on 01.01.2007)",
     56: "Basic Pay Over 198 CPI Points as on 01.01.2012",
     57: "DA@40% On Basic",
-    58: "Fitment @ 10.6% on Basic + DA",
+    58: "Fitment @ 10.6% on (Basic+DA)",
     59: "Notional Pay (Located in the level of the pay matrix given at Appendix-III)",
     60: "Basic Pay Over 277 CPI Points as on 01.01.2017",
     61: "DA@30% On Basic",
-    62: "Fitment @ 8.5%",
+    62: "Fitment @ 8.5% on (Basic+DA)",
     63: "Notional Pay (2017)",
     64: "Basic Pay as on 01.01.2022",
     65: "Pension reference (2022 basic)",
@@ -349,24 +349,118 @@ def _pension_from_state(state):
     }
 
 
+def _backfill_1997_rows(state, scales, anchor_basic_2007):
+    """1708 CPI block for card/print when calc starts at 2007 or later."""
+    if state.get(48):
+        return
+    scale_1997 = scales.get("1997(1708 CPI)")
+    if not scale_1997:
+        return
+    basic_1997 = align_pay_without_increment(float(anchor_basic_2007), scale_1997)
+    state[48] = float(basic_1997)
+    state[49] = round2(state[48] * 0.782)
+    state[50] = round2((state[48] + state[49]) * 0.23)
+    state[51] = round_up_to_10(state[48] + state[49] + state[50])
+
+
+def _backfill_2007_rows(state, anchor_basic_2012):
+    """126 CPI block for card/print when calc starts at 2012 or later."""
+    if state.get(52):
+        return
+    basic_2007 = float(anchor_basic_2012)
+    state[52] = basic_2007
+    state[53] = round2(state[52] * 0.5714)
+    state[54] = round2((state[52] + state[53]) * 0.105)
+    state[55] = round_up_to_10(state[52] + state[53] + state[54])
+
+
+def _backfill_2012_rows(state, scales, anchor_for_56):
+    """198 CPI block for card/print when calc starts at 2017 or later."""
+    if state.get(56):
+        return
+    state[56] = round_up_to_10(float(anchor_for_56))
+    state[57] = round2(state[56] * 0.40)
+    state[58] = round2((state[56] + state[57]) * 0.106)
+    total = state[56] + state[57] + state[58]
+    state[59] = round_nearest_rupee(total)
+    scale_2012 = scales.get("2012(198 CPI)")
+    if scale_2012 and state.get(60) is None:
+        state[60] = _matrix_2017(scale_2012, state[59])
+
+
+def _backfill_display_state(state, scales, start_revision, last_pay):
+    """
+    Legacy helper: previously filled earlier CPI rows for a full-chain display
+    even when pension math started mid-chain (e.g. showed 126 for a 2017 start).
+
+    Kept for reference / optional tooling. Not used by calculate_revision —
+    display now starts at the employee's retirement CPI only.
+    """
+    start_row = START_ROW.get(start_revision, 27)
+    lp = float(last_pay)
+
+    if start_row >= 64 and not state.get(60):
+        state[60] = lp
+        state[61] = round2(state[60] * 0.30)
+        state[62] = round2(state[60] * 1.3 * 0.085)
+        state[63] = round2(state[60] + state[61] + state[62])
+
+    if start_row >= 60:
+        anchor_2012 = (
+            state.get(56)
+            or state.get(55)
+            or (round_up_to_10(lp) if start_row == 60 else None)
+            or state.get(60)
+        )
+        if anchor_2012 is not None:
+            saved_60 = state.get(60)
+            _backfill_2012_rows(state, scales, anchor_2012)
+            if start_row >= 60 and saved_60 is not None:
+                state[60] = saved_60
+
+    if start_row >= 56:
+        anchor_2007 = (
+            state.get(52)
+            or state.get(55)
+            or (round_up_to_10(lp) if start_row == 56 else None)
+            or state.get(56)
+        )
+        if anchor_2007 is not None:
+            saved_52 = state.get(52)
+            _backfill_2007_rows(state, anchor_2007)
+            if start_row >= 52 and saved_52 is not None:
+                state[52] = saved_52
+
+    if start_row >= 52:
+        anchor_1997 = state.get(52) or lp
+        _backfill_1997_rows(state, scales, anchor_1997)
+
+
 def _format_rows(state, start_row):
+    """Emit engine rows from the calculation start revision onward only."""
     rows = []
     for row_num in range(27, 66):
-        value = state.get(row_num, 0) if row_num >= start_row else 0
+        if row_num < start_row:
+            continue
         rows.append({
             "row": row_num,
             "description": ROW_LABELS.get(row_num, f"Row {row_num}"),
-            "value": value,
+            "value": state.get(row_num, 0),
         })
     return expand_detailed_cpi_breakdown(rows)
 
 
 def expand_detailed_cpi_breakdown(rows):
     """
-    Expand 2007 / 2012 / 2017 / 2022 into A–E/F detailed breakdown rows
-    for UI and print.
+    Expand every CPI revision into lettered A/B/C… breakdown rows for UI/print.
 
-    Raw engine rows 52–65 are replaced by display rows 200701–202201.
+    Pattern for each block (except 2022):
+      A, B, C, … = component rows
+      next letter  = Aggregate of those letters
+      next letter  = Notional Pay (Rounded to the next 10 Rupees)
+                    [2012/2017 also keep matrix fitment after that]
+
+    Raw engine rows 27–65 are replaced by display rows 197901–202201.
     """
     by_row = {}
     for row in rows:
@@ -379,15 +473,6 @@ def expand_detailed_cpi_breakdown(rows):
     def has_value(row_num):
         return row_num in by_row and v(row_num) != 0
 
-    out = [
-        row
-        for row in rows
-        if isinstance(row, dict)
-        and row.get("row") is not None
-        and int(row["row"]) < 52
-        and v(int(row["row"])) != 0
-    ]
-
     def letter_row(row_num, letter, description, value):
         return {
             "row": row_num,
@@ -396,28 +481,128 @@ def expand_detailed_cpi_breakdown(rows):
             "value": value,
         }
 
+    def letter_at(index):
+        return chr(ord("A") + index)
+
+    def aggregate_label(component_count):
+        parts = "+".join(letter_at(i) for i in range(component_count))
+        return f"Aggregate of {parts}"
+
+    def append_block(out, *, start_id, components, notional_value, notional_label):
+        """
+        components: list of (description, value)
+        Then Aggregate, then Notional Pay.
+        """
+        n = len(components)
+        for i, (desc, val) in enumerate(components):
+            out.append(letter_row(start_id + i, letter_at(i), desc, val))
+        agg = round2(sum(val for _, val in components))
+        out.append(
+            letter_row(start_id + n, letter_at(n), aggregate_label(n), agg)
+        )
+        out.append(
+            letter_row(
+                start_id + n + 1,
+                letter_at(n + 1),
+                notional_label,
+                notional_value if notional_value is not None else round_up_to_10(agg),
+            )
+        )
+
+    out = []
+
+    # 1979 — rows 27–30
+    if has_value(27):
+        append_block(
+            out,
+            start_id=197901,
+            components=[
+                ("Basic Pay in the existing scale", v(27)),
+                ("Fixed DA", v(28)),
+                ("Fixed Special Allowance", v(29)),
+            ],
+            notional_value=v(30) if has_value(30) else None,
+            notional_label="Notional Pay (Rounded to the next 10 Rupees)",
+        )
+
+    # 1984 — rows 31–35
+    if has_value(31):
+        append_block(
+            out,
+            start_id=198401,
+            components=[
+                ("Basic Pay in the existing scale as on 01-01-1984", v(31)),
+                ("V.D.A from 455 to 607 points", v(32)),
+                ("F.D.A (Revision Order)", v(33)),
+                ("Fitment", v(34)),
+            ],
+            notional_value=v(35) if has_value(35) else None,
+            notional_label="Notional Pay (Rounded to the next 10 Rupees)",
+        )
+
+    # 1988 (607 CPI) — rows 36–41
+    if has_value(36):
+        append_block(
+            out,
+            start_id=198801,
+            components=[
+                ("Basic Pay in the existing scale as on 01-01-1988", v(36)),
+                ("V.D.A from 607 to 1030 points", v(37)),
+                ("S.D.A (Revision Order)", v(38)),
+                ("F.D.A (Revision Order)", v(39)),
+                ("Fitment @ 12.5% (on Basic pay)", v(40)),
+            ],
+            notional_value=v(41) if has_value(41) else None,
+            notional_label="Notional Pay (Rounded to the next 10 Rupees)",
+        )
+
+    # 1993 (1030 CPI) — rows 42–47
+    if has_value(42):
+        append_block(
+            out,
+            start_id=199301,
+            components=[
+                ("Basic Pay in the existing scale as on 01-01-1994", v(42)),
+                ("Special allowance (1994)", v(43)),
+                ("V.D.A (As per slab)", v(44)),
+                ("CPI difference @ Rs.138", v(45)),
+                ("Fitment @27.5% on Basic Pay", v(46)),
+            ],
+            notional_value=v(47) if has_value(47) else None,
+            notional_label="Notional Pay (Rounded to the next 10 Rupees)",
+        )
+
+    # 1997 (1708 CPI) — rows 48–51
+    if has_value(48):
+        a, b, c = v(48), v(49), v(50)
+        append_block(
+            out,
+            start_id=199701,
+            components=[
+                ("Basic Pay in the existing scale as on 01-01-1997", a),
+                ("DA @ 78.2% on Basic Pay", b),
+                ("Fitment @ 23% on (Basic+DA)", c),
+            ],
+            notional_value=v(51) if has_value(51) else None,
+            notional_label="Notional Pay (Rounded to the next 10 Rupees)",
+        )
+
+    # 2007 (126 CPI) — rows 52–55
     if has_value(52):
         a, b, c = v(52), v(53), v(54)
-        d = round2(a + b + c)
-        e = v(55) if has_value(55) else round_up_to_10(d)
-        out.extend([
-            letter_row(
-                200701,
-                "A",
-                "Basic Pay Over 126 CPI Points as on 01.01.2007",
-                a,
-            ),
-            letter_row(200702, "B", "Variable D.A of 57.14%", b),
-            letter_row(200703, "C", "Fitment @ 10.5% on basic pay+DA", c),
-            letter_row(200704, "D", "Aggregate of A+B+C", d),
-            letter_row(
-                200705,
-                "E",
-                "Notional Pay (Rounded of to the next 10 Rupees)",
-                e,
-            ),
-        ])
+        append_block(
+            out,
+            start_id=200701,
+            components=[
+                ("Basic Pay Over 126 CPI Points as on 01.01.2007", a),
+                ("Variable D.A of 57.14% on Basic Pay", b),
+                ("Fitment @ 10.5% on (Basic+DA)", c),
+            ],
+            notional_value=v(55) if has_value(55) else None,
+            notional_label="Notional Pay (Rounded to the next 10 Rupees)",
+        )
 
+    # 2012 (198 CPI) — rows 56–60 (Aggregate + nearest rupee + matrix)
     if has_value(56):
         a, b, c = v(56), v(57), v(58)
         d = round2(a + b + c)
@@ -431,7 +616,7 @@ def expand_detailed_cpi_breakdown(rows):
                 a,
             ),
             letter_row(201202, "B", "DA @ 40% On basic pay", b),
-            letter_row(201203, "C", "Fitment @ 10.6% on basic pay+DA", c),
+            letter_row(201203, "C", "Fitment @ 10.6% on (Basic+DA)", c),
             letter_row(201204, "D", "Aggregate of A+B+C", d),
             letter_row(201205, "E", "Rounded off to the nearest rupee", e),
             letter_row(
@@ -445,6 +630,7 @@ def expand_detailed_cpi_breakdown(rows):
             ),
         ])
 
+    # 2017 (277 CPI) — rows 60–64
     if has_value(60):
         a, b, c = v(60), v(61), v(62)
         d = v(63) if has_value(63) else round2(a + b + c)
@@ -458,9 +644,14 @@ def expand_detailed_cpi_breakdown(rows):
                 a,
             ),
             letter_row(201702, "B", "DA @ 30% on basic pay", b),
-            letter_row(201703, "C", "Fitment @ 8.5% on basic pay + DA", c),
+            letter_row(201703, "C", "Fitment @ 8.5% on (Basic+DA)", c),
             letter_row(201704, "D", "Aggregate of A+B+C", d),
-            letter_row(201705, "E", "Rounded off to the next 10 Rupees", e),
+            letter_row(
+                201705,
+                "E",
+                "Notional Pay (Rounded to the next 10 Rupees)",
+                e,
+            ),
             letter_row(
                 201706,
                 "F",
@@ -472,6 +663,7 @@ def expand_detailed_cpi_breakdown(rows):
             ),
         ])
 
+    # 2022 (359 CPI)
     if has_value(64):
         out.append(
             letter_row(202201, "A", "Basic Pay as on 01.01.2022", v(64))
@@ -503,6 +695,8 @@ def calculate_revision(scales, current_revision, last_pay, sda_override=0):
 
     handler(state, scales, last_pay, sda_override)
     start_row = START_ROW[current_revision]
+
+    # Show only from retirement CPI onward (do not backfill earlier stages).
     return {
         "rows": _format_rows(state, start_row),
         "pension": _pension_from_state(state),

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import API from "../services/Api";
 import "../styles/PensionProposal.css";
 import {
@@ -117,13 +118,21 @@ function normalizeProposalData(data, employee) {
   );
 }
 
-export default function PensionProposalEntry({ employee }) {
+export default function PensionProposalEntry({
+  employee,
+  showClaimNext = false,
+  claimNextTo = "",
+  showAmountNext = false,
+  amountNextTo = "",
+}) {
   const [form, setForm] = useState(buildEmptyProposalForm(employee));
   const [recordExists, setRecordExists] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [bankMaster, setBankMaster] = useState([]);
   const [earnDednHintRow, setEarnDednHintRow] = useState(null);
+  const [saveNotice, setSaveNotice] = useState("");
+  const navigate = useNavigate();
 
   useEffect(() => {
     let cancelled = false;
@@ -184,6 +193,7 @@ export default function PensionProposalEntry({ employee }) {
 
     const load = async () => {
       setLoading(true);
+      setSaveNotice("");
       let exists = false;
       let data = null;
       let proposalDefaults = employee.proposal_defaults || null;
@@ -472,17 +482,21 @@ export default function PensionProposalEntry({ employee }) {
           : "Pension Proposal Saved Successfully"
       );
       if (response.data.oracle_warning) {
-        alertMessage += `\n\n${response.data.oracle_warning}`;
+        alertMessage += ` ${response.data.oracle_warning}`;
       }
-      alert(alertMessage);
 
       if (response.data.proposal_data) {
         setForm(normalizeProposalData(response.data.proposal_data, employee));
       }
       setRecordExists(true);
       setIsEditing(false);
+      setSaveNotice(alertMessage);
+      if (amountNextTo) {
+        navigate(amountNextTo);
+      }
     } catch (error) {
       console.error(error);
+      setSaveNotice("");
       const apiErrors = error.response?.data?.errors;
       if (Array.isArray(apiErrors) && apiErrors.length > 0) {
         alert(apiErrors.join("\n"));
@@ -497,9 +511,42 @@ export default function PensionProposalEntry({ employee }) {
     return <p className="text-muted">Loading pension proposal...</p>;
   }
 
+  const showNextClaim =
+    showClaimNext && Boolean(claimNextTo) && recordExists && !isEditing;
+  const showNextAmount =
+    showAmountNext && Boolean(amountNextTo) && recordExists && !isEditing;
+
   return (
     <form onSubmit={handleSubmit} className="pension-proposal-form smpk-form">
       <div className="pp-title-bar">PENSION / FAMILY PENSION PROPOSAL</div>
+      {saveNotice ? (
+        <div className="alert alert-success py-2 mb-2 mx-2 mt-2" role="status">
+          {saveNotice}
+          {showNextClaim ? (
+            <span className="ms-1">
+              Next: complete <strong>Pension Application</strong> (claim form)
+              for this employee.
+            </span>
+          ) : null}
+          {showNextAmount ? (
+            <span className="ms-1">
+              Next: open <strong>Amount</strong> (pension / commutation /
+              gratuity calculation).
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      {showNextClaim && !saveNotice ? (
+        <div className="alert alert-info py-2 mb-2 mx-2 mt-2" role="status">
+          Proposal is saved. Continue to Pension Application (claim form) for
+          this employee.
+        </div>
+      ) : null}
+      {showNextAmount && !saveNotice ? (
+        <div className="alert alert-info py-2 mb-2 mx-2 mt-2" role="status">
+          Proposal is saved. Continue to Amount (calculation) for this employee.
+        </div>
+      ) : null}
       {legacyPrefill && (
         <div className="alert alert-info py-2 mb-2 mx-2 mt-2">
           Prefill from Oracle FI_PN_MH_PENSION_PROPOSAL / FI_PN_MD_PENSION_PROPOSAL
@@ -1237,11 +1284,11 @@ export default function PensionProposalEntry({ employee }) {
         </div>
       </div>
 
-      <div className="smpk-form-actions justify-content-end mt-3">
+      <div className="smpk-form-actions justify-content-end flex-wrap gap-2 mt-3">
         {recordExists && (
           <button
             type="button"
-            className="btn btn-secondary me-2"
+            className="btn btn-secondary"
             onClick={() => setIsEditing(true)}
             disabled={isEditing}
           >
@@ -1255,6 +1302,24 @@ export default function PensionProposalEntry({ employee }) {
         >
           Save
         </button>
+        {showNextClaim ? (
+          <Link
+            to={claimNextTo}
+            className="btn btn-primary"
+            title="Open Pension Application (claim form) for this employee"
+          >
+            Next: Pension Application →
+          </Link>
+        ) : null}
+        {showNextAmount ? (
+          <Link
+            to={amountNextTo}
+            className="btn btn-primary"
+            title="Open Amount (pension / commutation / gratuity calculation)"
+          >
+            Next: Amount →
+          </Link>
+        ) : null}
       </div>
 
       <EarnDednCodeHintModal

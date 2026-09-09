@@ -30,27 +30,29 @@ export default function Carousel({ initialShowLogin = false }) {
 
   return (
     <section
-      className={`carousel${showLogin ? " carousel--login-open" : ""}`}
+      className={`smpk-hero${showLogin ? " smpk-hero--login-open" : ""}`}
       aria-label="Welcome banner"
     >
       {images.map((img, index) => (
         <div
           key={img}
-          className={`slide ${index === current ? "active" : ""}`}
+          className={`smpk-hero__slide${index === current ? " is-active" : ""}`}
           style={{ backgroundImage: `url(${img})` }}
           role="img"
           aria-label={`Banner ${index + 1}`}
         />
       ))}
 
-      <div className={`overlay${showLogin ? " overlay--login" : ""}`}>
+      <div
+        className={`smpk-hero__overlay${showLogin ? " smpk-hero__overlay--login" : ""}`}
+      >
         {!showLogin ? (
-          <div className="overlay-welcome">
+          <div className="smpk-hero__welcome">
             <h1>Welcome to Pension Management System</h1>
             <p>Streamlining pension processing efficiently</p>
             <button
               type="button"
-              className="carousel-login-btn"
+              className="smpk-hero__login-btn"
               onClick={() => setShowLogin(true)}
             >
               Login

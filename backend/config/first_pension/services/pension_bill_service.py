@@ -147,7 +147,7 @@ def please_sum_pension(
     if not header_fmpen_id:
         header = FiPnThFirstMonthPension.objects.filter(
             emp_cd=emp_key,
-            pension_type__startswith=bill_type_key,
+            pension_type=bill_type_key,
             pension_month=int(month),
             pension_yr=int(year),
         ).first()
@@ -174,9 +174,9 @@ def please_sum_pension(
         if line.earn_dedn_cd in skip_codes:
             continue
         amt = _dec(line.amount)
-        if line.earn_dedn_cd in earn_codes or line.earn_dedn_type == "E":
+        if line.earn_dedn_cd in earn_codes:
             earn_sum += amt
-        elif line.earn_dedn_cd in dedn_codes or line.earn_dedn_type == "D":
+        elif line.earn_dedn_cd in dedn_codes:
             dedn_sum += amt
     return earn_sum, dedn_sum
 

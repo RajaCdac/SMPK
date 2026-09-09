@@ -1,11 +1,17 @@
 """Batch workflow progress for dashboard retirement list (MySQL)."""
 
+import logging
+
+from django.db.utils import OperationalError, ProgrammingError
+
 from first_pension.models import (
     CommutationApplication,
     PensionCase,
     PensionProposal,
     PensionSummary,
 )
+
+logger = logging.getLogger(__name__)
 
 WORKFLOW_LABELS = {
     "not_started": "Not started",
@@ -53,26 +59,32 @@ def batch_workflow_status(emp_codes):
     if not codes:
         return {}
 
-    cases = list(PensionCase.objects.filter(emp_code__in=codes))
-    case_by_code = {}
-    case_ids = []
-    for case in cases:
-        case_by_code[case.emp_code] = case
-        case_ids.append(case.id)
+    try:
+        cases = list(PensionCase.objects.filter(emp_code__in=codes))
+        case_by_code = {}
+        case_ids = []
+        for case in cases:
+            case_by_code[case.emp_code] = case
+            case_ids.append(case.id)
 
-    proposal_codes = set(
-        PensionProposal.objects.filter(emp_cd__in=codes).values_list("emp_cd", flat=True)
-    )
-    commutation_codes = set(
-        CommutationApplication.objects.filter(emp_cd__in=codes).values_list(
-            "emp_cd", flat=True
+        proposal_codes = set(
+            PensionProposal.objects.filter(emp_cd__in=codes).values_list(
+                "emp_cd", flat=True
+            )
         )
-    )
+        commutation_codes = set(
+            CommutationApplication.objects.filter(emp_cd__in=codes).values_list(
+                "emp_cd", flat=True
+            )
+        )
 
-    summary_by_case_id = {
-        s.pension_case_id: s
-        for s in PensionSummary.objects.filter(pension_case_id__in=case_ids)
-    }
+        summary_by_case_id = {
+            s.pension_case_id: s
+            for s in PensionSummary.objects.filter(pension_case_id__in=case_ids)
+        }
+    except (OperationalError, ProgrammingError) as exc:
+        logger.debug("Dashboard workflow tables unavailable: %s", exc)
+        return {}
 
     result = {}
     for raw in emp_codes:

@@ -1,8 +1,8 @@
 import "./Navbar.css";
 
-/** Blue accent bar only — no menu items or login (login is on the carousel). */
+/** Blue accent bar — avoid Bootstrap `.navbar` class (conflicts with layout). */
 const Navbar = () => {
-  return <nav className="navbar navbar-bar-only" aria-label="Site accent bar" />;
+  return <nav className="smpk-topbar" aria-label="Site accent bar" />;
 };
 
 export default Navbar;

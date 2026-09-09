@@ -21,6 +21,11 @@ from family_pension.services.dcr_gratuity_service import (
     DcrGratuityError,
     ffunc_dcr_gratuity,
 )
+from family_pension.services.double_fpension_service import (
+    DoubleFamilyPensionError,
+    compute_double_family_pension,
+    double_result_as_dict,
+)
 
 
 class FirstFamilyPensionError(Exception):
@@ -175,7 +180,8 @@ def _load_pensioner(emp_cd):
         _fetchone(
             """
             SELECT NAME, CA_NUMBER, PENSION_EMOLUMENTS, BASE_CPI, DESIG_CD,
-                   EMP_RET_DT, APP_CLASS, GRATUITY, PENSION_OPTION
+                   EMP_RET_DT, APP_CLASS, GRATUITY, PENSION_OPTION,
+                   ORIGINAL_PENSION_AMT, PENSION_ROLL_NO
             FROM fi_pn_mh_pensioner
             WHERE EMP_CD = %s
             LIMIT 1
@@ -184,6 +190,15 @@ def _load_pensioner(emp_cd):
         )
         or {}
     )
+
+
+def _load_emp_dob(emp_cd):
+    row = _fetchone(
+        "SELECT BIRTH_DT FROM fi_xx_mh_emp_per WHERE EMP_CD = %s LIMIT 1",
+        [_emp_key(emp_cd)],
+    )
+    return _as_date((row or {}).get("birth_dt")) if row else None
+
 
 
 def _scale_desc(scale_cd):
@@ -215,26 +230,18 @@ def _scale_desc(scale_cd):
     return code
 
 
-def _resolve_category(claim, fin, pensioner):
-    for raw in (
-        claim.get("class"),
-        fin.get("emp_class"),
-        pensioner.get("app_class"),
-    ):
-        if raw in (None, ""):
-            continue
-        text = str(raw).strip().upper()
-        mapping = {"I": "1", "II": "2", "III": "3", "IV": "4", "O": "1", "E": "3"}
-        text = mapping.get(text, text)
-        if text in {"1", "2", "3", "4"}:
-            return text
-        try:
-            n = int(float(text))
-            if n in (1, 2, 3, 4):
-                return str(n)
-        except (TypeError, ValueError):
-            pass
-    return "3"
+def _resolve_category(claim, fin, pensioner, familypensioner_app_class=None):
+    """
+    First FP class: familypensioner APP_CLASS → ESR fin EMP_CLASS → claim/pensioner.
+    """
+    from family_pension.services.class12_fp_service import resolve_category_for_fp
+
+    return resolve_category_for_fp(
+        claim or {},
+        fin or {},
+        pensioner or {},
+        familypensioner_app_class=familypensioner_app_class,
+    )
 
 
 def _resolve_last_pay(claim, pensioner):
@@ -285,14 +292,33 @@ def _bill_month_year(claim, wef, override_m=None, override_y=None):
     return today.month, today.year
 
 
-def _m1_amount_and_cpi(m1_result):
-    """Pick payable family pension amount and BASE/CPI tag from M1 output."""
+def _m1_amount_and_cpi(m1_result, preferred_cpi=None):
+    """
+    Pick payable family pension amount and CPI tag from M1 output.
+
+    When claim RETIREMENT_CPI is 277 (or 359), prefer that band so generation
+    does not jump ahead of Oracle/legacy process CPI (e.g. 22102 at 277).
+    """
     if not m1_result or m1_result.get("error"):
         raise FirstFamilyPensionError(
             m1_result.get("error") if m1_result else "Methodology1 calculation failed"
         )
     fp_359 = _num(m1_result.get("FP_359_cpi"))
     fp_277 = _num(m1_result.get("FP_277_cpi"))
+
+    pref = None
+    if preferred_cpi not in (None, ""):
+        try:
+            pref = int(float(preferred_cpi))
+        except (TypeError, ValueError):
+            pref = None
+
+    if pref == 277 and fp_277 is not None and fp_277 > 0:
+        return fp_277, Decimal("277")
+    if pref == 359 and fp_359 is not None and fp_359 > 0:
+        return fp_359, Decimal("359")
+
+    # Default process band: latest available (359 then 277)
     if fp_359 is not None and fp_359 > 0:
         return fp_359, Decimal("359")
     if fp_277 is not None and fp_277 > 0:
@@ -369,9 +395,123 @@ def _earn_map(map_cd):
         defaults = {
             106: ("209", "E"),  # FAMILY PENSION
             110: ("208", "E"),  # RELIEF
+            104: ("205", "E"),  # GRATUITY
         }
         return defaults.get(int(map_cd) if str(map_cd).isdigit() else map_cd, ("209", "E"))
     return str(row["earndedn_cd"]).strip(), str(row["e_d_type"] or "E").strip()
+
+
+def _resolve_proposal_ca_number(claim, emp_cd):
+    """CA number linking claim → fi_pn_md_pension_proposal earn/dedn grid."""
+    ca = _clip(claim.get("ca_no"), 22)
+    if ca:
+        return ca
+    row = _fetchone(
+        """
+        SELECT CA_NUMBER
+        FROM fi_pn_mh_pension_proposal
+        WHERE EMP_CD = %s
+        ORDER BY
+          CASE WHEN PENSION_TYPE IN ('F','FP','FAMILY') THEN 0 ELSE 1 END,
+          PENSION_PROPOSAL_DT DESC
+        LIMIT 1
+        """,
+        [_emp_key(emp_cd)],
+    )
+    return _clip((row or {}).get("ca_number"), 22)
+
+
+def _load_proposal_earndedn(ca_number):
+    """Rows from fi_pn_md_pension_proposal for a CA (same table as First Pension)."""
+    ca = _clip(ca_number, 22)
+    if not ca:
+        return []
+    return _fetchall(
+        """
+        SELECT EARNDEDN_CD, EARN_DEDN_TYPE, AMOUNT, E_D_PRIORITY, DEDUCTED_AMT
+        FROM fi_pn_md_pension_proposal
+        WHERE CA_NUMBER = %s
+        ORDER BY EARNDEDN_CD, EARN_DEDN_TYPE
+        """,
+        [ca],
+    )
+
+
+def _insert_td_line(cur, *, fam_id, earn_type, earn_cd, amount, original_amt, user):
+    """Insert one fi_pn_td_first_month_fpension line; skip blank/zero amount."""
+    if not earn_cd or amount is None:
+        return False
+    try:
+        amt = float(amount)
+    except (TypeError, ValueError):
+        return False
+    if abs(amt) < 0.005:
+        return False
+    try:
+        orig = float(original_amt) if original_amt is not None else amt
+    except (TypeError, ValueError):
+        orig = amt
+    cur.execute(
+        """
+        INSERT INTO fi_pn_td_first_month_fpension (
+            EARN_DEDN_TYPE, EARN_DEDN_CD, AMOUNT,
+            DATE_CREATED, CREATED_BY,
+            FAM_FMPEN_ID, ORIGINAL_AMT, AREAR_AMT
+        ) VALUES (
+            %s, %s, %s,
+            NOW(), %s,
+            %s, %s, NULL
+        )
+        """,
+        [
+            _clip(earn_type, 1) or "E",
+            _clip(earn_cd, 10),
+            amt,
+            _clip(user, 5) or "SMPK",
+            fam_id,
+            orig,
+        ],
+    )
+    return True
+
+
+def _copy_proposal_earndedn_to_td(
+    cur,
+    *,
+    fam_id,
+    ca_number,
+    skip_codes,
+    user,
+):
+    """
+    Mirror First Pension generate_first_month_pension:
+    copy fi_pn_md_pension_proposal E/D rows onto First FP TD, skipping
+    system-inserted codes (family pension / relief / gratuity) and zeros.
+    """
+    copied = []
+    for line in _load_proposal_earndedn(ca_number):
+        cd = _clip(line.get("earndedn_cd"), 10)
+        if not cd or cd in skip_codes:
+            continue
+        et = _clip(line.get("earn_dedn_type"), 1).upper() or "E"
+        amt = line.get("amount")
+        if _insert_td_line(
+            cur,
+            fam_id=fam_id,
+            earn_type=et,
+            earn_cd=cd,
+            amount=amt,
+            original_amt=amt,
+            user=user,
+        ):
+            copied.append(
+                {
+                    "earn_dedn_type": et,
+                    "earn_dedn_cd": cd,
+                    "amount": float(amt),
+                }
+            )
+    return copied
 
 
 def _delete_existing_first_fp(cur, clmca_id):
@@ -445,7 +585,8 @@ def generate_first_family_pension(
     pensioner = _load_pensioner(emp)
 
     last_pay = _resolve_last_pay(claim, pensioner)
-    if not last_pay:
+    equiv_pay = _num(claim.get("equiv_pay_at_base_cpi"))
+    if not last_pay and not equiv_pay:
         raise FirstFamilyPensionError(
             "Last basic / last pay missing on claim (LAST_BASIC_AT_RET)"
         )
@@ -456,20 +597,46 @@ def generate_first_family_pension(
             "Separation / retirement date not found for employee"
         )
 
-    category = _resolve_category(claim, fin, pensioner)
+    from family_pension.services.class12_fp_service import load_familypensioner_app_class
+
+    category = _resolve_category(
+        claim,
+        fin,
+        pensioner,
+        familypensioner_app_class=load_familypensioner_app_class(emp),
+    )
     scale = _scale_desc(claim.get("scale_cd")) or _clip(fin.get("scale_sl"))
 
-    m1 = calculate_family_pension(
-        separation_date=sep_dt.isoformat(),
-        category=category,
-        pay=last_pay,
-        scale=scale,
-    )
-    fp_amt, cpi_tag = _m1_amount_and_cpi(m1)
-    fp_amt_dec = _money(fp_amt)
+    # Class 1/2: First-FP officer chain (no Methodology1 / no E-grade required
+    # for post-1997 separations). Class 3/4 still uses Methodology1 CPI chain.
+    if category in ("1", "2"):
+        from family_pension.services.class12_fp_service import (
+            Class12FamilyPensionError,
+            calculate_class12_family_pension_for_fp,
+        )
 
-    # Double FP amount still needs Oracle circular rules; store 0 from M1 for now.
-    double_amt = Decimal("0")
+        try:
+            m1 = calculate_class12_family_pension_for_fp(
+                separation_date=sep_dt.isoformat(),
+                last_pay=last_pay,
+                scale=scale,
+            )
+        except Class12FamilyPensionError as exc:
+            raise FirstFamilyPensionError(str(exc)) from exc
+    else:
+        m1 = calculate_family_pension(
+            separation_date=sep_dt.isoformat(),
+            category=category,
+            pay=last_pay or equiv_pay,
+            scale=scale,
+            equiv_pay_at_base_cpi=equiv_pay if equiv_pay else None,
+        )
+    preferred_cpi = _num(claim.get("retirement_cpi")) or _num(
+        pensioner.get("base_cpi")
+    )
+    fp_amt, cpi_tag = _m1_amount_and_cpi(m1, preferred_cpi=preferred_cpi)
+    single_rate_dec = _money(fp_amt)
+    calc_pay = _num(m1.get("calc_pay")) or last_pay or equiv_pay
 
     wef = _wef_date(claim)
     bill_m, bill_y = _bill_month_year(claim, wef, month, year)
@@ -480,10 +647,48 @@ def generate_first_family_pension(
         or _as_date(pensioner.get("emp_ret_dt"))
         or sep_dt
     )
+    dod = _as_date(claim.get("dod_emp_pensioner"))
+    emp_dob = _load_emp_dob(emp)
+
+    # Double FP — form FPROC_CALCULATE_FPENSION2 (single rate from Methodology1)
+    try:
+        dbl = compute_double_family_pension(
+            claim=claim,
+            emp_dob=emp_dob,
+            single_fp_rate=float(single_rate_dec),
+            last_basic=calc_pay,
+            dod=dod,
+            retirement_dt=ret_dt,
+            original_pension_amt=_num(pensioner.get("original_pension_amt")),
+            wef=wef,
+            bill_month=bill_m,
+            bill_year=bill_y,
+            separation_date=sep_dt,
+            category=category,
+            scale=scale,
+            separation_type=adm.get("separation_type"),
+            exp_ret_dt=_as_date(adm.get("exp_ret_dt")),
+        )
+    except DoubleFamilyPensionError as exc:
+        raise FirstFamilyPensionError(str(exc)) from exc
+
+    single_amt_dec = _money(dbl.single_rate)
+    double_amt_dec = _money(dbl.double_rate)
+    payable_fp_dec = _money(dbl.payable_fp_amt)
+    double_upto_dt = dbl.double_fpen_upto
+    # ORIGINAL_FAMILY_PENSION_AMT holds lifetime single rate; bill uses payable
+    fp_amt_dec = single_amt_dec
+
     desig_cd = (
         pensioner.get("desig_cd")
         or adm.get("desig_cd")
     )
+    fp_roll = _clip(claim.get("fpension_roll_no"), 30) or _clip(
+        pensioner.get("pension_roll_no"), 28
+    )
+    if fp_roll and not fp_roll.upper().endswith("/F"):
+        fp_roll = f"{fp_roll}/F"
+    fp_roll = _clip(fp_roll, 30) or None
     app_class = None
     try:
         app_class = int(category)
@@ -494,25 +699,56 @@ def generate_first_family_pension(
     # stamp process CPI (277/359) separately; BASE_CPI on master often holds process CPI in recent gens
     process_cpi = float(cpi_tag)
 
-    # Death DCR gratuity — FFUNC_DCR_GRATUITY option 2 (form half-year path, not chart 33 alone)
+    # Death DCR gratuity — Oracle FI_PN_MH_First_FPension.fmb:
+    #   IF vd_l_dod_ret <= Vd_retirement_dt THEN FFUNC_DCR_GRATUITY(...)
+    #   ELSE vn_l_gratuity_amt := 0   -- death after retirement: not a "death case"
+    # Emp 22102: retired 01-01-2001, died 11-01-2026 → gratuity 0 (Oracle PN007).
     pension_opt = (
         _clip(claim.get("pension_opt"), 1)
         or _clip(pensioner.get("pension_option"), 1)
         or "G"
     )
     incentive = _clip(claim.get("incentive_holder_flg"), 1) or "N"
-    try:
-        dcr = ffunc_dcr_gratuity(
-            emp,
-            pension_option=pension_opt,
-            gratuity_option=2,
-            incentive_holder=incentive,
-            last_basic_fallback=last_pay,
-            emp_class=category,
-            retirement_dt=ret_dt,
-        )
-    except DcrGratuityError as exc:
-        raise FirstFamilyPensionError(str(exc)) from exc
+
+    death_in_service_or_on_ret = bool(
+        dod and ret_dt and dod <= ret_dt
+    )
+    # Also treat missing retirement date with DOD as death-case candidate.
+    if dod and not ret_dt:
+        death_in_service_or_on_ret = True
+
+    if not death_in_service_or_on_ret:
+        dcr = {
+            "gratuity_amt": 0,
+            "gross_gratuity": 0,
+            "emoluments": 0,
+            "multi_factor": None,
+            "tqs": 0,
+            "tccs": 0,
+            "period_of_service": 0,
+            "tqs_yr": 0,
+            "tqs_month": 0,
+            "tqs_days": 0,
+            "ceiling_applied": None,
+            "emoluments_detail": None,
+            "note": (
+                "Death after retirement — DCR death gratuity not payable "
+                "(Oracle: dod > retirement_dt → gratuity := 0)"
+            ),
+        }
+    else:
+        try:
+            dcr = ffunc_dcr_gratuity(
+                emp,
+                pension_option=pension_opt,
+                gratuity_option=2,
+                incentive_holder=incentive,
+                last_basic_fallback=last_pay,
+                emp_class=category,
+                retirement_dt=ret_dt,
+            )
+        except DcrGratuityError as exc:
+            raise FirstFamilyPensionError(str(exc)) from exc
 
     gratuity_amt = _money(dcr.get("gratuity_amt"))
     tqs_val = _num(dcr.get("tqs")) or 0
@@ -524,21 +760,26 @@ def generate_first_family_pension(
 
     earn_cd, earn_type = _earn_map(106)
     relief_cd, relief_type = _earn_map(110)
+    grat_cd, _grat_type = _earn_map(104)
     relief_amt = Decimal("0")  # relief/ADA not ported; matches many recent N bills
+    proposal_ca = _resolve_proposal_ca_number(claim, emp) or ca_no
+    # Skip system-owned codes (same idea as First Pension skip of pension/comm/grat)
+    proposal_skip_codes = {c for c in (earn_cd, relief_cd, grat_cd, "204") if c}
 
     if _already_generated(claim["clmca_id"]) and not regenerate:
         raise FirstFamilyPensionError(
-            "First FP already generated for this claim. "
+            "First Family Pension already generated for this claim. "
             "Pass regenerate=true to replace type-N rows."
         )
 
     created = []
+    proposal_lines_copied = []
     with transaction.atomic():
         with connection.cursor() as cur:
             if regenerate:
                 _delete_existing_first_fp(cur, claim["clmca_id"])
 
-            for ap in applicants:
+            for idx, ap in enumerate(applicants):
                 sl_no = int(ap.get("sl_no") or 1)
                 fam_id = _allocate_fpen_id(cur, "N")
 
@@ -590,11 +831,11 @@ def generate_first_family_pension(
                         bill_m,
                         bill_y,
                         user,
-                        ca_no or None,
-                        float(fp_amt_dec),
-                        float(double_amt),
-                        _as_date(claim.get("double_fpen_upto")),
-                        _clip(claim.get("fpension_roll_no"), 30) or None,
+                        proposal_ca or None,
+                        float(single_amt_dec),
+                        float(double_amt_dec),
+                        double_upto_dt,
+                        _clip(fp_roll, 30) or None,
                         _clip(ap.get("relief_tag"), 1) or "Y",
                         process_cpi if process_cpi else base_cpi,
                         _clip(ap.get("sex"), 1) or None,
@@ -634,7 +875,7 @@ def generate_first_family_pension(
                         fam_id,
                         bill_m,
                         bill_y,
-                        float(fp_amt_dec),
+                        float(payable_fp_dec),
                         float(relief_amt),
                         float(gratuity_amt),
                         user,
@@ -648,50 +889,39 @@ def generate_first_family_pension(
                 )
 
                 # Detail — Family Pension earn line (map 106 → cd 209)
-                cur.execute(
-                    """
-                    INSERT INTO fi_pn_td_first_month_fpension (
-                        EARN_DEDN_TYPE, EARN_DEDN_CD, AMOUNT,
-                        DATE_CREATED, CREATED_BY,
-                        FAM_FMPEN_ID, ORIGINAL_AMT, AREAR_AMT
-                    ) VALUES (
-                        %s, %s, %s,
-                        NOW(), %s,
-                        %s, %s, NULL
-                    )
-                    """,
-                    [
-                        earn_type,
-                        earn_cd,
-                        float(fp_amt_dec),
-                        user,
-                        fam_id,
-                        float(fp_amt_dec),
-                    ],
+                # ORIGINAL_AMT = single monthly rate; AMOUNT = first-period payable
+                _insert_td_line(
+                    cur,
+                    fam_id=fam_id,
+                    earn_type=earn_type,
+                    earn_cd=earn_cd,
+                    amount=payable_fp_dec,
+                    original_amt=single_amt_dec,
+                    user=user,
                 )
 
                 if relief_amt and float(relief_amt) > 0:
-                    cur.execute(
-                        """
-                        INSERT INTO fi_pn_td_first_month_fpension (
-                            EARN_DEDN_TYPE, EARN_DEDN_CD, AMOUNT,
-                            DATE_CREATED, CREATED_BY,
-                            FAM_FMPEN_ID, ORIGINAL_AMT, AREAR_AMT
-                        ) VALUES (
-                            %s, %s, %s,
-                            NOW(), %s,
-                            %s, %s, NULL
-                        )
-                        """,
-                        [
-                            relief_type,
-                            relief_cd,
-                            float(relief_amt),
-                            user,
-                            fam_id,
-                            float(relief_amt),
-                        ],
+                    _insert_td_line(
+                        cur,
+                        fam_id=fam_id,
+                        earn_type=relief_type,
+                        earn_cd=relief_cd,
+                        amount=relief_amt,
+                        original_amt=relief_amt,
+                        user=user,
                     )
+
+                # Proposal earn/dedn — once per claim (first applicant), like First Pension
+                ap_proposal_lines = []
+                if idx == 0 and proposal_ca:
+                    ap_proposal_lines = _copy_proposal_earndedn_to_td(
+                        cur,
+                        fam_id=fam_id,
+                        ca_number=proposal_ca,
+                        skip_codes=proposal_skip_codes,
+                        user=user,
+                    )
+                    proposal_lines_copied.extend(ap_proposal_lines)
 
                 created.append(
                     {
@@ -699,11 +929,36 @@ def generate_first_family_pension(
                         "clmca_id": claim["clmca_id"],
                         "sl_no": sl_no,
                         "applicant_name": _clip(ap.get("name")),
-                        "fpension_amt": float(fp_amt_dec),
+                        "fpension_amt": float(payable_fp_dec),
+                        "single_rate": float(single_amt_dec),
+                        "double_rate": float(double_amt_dec),
                         "relief": float(relief_amt),
                         "gratuity_amt": float(gratuity_amt),
+                        "proposal_earndedn": ap_proposal_lines,
                     }
                 )
+
+        # Persist Methodology-I CPI notionals for arrear (fi_pn_cpi_consolidation)
+        from family_pension.services.cpi_consolidation_service import (
+            save_cpi_basics_from_methodology,
+        )
+
+        try:
+            cpi_rows = save_cpi_basics_from_methodology(
+                claim_id=claim["clmca_id"],
+                emp_cd=emp,
+                case_no=ca_no,
+                emp_class=category,
+                separation_date=sep_dt,
+                category=category,
+                pay=calc_pay,
+                scale=scale,
+                m1_result=m1,
+                user_id=user,
+                equiv_pay_at_base_cpi=equiv_pay if equiv_pay else None,
+            )
+        except Exception:
+            cpi_rows = []
 
     return {
         "ok": True,
@@ -715,15 +970,20 @@ def generate_first_family_pension(
         "year": bill_y,
         "wef_dt": wef.isoformat() if wef else None,
         "separation_date": sep_dt.isoformat(),
-        "last_pay": last_pay,
+        "last_pay": calc_pay,
+        "pay_source": m1.get("pay_source") or "last_basic",
+        "equiv_pay_at_base_cpi": equiv_pay or None,
         "category": category,
         "scale": scale,
+        "ca_number": proposal_ca,
         "methodology1": {
             "FP_277_cpi": m1.get("FP_277_cpi"),
             "FP_359_cpi": m1.get("FP_359_cpi"),
-            "selected_amount": float(fp_amt_dec),
+            "selected_amount": float(single_amt_dec),
             "process_cpi": process_cpi,
         },
+        "cpi_consolidation": cpi_rows,
+        "double_fpension": double_result_as_dict(dbl),
         "dcr_gratuity": {
             "amount": float(gratuity_amt),
             "gross": dcr.get("gross_gratuity"),
@@ -737,5 +997,6 @@ def generate_first_family_pension(
             "ceiling_applied": dcr.get("ceiling_applied"),
             "emoluments_detail": dcr.get("emoluments_detail"),
         },
+        "proposal_earndedn": proposal_lines_copied,
         "bills": created,
     }

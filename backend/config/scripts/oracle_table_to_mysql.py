@@ -63,6 +63,53 @@ ORACLE_DEFAULTS = {
 }
 
 
+def resolve_mysql_config(overrides=None) -> dict:
+    """Merge optional overrides with defaults (any MySQL host/port/db)."""
+    cfg = {
+        "host": str(MYSQL_DEFAULTS["host"]),
+        "port": int(MYSQL_DEFAULTS["port"]),
+        "user": str(MYSQL_DEFAULTS["user"]),
+        "password": str(MYSQL_DEFAULTS["password"]),
+        "database": str(MYSQL_DEFAULTS["database"]),
+    }
+    if overrides:
+        for key in ("host", "port", "user", "password", "database"):
+            if key not in overrides or overrides[key] is None:
+                continue
+            val = overrides[key]
+            if key == "port":
+                try:
+                    cfg["port"] = int(val)
+                except (TypeError, ValueError):
+                    raise ValueError(f"Invalid MySQL port: {val!r}") from None
+            elif key == "password":
+                cfg["password"] = str(val)
+            else:
+                text = str(val).strip()
+                if text != "":
+                    cfg[key] = text
+    if not cfg["host"]:
+        cfg["host"] = "localhost"
+    if not cfg["user"]:
+        raise ValueError("MySQL user is required.")
+    if not cfg["database"]:
+        raise ValueError("MySQL database name is required.")
+    if cfg["port"] <= 0 or cfg["port"] > 65535:
+        raise ValueError(f"Invalid MySQL port: {cfg['port']}")
+    return cfg
+
+
+def public_mysql_config(cfg: dict | None = None) -> dict:
+    """Safe for API responses (no password)."""
+    resolved = resolve_mysql_config(cfg)
+    return {
+        "host": resolved["host"],
+        "port": resolved["port"],
+        "user": resolved["user"],
+        "database": resolved["database"],
+    }
+
+
 @dataclass
 class KeyConstraint:
     name: str
@@ -91,18 +138,19 @@ def connect_oracle():
     )
 
 
-def connect_mysql(*, create_db: bool = False):
+def connect_mysql(*, create_db: bool = False, mysql_config=None):
+    cfg = resolve_mysql_config(mysql_config)
     base_kwargs = {
-        "host": MYSQL_DEFAULTS["host"],
-        "port": MYSQL_DEFAULTS["port"],
-        "user": MYSQL_DEFAULTS["user"],
-        "passwd": MYSQL_DEFAULTS["password"],
+        "host": cfg["host"],
+        "port": cfg["port"],
+        "user": cfg["user"],
+        "passwd": cfg["password"],
         "charset": "utf8mb4",
     }
     if create_db:
         conn = MySQLdb.connect(**base_kwargs)
         cur = conn.cursor()
-        db_name = MYSQL_DEFAULTS["database"]
+        db_name = cfg["database"]
         cur.execute(
             f"CREATE DATABASE IF NOT EXISTS `{db_name}` "
             "CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
@@ -111,7 +159,30 @@ def connect_mysql(*, create_db: bool = False):
         cur.close()
         conn.close()
 
-    return MySQLdb.connect(**base_kwargs, db=MYSQL_DEFAULTS["database"])
+    return MySQLdb.connect(**base_kwargs, db=cfg["database"])
+
+
+def test_mysql_connection(mysql_config=None) -> dict:
+    """Connect, ensure DB exists, return version + public config."""
+    cfg = resolve_mysql_config(mysql_config)
+    conn = connect_mysql(create_db=True, mysql_config=cfg)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT VERSION(), DATABASE()")
+        version, database = cur.fetchone()
+        return {
+            "ok": True,
+            "mysql": public_mysql_config(cfg),
+            "version": str(version or ""),
+            "database": str(database or cfg["database"]),
+            "message": (
+                f"Connected to MySQL {version} as {cfg['user']}@"
+                f"{cfg['host']}:{cfg['port']}/{cfg['database']}"
+            ),
+        }
+    finally:
+        cur.close()
+        conn.close()
 
 
 def oracle_columns(cur, table_name: str):
@@ -219,9 +290,11 @@ def mysql_type_for_oracle(data_type, data_length, precision, scale):
         p = int(precision)
         s = int(scale or 0)
         if s == 0:
-            if p <= 10:
+            # Signed MySQL INT max is 2_147_483_647 (~10 digits but only up to 2.1e9).
+            # Oracle NUMBER(10) values like mobile 98xxxxxxxx overflow INT → ERROR 1264.
+            if p <= 9:
                 return "INT"
-            if p <= 19:
+            if p <= 18:
                 return "BIGINT"
             return f"DECIMAL({p},0)"
         return f"DECIMAL({p},{s})"
@@ -300,7 +373,7 @@ def build_foreign_key_sql(table_name: str, fk: KeyConstraint) -> str:
     )
 
 
-def mysql_table_exists(cur, table_name: str) -> bool:
+def mysql_table_exists(cur, table_name: str, *, database: str) -> bool:
     cur.execute(
         """
         SELECT COUNT(*)
@@ -308,12 +381,14 @@ def mysql_table_exists(cur, table_name: str) -> bool:
         WHERE table_schema = %s
           AND table_name = %s
         """,
-        (MYSQL_DEFAULTS["database"], table_name),
+        (database, table_name),
     )
     return cur.fetchone()[0] > 0
 
 
-def mysql_constraint_exists(cur, table_name: str, constraint_name: str) -> bool:
+def mysql_constraint_exists(
+    cur, table_name: str, constraint_name: str, *, database: str
+) -> bool:
     cur.execute(
         """
         SELECT COUNT(*)
@@ -322,14 +397,16 @@ def mysql_constraint_exists(cur, table_name: str, constraint_name: str) -> bool:
           AND table_name = %s
           AND constraint_name = %s
         """,
-        (MYSQL_DEFAULTS["database"], table_name, constraint_name),
+        (database, table_name, constraint_name),
     )
     return cur.fetchone()[0] > 0
 
 
-def drop_existing_foreign_keys(cur, table_name: str, foreign_keys: list[KeyConstraint]):
+def drop_existing_foreign_keys(
+    cur, table_name: str, foreign_keys: list[KeyConstraint], *, database: str
+):
     for fk in foreign_keys:
-        if mysql_constraint_exists(cur, table_name, fk.name):
+        if mysql_constraint_exists(cur, table_name, fk.name, database=database):
             cur.execute(
                 f"ALTER TABLE {quote_ident(table_name)} "
                 f"DROP FOREIGN KEY {quote_ident(fk.name)}"
@@ -347,6 +424,7 @@ def apply_foreign_keys(
     foreign_keys: list[KeyConstraint],
     *,
     skip_foreign_keys: bool,
+    database: str,
 ) -> tuple[int, int]:
     if not foreign_keys:
         return 0, 0
@@ -364,7 +442,7 @@ def apply_foreign_keys(
     pending = 0
 
     for fk in foreign_keys:
-        if not mysql_table_exists(cur, fk.ref_table):
+        if not mysql_table_exists(cur, fk.ref_table, database=database):
             sql = build_foreign_key_sql(table_name, fk)
             append_pending_fk(sql)
             print(
@@ -374,7 +452,7 @@ def apply_foreign_keys(
             pending += 1
             continue
 
-        if mysql_constraint_exists(cur, table_name, fk.name):
+        if mysql_constraint_exists(cur, table_name, fk.name, database=database):
             print(f"  FK exists, skipping: {fk.name}")
             continue
 
@@ -425,15 +503,124 @@ def fetch_oracle_rows(cur, table_name: str, column_names, batch_size: int):
         yield [tuple(normalize_value(v) for v in row) for row in rows]
 
 
-def insert_batch(mysql_cur, table_name: str, column_names, rows):
+def insert_batch(
+    mysql_cur,
+    table_name: str,
+    column_names,
+    rows,
+    *,
+    mode: str = "insert",
+):
+    """
+    mode:
+      insert  — plain INSERT (fails on duplicate PK)
+      append  — INSERT ... ON DUPLICATE KEY UPDATE (add new + refresh existing)
+      ignore  — INSERT IGNORE (add new only; keep existing row as-is)
+    """
     if not rows:
         return 0
 
     placeholders = ", ".join(["%s"] * len(column_names))
     col_list = ", ".join(quote_ident(c) for c in column_names)
-    sql = f"INSERT INTO {quote_ident(table_name)} ({col_list}) VALUES ({placeholders})"
+    table_sql = quote_ident(table_name)
+
+    if mode == "ignore":
+        sql = (
+            f"INSERT IGNORE INTO {table_sql} ({col_list}) "
+            f"VALUES ({placeholders})"
+        )
+    elif mode == "append":
+        # Upsert: new rows insert; existing PK rows get latest Oracle values.
+        assignments = ", ".join(
+            f"{quote_ident(c)}=VALUES({quote_ident(c)})" for c in column_names
+        )
+        sql = (
+            f"INSERT INTO {table_sql} ({col_list}) VALUES ({placeholders}) "
+            f"ON DUPLICATE KEY UPDATE {assignments}"
+        )
+    else:
+        sql = f"INSERT INTO {table_sql} ({col_list}) VALUES ({placeholders})"
+
     mysql_cur.executemany(sql, rows)
     return len(rows)
+
+
+def _log(msg: str, log_fn=None, *, end: str = "\n"):
+    if log_fn:
+        if end == "\n":
+            log_fn(msg)
+        return
+    print(msg, end=end)
+
+
+def list_oracle_finance_tables(prefixes: list[str] | None = None) -> list[dict]:
+    """
+    List Oracle FINANCE tables with approximate row counts (stats NUM_ROWS).
+    Returns list of {name, num_rows}.
+    """
+    conn = connect_oracle()
+    cur = conn.cursor()
+    try:
+        if prefixes:
+            clauses = []
+            binds = {"owner": ORACLE_SCHEMA}
+            for i, prefix in enumerate(prefixes):
+                key = f"p{i}"
+                clauses.append(f"t.TABLE_NAME LIKE :{key}")
+                binds[key] = f"{prefix.upper().strip()}%"
+            where = " OR ".join(clauses)
+            sql = f"""
+                SELECT t.TABLE_NAME, NVL(t.NUM_ROWS, 0)
+                FROM ALL_TABLES t
+                WHERE t.OWNER = :owner
+                  AND ({where})
+                ORDER BY t.TABLE_NAME
+            """
+            cur.execute(sql, binds)
+        else:
+            cur.execute(
+                """
+                SELECT t.TABLE_NAME, NVL(t.NUM_ROWS, 0)
+                FROM ALL_TABLES t
+                WHERE t.OWNER = :owner
+                ORDER BY t.TABLE_NAME
+                """,
+                {"owner": ORACLE_SCHEMA},
+            )
+        return [
+            {"name": str(row[0]).upper(), "num_rows": int(row[1] or 0)}
+            for row in cur.fetchall()
+        ]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def mysql_table_status_map(mysql_config=None) -> dict[str, dict]:
+    """Return {TABLE_NAME_UPPER: {exists, row_count}} for the target MySQL DB."""
+    cfg = resolve_mysql_config(mysql_config)
+    conn = connect_mysql(create_db=True, mysql_config=cfg)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT TABLE_NAME, TABLE_ROWS
+            FROM information_schema.tables
+            WHERE table_schema = %s
+            """,
+            (cfg["database"],),
+        )
+        out = {}
+        for name, rows in cur.fetchall():
+            key = str(name).upper()
+            out[key] = {
+                "exists": True,
+                "row_count": int(rows or 0) if rows is not None else None,
+            }
+        return out
+    finally:
+        cur.close()
+        conn.close()
 
 
 def dump_table(
@@ -444,83 +631,161 @@ def dump_table(
     truncate: bool,
     skip_foreign_keys: bool,
     constraints_only: bool,
+    append: bool = False,
+    insert_ignore: bool = False,
+    log_fn=None,
+    mysql_config=None,
 ):
+    """
+    Copy one Oracle FINANCE table into a MySQL database (any host via mysql_config).
+    Returns a result dict.
+
+    Modes (mutually exclusive intent):
+      drop           — DROP + CREATE + INSERT
+      truncate       — keep structure, clear rows, INSERT
+      append         — keep all existing rows; upsert Oracle rows by PK
+      insert_ignore  — keep existing rows; insert only brand-new PKs
+      (default insert after create) — plain INSERT
+    """
     table_name = table_name.upper().strip()
-    print(f"Oracle source : {ORACLE_SCHEMA}.{table_name}")
-    print(
-        f"MySQL target  : {MYSQL_DEFAULTS['user']}@"
-        f"{MYSQL_DEFAULTS['host']}:{MYSQL_DEFAULTS['port']}/"
-        f"{MYSQL_DEFAULTS['database']}.{table_name}"
+    cfg = resolve_mysql_config(mysql_config)
+    _log(f"Oracle source : {ORACLE_SCHEMA}.{table_name}", log_fn)
+    _log(
+        f"MySQL target  : {cfg['user']}@{cfg['host']}:{cfg['port']}/"
+        f"{cfg['database']}.{table_name}",
+        log_fn,
     )
 
     ora_conn = connect_oracle()
     ora_cur = ora_conn.cursor()
-    mysql_conn = connect_mysql(create_db=True)
+    mysql_conn = connect_mysql(create_db=True, mysql_config=cfg)
     mysql_cur = mysql_conn.cursor()
 
+    total = 0
+    applied = 0
+    pending = 0
     try:
         columns = oracle_columns(ora_cur, table_name)
         column_names = [c[0] for c in columns]
         primary_key = oracle_primary_key(ora_cur, table_name)
         foreign_keys = oracle_foreign_keys(ora_cur, table_name)
 
-        print(f"Columns       : {len(column_names)}")
+        _log(f"Columns       : {len(column_names)}", log_fn)
         if primary_key:
-            print(
+            _log(
                 f"Primary key   : {primary_key.name} "
-                f"({', '.join(primary_key.columns)})"
+                f"({', '.join(primary_key.columns)})",
+                log_fn,
             )
         else:
-            print("Primary key   : none")
-        print(f"Foreign keys  : {len(foreign_keys)}")
+            _log("Primary key   : none", log_fn)
+        _log(f"Foreign keys  : {len(foreign_keys)}", log_fn)
 
         if drop:
-            print("Dropping existing MySQL table (if any)...")
+            _log("Dropping existing MySQL table (if any)...", log_fn)
+            # Inbound FKs on other tables (e.g. fi_es_th_rs → fi_xx_mh_emp_per)
+            # block DROP unless checks are off for this session.
+            mysql_cur.execute("SET FOREIGN_KEY_CHECKS=0")
             mysql_cur.execute(f"DROP TABLE IF EXISTS {quote_ident(table_name)}")
             mysql_conn.commit()
 
         if not constraints_only:
+            # CREATE IF NOT EXISTS — never recreates when appending/updating.
             create_sql = build_create_table_sql(table_name, columns, primary_key)
             mysql_cur.execute(create_sql)
             mysql_conn.commit()
 
-            if truncate and not drop:
-                print("Truncating existing MySQL table...")
+            if truncate and not drop and not append and not insert_ignore:
+                _log("Truncating existing MySQL table...", log_fn)
+                mysql_cur.execute("SET FOREIGN_KEY_CHECKS=0")
                 mysql_cur.execute(f"TRUNCATE TABLE {quote_ident(table_name)}")
                 mysql_conn.commit()
 
-            total = 0
-            print("Copying rows...")
+            if append:
+                insert_mode = "append"
+                _log(
+                    "Append/upsert mode: keep existing rows; "
+                    "INSERT ... ON DUPLICATE KEY UPDATE from Oracle",
+                    log_fn,
+                )
+            elif insert_ignore:
+                insert_mode = "ignore"
+                _log(
+                    "Insert-ignore mode: keep existing rows; "
+                    "INSERT IGNORE (new PKs only)",
+                    log_fn,
+                )
+            else:
+                insert_mode = "insert"
+
+            _log("Copying rows...", log_fn)
             mysql_cur.execute("SET FOREIGN_KEY_CHECKS=0")
             for batch in fetch_oracle_rows(
                 ora_cur, table_name, column_names, batch_size
             ):
-                inserted = insert_batch(mysql_cur, table_name, column_names, batch)
+                inserted = insert_batch(
+                    mysql_cur,
+                    table_name,
+                    column_names,
+                    batch,
+                    mode=insert_mode,
+                )
                 mysql_conn.commit()
                 total += inserted
-                print(f"  inserted {total:,} rows...", end="\r")
+                if log_fn:
+                    log_fn(f"  processed {total:,} rows...")
+                else:
+                    print(f"  processed {total:,} rows...", end="\r")
             mysql_cur.execute("SET FOREIGN_KEY_CHECKS=1")
             mysql_conn.commit()
-            print(f"\nRows copied   : {total:,}")
+            _log(f"Rows processed: {total:,}", log_fn)
         else:
-            print("Constraints-only mode: skipping data copy.")
+            _log("Constraints-only mode: skipping data copy.", log_fn)
+            if drop:
+                mysql_cur.execute("SET FOREIGN_KEY_CHECKS=1")
+                mysql_conn.commit()
 
-        if foreign_keys:
-            print("Applying foreign keys...")
-            drop_existing_foreign_keys(mysql_cur, table_name, foreign_keys)
+        if foreign_keys and not append and not insert_ignore:
+            _log("Applying foreign keys...", log_fn)
+            drop_existing_foreign_keys(
+                mysql_cur, table_name, foreign_keys, database=cfg["database"]
+            )
             mysql_conn.commit()
             applied, pending = apply_foreign_keys(
                 mysql_cur,
                 table_name,
                 foreign_keys,
                 skip_foreign_keys=skip_foreign_keys,
+                database=cfg["database"],
             )
             mysql_conn.commit()
-            print(f"FK applied    : {applied}")
+            _log(f"FK applied    : {applied}", log_fn)
             if pending:
-                print(f"FK deferred   : {pending} (see {PENDING_FK_FILE.name})")
+                _log(
+                    f"FK deferred   : {pending} (see {PENDING_FK_FILE.name})",
+                    log_fn,
+                )
+        elif foreign_keys and (append or insert_ignore):
+            _log("Skipping FK rebuild in append/ignore mode.", log_fn)
 
-        return 0
+        return {
+            "ok": True,
+            "table": table_name,
+            "columns": len(column_names),
+            "rows": total,
+            "mysql": public_mysql_config(cfg),
+            "primary_key": (
+                {
+                    "name": primary_key.name,
+                    "columns": primary_key.columns,
+                }
+                if primary_key
+                else None
+            ),
+            "fk_applied": applied,
+            "fk_pending": pending,
+            "fk_count": len(foreign_keys),
+        }
     finally:
         ora_cur.close()
         ora_conn.close()
@@ -528,7 +793,7 @@ def dump_table(
         mysql_conn.close()
 
 
-def apply_pending_foreign_keys():
+def apply_pending_foreign_keys(mysql_config=None):
     if not PENDING_FK_FILE.exists():
         print(f"No pending FK file: {PENDING_FK_FILE}")
         return
@@ -542,7 +807,8 @@ def apply_pending_foreign_keys():
         print("Pending FK file is empty.")
         return
 
-    conn = connect_mysql()
+    cfg = resolve_mysql_config(mysql_config)
+    conn = connect_mysql(mysql_config=cfg)
     cur = conn.cursor()
     remaining = []
     applied = 0
@@ -568,7 +834,10 @@ def apply_pending_foreign_keys():
     else:
         PENDING_FK_FILE.unlink(missing_ok=True)
 
-    print(f"Done. Applied {applied}, still pending {len(remaining)}.")
+    print(
+        f"Done on {cfg['user']}@{cfg['host']}:{cfg['port']}/{cfg['database']}. "
+        f"Applied {applied}, still pending {len(remaining)}."
+    )
 
 
 def parse_args():
@@ -594,6 +863,19 @@ def parse_args():
         help="Truncate MySQL table before loading (keeps structure).",
     )
     parser.add_argument(
+        "--append",
+        action="store_true",
+        help=(
+            "Do not truncate/drop. Upsert Oracle rows into existing table "
+            "(INSERT ... ON DUPLICATE KEY UPDATE)."
+        ),
+    )
+    parser.add_argument(
+        "--insert-ignore",
+        action="store_true",
+        help="Do not truncate/drop. Insert only new PKs (INSERT IGNORE).",
+    )
+    parser.add_argument(
         "--batch-size",
         type=int,
         default=1000,
@@ -614,15 +896,34 @@ def parse_args():
         action="store_true",
         help="Retry foreign keys saved in finance_pending_foreign_keys.sql",
     )
+    parser.add_argument("--mysql-host", default=None, help="MySQL host (default env/local)")
+    parser.add_argument("--mysql-port", type=int, default=None, help="MySQL port")
+    parser.add_argument("--mysql-user", default=None, help="MySQL user")
+    parser.add_argument("--mysql-password", default=None, help="MySQL password")
+    parser.add_argument("--mysql-database", default=None, help="MySQL database name")
     return parser.parse_args()
+
+
+def _mysql_cfg_from_args(args) -> dict | None:
+    keys = {
+        "host": args.mysql_host,
+        "port": args.mysql_port,
+        "user": args.mysql_user,
+        "password": args.mysql_password,
+        "database": args.mysql_database,
+    }
+    if all(v is None for v in keys.values()):
+        return None
+    return {k: v for k, v in keys.items() if v is not None}
 
 
 def main():
     args = parse_args()
+    mysql_config = _mysql_cfg_from_args(args)
 
     if args.apply_pending_fks:
         try:
-            apply_pending_foreign_keys()
+            apply_pending_foreign_keys(mysql_config=mysql_config)
         except Exception as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             sys.exit(1)
@@ -637,9 +938,12 @@ def main():
             args.table_name,
             drop=args.drop,
             truncate=args.truncate,
+            append=args.append,
+            insert_ignore=args.insert_ignore,
             batch_size=max(1, args.batch_size),
             skip_foreign_keys=args.skip_foreign_keys,
             constraints_only=args.constraints_only,
+            mysql_config=mysql_config,
         )
     except Exception as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

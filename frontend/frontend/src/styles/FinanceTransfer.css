@@ -1,0 +1,236 @@
+.finance-transfer__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.finance-transfer__tab {
+  border: 1px solid #ced4da;
+  background: #f8f9fa;
+  color: #495057;
+  border-radius: 6px;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.finance-transfer__tab.is-active {
+  background: #0d6efd;
+  border-color: #0d6efd;
+  color: #fff;
+}
+
+.finance-transfer__dual-db {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1rem 1.25rem;
+  margin-bottom: 0.85rem;
+}
+
+.finance-transfer__mysql-grid--half {
+  margin-bottom: 0.35rem;
+}
+
+.finance-transfer__mode-hint {
+  margin: -0.25rem 0 0.75rem;
+  padding: 0.45rem 0.65rem;
+  background: #f8f9fa;
+  border-left: 3px solid #0d6efd;
+  border-radius: 4px;
+}
+
+.finance-transfer-page {
+  max-width: 1200px;
+}
+
+.finance-transfer__header {
+  margin-bottom: 1rem;
+}
+
+.finance-transfer__header h1 {
+  font-size: 1.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.finance-transfer__panel {
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  padding: 1rem 1.15rem;
+  margin-bottom: 1rem;
+}
+
+.finance-transfer__section-title {
+  font-size: 1rem;
+  font-weight: 650;
+  margin: 0 0 0.65rem;
+}
+
+.finance-transfer__mysql-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.65rem 0.85rem;
+  align-items: end;
+  margin-bottom: 0.85rem;
+}
+
+.finance-transfer__mysql-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #495057;
+}
+
+.finance-transfer__mysql-grid input {
+  font-weight: 400;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  min-width: 0;
+}
+
+.finance-transfer__mysql-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.finance-transfer__mysql-target {
+  font-size: 0.85rem;
+  color: #495057;
+}
+
+.finance-transfer__mysql-target code {
+  font-size: 0.85em;
+}
+
+.finance-transfer__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: flex-end;
+  margin-bottom: 0.75rem;
+}
+
+.finance-transfer__toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #495057;
+}
+
+.finance-transfer__toolbar select,
+.finance-transfer__toolbar input[type="search"],
+.finance-transfer__batch {
+  min-width: 12rem;
+  font-weight: 400;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+}
+
+.finance-transfer__options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.finance-transfer__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.finance-transfer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.finance-transfer__sel-count {
+  margin-left: 0.35rem;
+  margin-right: 0.35rem;
+  font-size: 0.9rem;
+}
+
+.finance-transfer__job {
+  border-top: 1px solid #e9ecef;
+  padding-top: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.finance-transfer__job-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.4rem;
+}
+
+.finance-transfer__progress-bar {
+  height: 8px;
+  background: #e9ecef;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.finance-transfer__progress-bar > div {
+  height: 100%;
+  background: #0d6efd;
+  transition: width 0.3s ease;
+}
+
+.finance-transfer__log {
+  max-height: 180px;
+  overflow: auto;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-size: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 4px;
+  margin: 0.5rem 0 0;
+}
+
+.finance-transfer__table-wrap {
+  background: #fff;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  max-height: min(60vh, 640px);
+  overflow: auto;
+}
+
+.finance-transfer__table {
+  margin: 0;
+}
+
+.finance-transfer__table thead th {
+  position: sticky;
+  top: 0;
+  background: #f8f9fa;
+  z-index: 1;
+}
+
+.finance-transfer__cli {
+  margin-top: 0.75rem;
+}
+
+.finance-transfer__cli code {
+  font-size: 0.8em;
+}

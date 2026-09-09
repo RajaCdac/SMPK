@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { Link } from "react-router-dom";
 import API from "../services/Api";
 
 function formatMoney(value) {
@@ -38,7 +39,12 @@ function formatGratuityOptionLine(amountData, optionKey) {
   return `Rs. ${formatMoney(formula)}`;
 }
 
-export default function PensionAmountEntry({ employee, idPrefix = "emp" }) {
+export default function PensionAmountEntry({
+  employee,
+  idPrefix = "emp",
+  nextTo = "",
+  nextLabel = "Next: Bill & Journal →",
+}) {
   const [amountData, setAmountData] = useState(null);
   const [recordExists, setRecordExists] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -409,6 +415,11 @@ export default function PensionAmountEntry({ employee, idPrefix = "emp" }) {
             Amounts saved in pension case summary.
           </span>
         )}
+        {recordExists && nextTo ? (
+          <Link to={nextTo} className="btn btn-primary ms-2">
+            {nextLabel}
+          </Link>
+        ) : null}
       </div>
     </div>
   );

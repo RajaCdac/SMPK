@@ -1,22 +1,21 @@
 .fp-advice-print {
-  font-family: "Courier New", Courier, monospace;
-  font-size: 13px;
-  line-height: 1.45;
-  color: #000;
-  background: #fff;
+  font-family: "Courier New", Courier, monospace !important;
+  font-size: 13px !important;
+  line-height: 1.35;
+  color: #000 !important;
+  background: #fff !important;
 }
 
 .fp-advice-print__page {
   width: 210mm;
-  min-height: 297mm;
-  margin: 0 auto 1.5rem;
-  padding: 18mm 20mm 16mm;
-  background: #fff;
+  margin: 0 auto 1rem;
+  padding: 14mm 18mm 12mm !important;
+  background: #fff !important;
   box-sizing: border-box;
   page-break-after: always;
 }
 
-.fp-advice-print__page:last-child {
+.fp-advice-print__letter:last-child .fp-advice-print__page {
   page-break-after: auto;
 }
 
@@ -24,14 +23,14 @@
   text-align: center;
   font-weight: 700;
   text-decoration: underline;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .fp-advice-print__meta {
-  display: flex;
-  justify-content: space-between;
+  display: flex !important;
+  justify-content: space-between !important;
   align-items: flex-start;
-  margin-bottom: 20px;
+  margin-bottom: 12px !important;
 }
 
 .fp-advice-print__meta-right {
@@ -39,48 +38,55 @@
 }
 
 .fp-advice-print__to-block {
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .fp-advice-print__recipient {
   font-weight: 700;
   text-transform: uppercase;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .fp-advice-print__subject {
   text-align: center;
   text-decoration: underline;
-  margin: 18px 0;
+  margin: 10px 0;
 }
 
 .fp-advice-print__refs {
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .fp-advice-print__refs > div + div {
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .fp-advice-print__body p {
-  margin: 0 0 14px;
+  margin: 0 0 8px;
   text-align: justify;
 }
 
 .fp-advice-print__signature {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
   align-items: end;
-  margin: 28px 0 24px;
+  margin: 28px 0 18px !important;
+  min-height: 64px !important;
 }
 
 .fp-advice-print__signature-left {
   font-weight: 700;
+  align-self: end;
+  padding-bottom: 2px;
 }
 
 .fp-advice-print__signature-right {
   text-align: right;
   font-weight: 700;
+}
+
+.fp-advice-print__signature-space {
+  height: 48px;
 }
 
 .fp-advice-print__copy-to {
@@ -89,7 +95,7 @@
 
 .fp-advice-print__copy-to-label {
   font-weight: 700;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .fp-advice-print__copy-to p {
@@ -99,7 +105,10 @@
 
 @media print {
   .fp-advice-print__page {
+    width: auto;
+    min-height: 0;
     margin: 0;
+    padding: 12mm 16mm;
     box-shadow: none;
   }
 }

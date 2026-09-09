@@ -1,21 +1,12 @@
 import axios from "axios";
 
+/**
+ * Local dev: Vite proxies /api → Django (see vite.config.js).
+ * Docker UAT: nginx serves same-origin /api/.
+ */
 const API = axios.create({
-  baseURL:
-    //import.meta.env.VITE_API_BASE_URL || "http://192.168.29.236:8000/api/",
-      import.meta.env.VITE_API_BASE_URL || "http://192.168.4.102:8000/api/",
-    //import.meta.env.VITE_API_BASE_URL || "http://10.240.23.101:8000/api/",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "/api/",
 });
-
-// API.interceptors.request.use((req) => {
-//   const token = localStorage.getItem("access");
-
-//   if (token) {
-//     req.headers.Authorization = `Bearer ${token}`;
-//   }
-
-//   return req;
-// });
 
 // ==========================
 // REQUEST INTERCEPTOR
@@ -51,7 +42,12 @@ API.interceptors.response.use(
 
   (error) => {
 
-    if (error.response?.status === 401) {
+    const status = error.response?.status;
+    const url = String(error.config?.url ?? "");
+    const isAuthEndpoint =
+      /(^|\/)login\/?(\?|$)/.test(url) || /(^|\/)token\/refresh\/?(\?|$)/.test(url);
+
+    if (status === 401 && !isAuthEndpoint) {
 
       // Clear tokens
       localStorage.removeItem("access");

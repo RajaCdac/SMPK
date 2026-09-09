@@ -232,6 +232,7 @@ class EmployeeLookupView(APIView):
                 {
                     "case_no": master.get("case_no") or "",
                     "roll_no": master.get("roll_no") or "",
+                    "retirement_type": master.get("retirement_type") or "",
                     "designation": master.get("designation") or "",
                     "tqs_yr": master.get("tqs_yr"),
                     "tqs_month": master.get("tqs_month"),
@@ -240,6 +241,21 @@ class EmployeeLookupView(APIView):
                     "wage_emp_name": master.get("wage_emp_name") or "",
                     "pensioner_name": master.get("pensioner_name") or "",
                     "is_employee_pension": master.get("is_employee_pension") or False,
+                    "date_of_death": (
+                        master.get("date_of_death").isoformat()
+                        if hasattr(master.get("date_of_death"), "isoformat")
+                        else master.get("date_of_death")
+                    ),
+                    "double_fpension_upto": (
+                        master.get("double_fpension_upto").isoformat()
+                        if hasattr(master.get("double_fpension_upto"), "isoformat")
+                        else master.get("double_fpension_upto")
+                    ),
+                    "enhanced_family_pension": bool(
+                        master.get("enhanced_family_pension")
+                    ),
+                    "die_in_harness": bool(master.get("die_in_harness")),
+                    "case_type": master.get("case_type"),
                     "m1_family_pension_277": master.get("m1_family_pension_277"),
                     "m1_family_pension_359": master.get("m1_family_pension_359"),
                     "m1_old_basic_pension": master.get("m1_old_basic_pension"),

@@ -17,16 +17,17 @@
 
   font: 18px/145% var(--sans);
   letter-spacing: 0.18px;
-  color-scheme: light dark;
+  color-scheme: light;
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  
+}
 
-  @media (max-width: 1024px) {
+@media (max-width: 1024px) {
+  :root {
     font-size: 16px;
   }
 }
@@ -86,7 +87,7 @@ body {
   /*width: 1126px;*/
   max-width: 100%;
   margin: 0 auto;
-  text-align: center;
+  text-align: left;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -100,24 +101,7 @@ h2 {
   color: var(--text-h);
 }
 
-body:not(.page-home) h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-body:not(.page-home) h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
+/* Do not force Vite demo sizes on app pages (breaks dashboards / reports). */
 p {
   margin: 0;
 }

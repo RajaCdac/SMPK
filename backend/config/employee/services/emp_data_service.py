@@ -69,40 +69,44 @@ def _fetch_emp_data_posting_cache(emp_key):
     from first_pension.models import CachedRetirementEmployee
     from first_pension.services.oracle_cache_service import load_employee_from_cache
 
-    cached = load_employee_from_cache(emp_key)
-    if cached:
-        alloc_desc = str(cached.get("posting_alloc_desc") or "").strip()
-        if not alloc_desc:
+    try:
+        cached = load_employee_from_cache(emp_key)
+        if cached:
+            alloc_desc = str(cached.get("posting_alloc_desc") or "").strip()
+            if not alloc_desc:
+                designation = str(cached.get("designation") or "").strip()
+                if designation and not _is_dept_desig_label(designation):
+                    alloc_desc = designation
+            department = str(
+                cached.get("posting_dept_desc") or cached.get("department") or ""
+            ).strip()
+            desig = str(cached.get("posting_desig_desc") or "").strip()
             designation = str(cached.get("designation") or "").strip()
-            if designation and not _is_dept_desig_label(designation):
-                alloc_desc = designation
-        department = str(
-            cached.get("posting_dept_desc") or cached.get("department") or ""
-        ).strip()
-        desig = str(cached.get("posting_desig_desc") or "").strip()
-        designation = str(cached.get("designation") or "").strip()
-        if alloc_desc or desig:
-            return {
-                "alloc_desc": alloc_desc,
-                "desig": desig,
-                "dept_desc": department,
-                "source": "employee_cache",
-            }
-        if designation and _is_dept_desig_label(designation):
-            return None
-        if department:
-            return {
-                "alloc_desc": "",
-                "desig": "",
-                "dept_desc": department,
-                "source": "employee_cache",
-            }
+            if alloc_desc or desig:
+                return {
+                    "alloc_desc": alloc_desc,
+                    "desig": desig,
+                    "dept_desc": department,
+                    "source": "employee_cache",
+                }
+            if designation and _is_dept_desig_label(designation):
+                return None
+            if department:
+                return {
+                    "alloc_desc": "",
+                    "desig": "",
+                    "dept_desc": department,
+                    "source": "employee_cache",
+                }
 
-    row = (
-        CachedRetirementEmployee.objects.filter(emp_code=emp_key)
-        .order_by("-retirement_year", "-retirement_month")
-        .first()
-    )
+        row = (
+            CachedRetirementEmployee.objects.filter(emp_code=emp_key)
+            .order_by("-retirement_year", "-retirement_month")
+            .first()
+        )
+    except Exception:
+        return None
+
     if row:
         payload = row.row_payload if isinstance(row.row_payload, dict) else {}
         alloc_desc = str(payload.get("posting_alloc_desc") or "").strip()
@@ -224,3 +228,39 @@ def resolve_department_from_posting(emp_code, *, fallback=""):
     if posting and posting.get("dept_desc"):
         return normalize_department_name(posting["dept_desc"])
     return normalize_department_name(fallback)
+
+
+def resolve_employee_designation_name(emp_code, *, case=None, pensioner=None) -> str:
+    """
+    Designation from desig master (fi_xx_mh_emp_adm / fi_pn_mh_pensioner → fi_xx_mh_desig).
+    Never uses FI_XX_DEPT_WISE_EMP_DTL or posting ALLOC_DESC.
+    """
+    emp_key = _clip_emp(emp_code)
+    if not emp_key:
+        return ""
+
+    desig_cd = None
+    if pensioner is not None and getattr(pensioner, "desig_cd", None) is not None:
+        desig_cd = pensioner.desig_cd
+    else:
+        from employee.oracle_mirror import FiXxMhEmpAdm
+
+        adm = FiXxMhEmpAdm.objects.filter(emp_cd=emp_key).first()
+        if adm and adm.desig_cd is not None:
+            desig_cd = adm.desig_cd
+
+    if desig_cd is not None:
+        try:
+            from master_data.models import FiXxMhDesig
+
+            row = FiXxMhDesig.objects.filter(desig_cd=int(desig_cd)).first()
+            if row and row.desig_desc:
+                return str(row.desig_desc).strip().upper()
+        except (TypeError, ValueError):
+            pass
+
+    if case is not None and getattr(case, "designation", None):
+        text = str(case.designation).strip()
+        if text and not text.isdigit():
+            return text.upper()
+    return ""

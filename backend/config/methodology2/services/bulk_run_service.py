@@ -28,11 +28,63 @@ from methodology2.services.revision_resolver import get_revision_column
 from methodology2.services.scale_service import get_equivalent_scales_by_scale
 
 
+# ---------------------------------------------------------------------------
+# TEMPORARY (remove when no longer needed):
+# Bulk PDFs are split by TQS into two subfolders under M2_YYYY-MM-DD:
+#   TEMP_TQS_GE_32Y9M  → TQS >= 32 years 9 months
+#   TEMP_TQS_LT_32Y9M  → everyone else
+# ---------------------------------------------------------------------------
+TEMP_TQS_SPLIT_ENABLED = True
+TEMP_TQS_MIN_YEARS = 32
+TEMP_TQS_MIN_MONTHS = 9
+TEMP_TQS_FOLDER_GE = "TEMP_TQS_GE_32Y9M"
+TEMP_TQS_FOLDER_LT = "TEMP_TQS_LT_32Y9M"
+
+
 def default_run_output_dir(run_date: date | None = None) -> Path:
     """Desktop/M2_YYYY-MM-DD (or BULK_OUTPUT_DIR parent)."""
     parent = Path(getattr(settings, "BULK_OUTPUT_DIR", Path.home() / "Desktop"))
     d = run_date or date.today()
     return parent / f"M2_{d.isoformat()}"
+
+
+def _tqs_months_total(tqs_yr, tqs_month) -> int:
+    try:
+        y = int(tqs_yr or 0)
+    except (TypeError, ValueError):
+        y = 0
+    try:
+        m = int(tqs_month or 0)
+    except (TypeError, ValueError):
+        m = 0
+    return y * 12 + m
+
+
+def _tqs_meets_temp_threshold(tqs_yr, tqs_month) -> bool:
+    """TEMPORARY: True when TQS >= 32 years 9 months."""
+    return _tqs_months_total(tqs_yr, tqs_month) >= (
+        TEMP_TQS_MIN_YEARS * 12 + TEMP_TQS_MIN_MONTHS
+    )
+
+
+def resolve_temp_tqs_output_dir(base_out_dir: Path, master: dict | None) -> tuple[Path, str]:
+    """
+    TEMPORARY: pick subfolder from TQS.
+    Returns (path, folder_label).
+    """
+    base = Path(base_out_dir)
+    if not TEMP_TQS_SPLIT_ENABLED:
+        base.mkdir(parents=True, exist_ok=True)
+        return base, ""
+
+    master = master or {}
+    if _tqs_meets_temp_threshold(master.get("tqs_yr"), master.get("tqs_month")):
+        label = TEMP_TQS_FOLDER_GE
+    else:
+        label = TEMP_TQS_FOLDER_LT
+    path = base / label
+    path.mkdir(parents=True, exist_ok=True)
+    return path, label
 
 
 def _normalize_category(raw) -> str:
@@ -70,6 +122,8 @@ def _base_result(emp: str) -> dict:
         "reason": "",
         "pdf": "",
         "html": "",
+        "tqs": "",
+        "tqs_folder": "",  # TEMPORARY split label
     }
 
 
@@ -89,11 +143,12 @@ def _master_payload_fields(
             or ""
         ),
         "roll_no": (
-            excel_roll_no
-            or master.get("roll_no")
+            master.get("roll_no")
+            or excel_roll_no
             or data.get("roll_no")
             or ""
         ),
+        "retirement_type": master.get("retirement_type") or "",
         "designation": master.get("designation") or data.get("designation") or "",
         "tqs_yr": master.get("tqs_yr"),
         "tqs_month": master.get("tqs_month"),
@@ -101,6 +156,13 @@ def _master_payload_fields(
         "wage_emp_name": master.get("wage_emp_name") or "",
         "pensioner_name": master.get("pensioner_name") or "",
         "is_employee_pension": master.get("is_employee_pension") or False,
+        "date_of_death": master.get("date_of_death"),
+        "double_fpension_upto": master.get("double_fpension_upto"),
+        "enhanced_family_pension": bool(
+            master.get("enhanced_family_pension")
+        ),
+        "die_in_harness": bool(master.get("die_in_harness")),
+        "case_type": master.get("case_type"),
         "m1_family_pension_277": master.get("m1_family_pension_277"),
         "m1_family_pension_359": master.get("m1_family_pension_359"),
         "m1_old_basic_pension": master.get("m1_old_basic_pension"),
@@ -117,6 +179,7 @@ def _process_class12(
     out_dir: Path,
     excel_case_no: str = "",
     excel_roll_no: str = "",
+    master: dict | None = None,
 ) -> dict:
     result = _base_result(emp)
     result["category"] = category
@@ -149,7 +212,8 @@ def _process_class12(
         result["reason"] = str(calc.get("error"))
         return result
 
-    master = fetch_print_master_fields(emp, category=category)
+    if master is None:
+        master = fetch_print_master_fields(emp, category=category)
     payload = {
         "emp_cd": emp,
         "retirement_date": retirement_date,
@@ -184,6 +248,7 @@ def _process_class34(
     out_dir: Path,
     excel_case_no: str = "",
     excel_roll_no: str = "",
+    master: dict | None = None,
 ) -> dict:
     result = _base_result(emp)
     result["category"] = category
@@ -211,7 +276,8 @@ def _process_class34(
         result["reason"] = f"calc error: {exc}"
         return result
 
-    master = fetch_print_master_fields(emp, category=category)
+    if master is None:
+        master = fetch_print_master_fields(emp, category=category)
     payload = {
         "emp_cd": emp,
         "retirement_date": retirement_date,
@@ -261,10 +327,11 @@ def _save_and_write(
         return result
 
     result["status"] = "ok"
-    result["html"] = files.get("html") or ""
+    result["html"] = ""
     result["pdf"] = files.get("pdf") or ""
     if files.get("pdf_error") and not files.get("pdf"):
-        result["reason"] = f"pdf fallback to html: {files.get('pdf_error')}"
+        result["reason"] = f"pdf error: {files.get('pdf_error')}"
+        result["status"] = "failed"
     return result
 
 
@@ -298,14 +365,42 @@ def process_one_emp(
 
     category = _normalize_category(data.get("category"))
     result["category"] = category
+
+    # TEMPORARY: resolve TQS first, then choose output subfolder before calc/save.
+    master = fetch_print_master_fields(emp, category=category)
+    yr = master.get("tqs_yr")
+    mo = master.get("tqs_month")
+    days = master.get("tqs_days")
+    result["tqs"] = f"{yr or 0}Y {mo or 0}M {days or 0}D"
+    emp_out_dir, tqs_folder = resolve_temp_tqs_output_dir(out_dir, master)
+    result["tqs_folder"] = tqs_folder
+
     if category in ("1", "2"):
-        return _process_class12(
-            emp, data, category, out_dir, excel_case_no, excel_roll_no
+        out = _process_class12(
+            emp,
+            data,
+            category,
+            emp_out_dir,
+            excel_case_no,
+            excel_roll_no,
+            master=master,
         )
+        out["tqs"] = result["tqs"]
+        out["tqs_folder"] = tqs_folder
+        return out
     if category in ("3", "4"):
-        return _process_class34(
-            emp, data, category, out_dir, excel_case_no, excel_roll_no
+        out = _process_class34(
+            emp,
+            data,
+            category,
+            emp_out_dir,
+            excel_case_no,
+            excel_roll_no,
+            master=master,
         )
+        out["tqs"] = result["tqs"]
+        out["tqs_folder"] = tqs_folder
+        return out
 
     result["status"] = "skipped"
     result["reason"] = f"unsupported category={data.get('category')!r}"
@@ -317,6 +412,10 @@ def run_bulk_from_excel(source, output_dir: Path | None = None) -> dict:
     emp_rows = read_emp_rows_from_excel(source)
     out_dir = Path(output_dir) if output_dir else default_run_output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
+    # TEMPORARY subfolders created lazily per emp when TQS split is on.
+    if TEMP_TQS_SPLIT_ENABLED:
+        (out_dir / TEMP_TQS_FOLDER_GE).mkdir(parents=True, exist_ok=True)
+        (out_dir / TEMP_TQS_FOLDER_LT).mkdir(parents=True, exist_ok=True)
 
     rows = []
     for item in emp_rows:
@@ -338,11 +437,13 @@ def run_bulk_from_excel(source, output_dir: Path | None = None) -> dict:
                 "case_no",
                 "roll_no",
                 "category",
+                "tqs",
+                "tqs_folder",
                 "status",
                 "reason",
                 "pdf",
-                "html",
             ],
+            extrasaction="ignore",
         )
         writer.writeheader()
         writer.writerows(rows)
@@ -355,4 +456,8 @@ def run_bulk_from_excel(source, output_dir: Path | None = None) -> dict:
         "skipped": sum(1 for r in rows if r["status"] == "skipped"),
         "failed": sum(1 for r in rows if r["status"] == "failed"),
         "results": rows,
+        # TEMPORARY flags for UI / ops
+        "temp_tqs_split": TEMP_TQS_SPLIT_ENABLED,
+        "temp_tqs_folder_ge": TEMP_TQS_FOLDER_GE,
+        "temp_tqs_folder_lt": TEMP_TQS_FOLDER_LT,
     }

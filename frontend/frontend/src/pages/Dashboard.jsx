@@ -117,6 +117,7 @@ export default function Dashboard() {
   const [searchYear, setSearchYear] = useState("");
 
   const [dashboardReady, setDashboardReady] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const tableContainerRef = useRef(null);
   const rowsByEmpCodeRef = useRef({});
 
@@ -158,18 +159,27 @@ export default function Dashboard() {
 
   useEffect(() => {
     setDashboardReady(false);
+    setLoadError("");
     API.get("dashboard/")
       .then((res) => {
         setData(res.data);
         setFilteredData(res.data.retirement_list);
         setDataVersion((v) => v + 1);
       })
-      .catch((err) => console.error(err))
+      .catch((err) => {
+        console.error(err);
+        setLoadError(
+          err.response?.data?.detail ||
+            err.response?.data?.error ||
+            "Could not load retirement list. Check backend is running and DB is connected."
+        );
+      })
       .finally(() => setDashboardReady(true));
   }, []);
 
   const handleSearch = async () => {
     try {
+      setLoadError("");
       const res = await API.get(
         `dashboard/?month=${searchMonth}&year=${searchYear}`
       );
@@ -178,6 +188,11 @@ export default function Dashboard() {
       setDataVersion((v) => v + 1);
     } catch (err) {
       console.error(err);
+      setLoadError(
+        err.response?.data?.detail ||
+          err.response?.data?.error ||
+          "Search failed. Check backend and database connection."
+      );
     }
   };
 
@@ -333,6 +348,12 @@ export default function Dashboard() {
         <h3 className="table-title">
           Employees Retiring This Month
         </h3>
+
+        {loadError ? (
+          <div className="alert alert-danger" role="alert">
+            {loadError}
+          </div>
+        ) : null}
 
         <RetirementTable
           rows={filteredData}

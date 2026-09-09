@@ -4,16 +4,20 @@ from rest_framework.views import APIView
 
 from .diff import compute_audit_changes
 from .models import AuditLog
+from .services import format_local_datetime
 
 
 def _serialize_audit_log(log, *, include_diff=False):
+    # Plain local clock time for list/detail UI (no IST/UTC labels)
+    ts_local = format_local_datetime(log.changed_at)
     payload = {
         "id": log.id,
         "table_name": log.table_name,
         "record_id": log.record_id,
         "action": log.action,
         "changed_by": log.changed_by.username if log.changed_by else None,
-        "timestamp": log.changed_at,
+        "timestamp": ts_local,
+        "timestamp_local": ts_local,
         "ip_address": log.ip_address,
         "user_agent": log.user_agent,
         "module": log.module,
@@ -29,20 +33,7 @@ class AuditLogListView(APIView):
 
     def get(self, request):
         logs = AuditLog.objects.select_related("changed_by").order_by("-changed_at")
-        data = [
-            {
-                "id": log.id,
-                "table_name": log.table_name,
-                "record_id": log.record_id,
-                "action": log.action,
-                "changed_by": log.changed_by.username if log.changed_by else None,
-                "timestamp": log.changed_at,
-                "ip_address": log.ip_address,
-                "user_agent": log.user_agent,
-                "module": log.module,
-            }
-            for log in logs
-        ]
+        data = [_serialize_audit_log(log) for log in logs]
         return Response(data)
 
 

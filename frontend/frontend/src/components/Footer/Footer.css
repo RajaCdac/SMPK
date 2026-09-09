@@ -1,37 +1,70 @@
-.footer {
-  background: #0b3d91;   /* ✅ same as navbar */
-  color: white;
-
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-
-  padding: 8px 10px;    
-  font-size: 13px;
+/* Site chrome footer — avoid bare `.footer` (easy to override / collide). */
+.smpk-footer {
+  background: #0b3d91 !important;
+  color: #fff !important;
+  display: flex !important;
+  flex-direction: row !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  flex-wrap: nowrap !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+  padding: 8px 16px !important;
+  font-size: 13px !important;
+  flex-shrink: 0 !important;
+  gap: 12px;
 }
 
-/* LINKS */
-.footer a {
-  color: white;
-  text-decoration: none;
-  margin-left: 15px;
+.smpk-footer__left,
+.smpk-footer__center,
+.smpk-footer__right {
+  color: #fff !important;
+  flex: 1 1 0;
 }
 
-.footer a:hover {
-  text-decoration: underline;
+.smpk-footer__left {
+  text-align: left;
 }
 
+.smpk-footer__center {
+  text-align: center;
+}
 
+.smpk-footer__right {
+  text-align: right;
+  white-space: nowrap;
+}
 
-/* 📱 MOBILE */
+.smpk-footer a {
+  color: #fff !important;
+  text-decoration: none !important;
+  margin-left: 16px;
+}
+
+.smpk-footer a:first-child {
+  margin-left: 0;
+}
+
+.smpk-footer a:hover {
+  text-decoration: underline !important;
+}
+
 @media (max-width: 768px) {
-  .footer {
-    flex-direction: column;
-    text-align: center;
-    gap: 5px;
+  .smpk-footer {
+    flex-direction: column !important;
+    text-align: center !important;
+    gap: 4px !important;
+    padding: 8px !important;
   }
 
-  .footer-right {
-    margin-top: 5px;
+  .smpk-footer__left,
+  .smpk-footer__center,
+  .smpk-footer__right {
+    text-align: center !important;
+    flex: none;
+  }
+
+  .smpk-footer a {
+    margin-left: 10px;
   }
 }

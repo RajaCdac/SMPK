@@ -1,20 +1,78 @@
 from django.urls import path
 
 from .views import (
+    EsrAdminAPIView,
+    EsrFinanceAPIView,
+    EsrPersonalAPIView,
+    EsrSalaryAPIView,
+    FamilyPensionBankLookupAPIView,
+    FamilyPensionBillGenerateAPIView,
+    FamilyPensionBillPrintAPIView,
+    FamilyPensionBillAbstractReportAPIView,
+    FamilyPensionJournalVoucherStatusAPIView,
+    FamilyPensionJournalVoucherPreviewAPIView,
+    FamilyPensionJournalVoucherGenerateAPIView,
+    FamilyPensionJournalSummaryReportAPIView,
     FamilyPensionClaimAPIView,
     FamilyPensionerListAPIView,
     FamilyPensionGenerateFirstAPIView,
+    FamilyPensionNomineeAPIView,
     FamilyPensionProposalReportAPIView,
+    FamilyPensionDnhProposalReportAPIView,
     FamilyPensionRelationListAPIView,
+    FamilyPension277UpgradeAPIView,
+    FamilyPension277ArrearAPIView,
+    FamilyPensionCpiUpgradeAPIView,
+    FamilyPensionRecoveryCodesAPIView,
+    FamilyPensionRecoveryLineAPIView,
+    FamilyPensionRecoveryLookupAPIView,
 )
 
 urlpatterns = [
     path("pensioners/", FamilyPensionerListAPIView.as_view()),
     path("claim/", FamilyPensionClaimAPIView.as_view()),
     path("relations/", FamilyPensionRelationListAPIView.as_view()),
+    path("bank-lookup/", FamilyPensionBankLookupAPIView.as_view()),
+    path("nominee/", FamilyPensionNomineeAPIView.as_view()),
     path(
         "proposal-sanction-report/",
         FamilyPensionProposalReportAPIView.as_view(),
     ),
+    path(
+        "dnh-proposal-report/",
+        FamilyPensionDnhProposalReportAPIView.as_view(),
+    ),
     path("generate-first-fp/", FamilyPensionGenerateFirstAPIView.as_view()),
+    path("generate-bill/", FamilyPensionBillGenerateAPIView.as_view()),
+    path("bill-print/", FamilyPensionBillPrintAPIView.as_view()),
+    path(
+        "bill-abstract-report/",
+        FamilyPensionBillAbstractReportAPIView.as_view(),
+    ),
+    path(
+        "journal-voucher/status/",
+        FamilyPensionJournalVoucherStatusAPIView.as_view(),
+    ),
+    path(
+        "journal-voucher/preview/",
+        FamilyPensionJournalVoucherPreviewAPIView.as_view(),
+    ),
+    path(
+        "journal-voucher/generate/",
+        FamilyPensionJournalVoucherGenerateAPIView.as_view(),
+    ),
+    path(
+        "journal-summary-report/",
+        FamilyPensionJournalSummaryReportAPIView.as_view(),
+    ),
+    path("upgrade-277/", FamilyPension277UpgradeAPIView.as_view()),
+    path("calculate-277-arrear/", FamilyPension277ArrearAPIView.as_view()),
+    path("cpi-upgrade/", FamilyPensionCpiUpgradeAPIView.as_view()),
+    path("recovery-deduction/lookup/", FamilyPensionRecoveryLookupAPIView.as_view()),
+    path("recovery-deduction/codes/", FamilyPensionRecoveryCodesAPIView.as_view()),
+    path("recovery-deduction/line/", FamilyPensionRecoveryLineAPIView.as_view()),
+    path("esr/personal/", EsrPersonalAPIView.as_view()),
+    path("esr/admin/", EsrAdminAPIView.as_view()),
+    path("esr/finance/", EsrFinanceAPIView.as_view()),
+    path("esr/salary/", EsrSalaryAPIView.as_view()),
 ]

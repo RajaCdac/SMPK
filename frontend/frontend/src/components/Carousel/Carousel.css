@@ -1,15 +1,15 @@
-.carousel {
+/* Home hero — class names avoid Bootstrap `.carousel` / `.navbar` conflicts */
+
+.smpk-hero {
   position: relative;
   width: 100%;
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 auto;
+  min-height: 280px;
   overflow: hidden;
   background: #1a3a6b;
-  container-type: size;
-  container-name: carousel;
 }
 
-.carousel--login-open {
+.smpk-hero--login-open {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -17,7 +17,7 @@
   padding: clamp(4px, 1vh, 12px) clamp(8px, 2vw, 16px);
 }
 
-.slide {
+.smpk-hero__slide {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -29,11 +29,11 @@
   transition: opacity 0.8s ease-in-out;
 }
 
-.slide.active {
+.smpk-hero__slide.is-active {
   opacity: 1;
 }
 
-.overlay {
+.smpk-hero__overlay {
   position: absolute;
   top: 50%;
   left: 50%;
@@ -45,7 +45,7 @@
   box-sizing: border-box;
 }
 
-.carousel--login-open .overlay--login {
+.smpk-hero--login-open .smpk-hero__overlay--login {
   position: static;
   transform: none;
   width: min(100%, 380px);
@@ -56,14 +56,14 @@
   justify-content: center;
 }
 
-.overlay-welcome {
+.smpk-hero__welcome {
   color: #fff;
   background: rgba(0, 0, 0, 0.6);
   padding: clamp(10px, 2.5vh, 24px) clamp(14px, 3vw, 32px);
   border-radius: 10px;
 }
 
-.overlay-welcome h1 {
+.smpk-hero__welcome h1 {
   font-size: clamp(0.95rem, 3.2vh, 1.75rem);
   margin: 0 0 clamp(4px, 1vh, 10px);
   color: #fff;
@@ -71,14 +71,14 @@
   line-height: 1.25;
 }
 
-.overlay-welcome p {
+.smpk-hero__welcome p {
   font-size: clamp(0.8rem, 2vh, 1.05rem);
   margin: 0 0 clamp(8px, 1.5vh, 16px);
   line-height: 1.35;
   color: rgba(255, 255, 255, 0.95);
 }
 
-.carousel-login-btn {
+.smpk-hero__login-btn {
   display: inline-block;
   background: #28a745;
   color: #fff;
@@ -91,48 +91,47 @@
   transition: background 0.2s ease;
 }
 
-.carousel-login-btn:hover {
+.smpk-hero__login-btn:hover {
   background: #218838;
 }
 
-.carousel-login-btn:focus-visible {
+.smpk-hero__login-btn:focus-visible {
   outline: 2px solid #fff;
   outline-offset: 2px;
 }
 
-/* Scale welcome + login content when carousel area is short */
-@container carousel (max-height: 420px) {
-  .overlay-welcome h1 {
-    font-size: clamp(0.85rem, 4.5cqh, 1.2rem);
+@media (max-height: 420px) {
+  .smpk-hero__welcome h1 {
+    font-size: clamp(0.85rem, 4.5vh, 1.2rem);
   }
 
-  .overlay-welcome p {
+  .smpk-hero__welcome p {
     font-size: 0.8rem;
     margin-bottom: 8px;
   }
 
-  .carousel-login-btn {
+  .smpk-hero__login-btn {
     padding: 6px 16px;
     font-size: 0.8rem;
   }
 }
 
-@container carousel (max-height: 320px) {
-  .overlay-welcome {
+@media (max-height: 320px) {
+  .smpk-hero__welcome {
     padding: 8px 12px;
   }
 
-  .overlay-welcome h1 {
+  .smpk-hero__welcome h1 {
     font-size: 0.9rem;
   }
 }
 
 @media (max-width: 768px) {
-  .overlay {
+  .smpk-hero__overlay {
     width: min(94%, 400px);
   }
 
-  .carousel--login-open .overlay--login {
+  .smpk-hero--login-open .smpk-hero__overlay--login {
     width: 100%;
     max-width: none;
   }

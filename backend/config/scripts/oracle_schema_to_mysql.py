@@ -42,6 +42,7 @@ from oracle_table_to_mysql import (  # noqa: E402
     connect_mysql,
     connect_oracle,
     dump_table,
+    list_oracle_finance_tables,
 )
 
 LOG_DIR = SCRIPT_DIR / "dump_logs"
@@ -49,40 +50,8 @@ PROGRESS_FILE = LOG_DIR / "schema_dump_progress.json"
 
 
 def list_oracle_tables(prefixes: list[str] | None = None) -> list[str]:
-    conn = connect_oracle()
-    cur = conn.cursor()
-    try:
-        if prefixes:
-            clauses = []
-            binds = {}
-            for i, prefix in enumerate(prefixes):
-                key = f"p{i}"
-                clauses.append(f"TABLE_NAME LIKE :{key}")
-                binds[key] = f"{prefix.upper().strip()}%"
-            where = " OR ".join(clauses)
-            sql = f"""
-                SELECT TABLE_NAME
-                FROM ALL_TABLES
-                WHERE OWNER = :owner
-                  AND ({where})
-                ORDER BY TABLE_NAME
-            """
-            binds["owner"] = ORACLE_SCHEMA
-            cur.execute(sql, binds)
-        else:
-            cur.execute(
-                """
-                SELECT TABLE_NAME
-                FROM ALL_TABLES
-                WHERE OWNER = :owner
-                ORDER BY TABLE_NAME
-                """,
-                {"owner": ORACLE_SCHEMA},
-            )
-        return [row[0] for row in cur.fetchall()]
-    finally:
-        cur.close()
-        conn.close()
+    """Table names only (CLI)."""
+    return [t["name"] for t in list_oracle_finance_tables(prefixes)]
 
 
 def mysql_existing_tables() -> set[str]:
@@ -130,6 +99,9 @@ def dump_many(
     tables: list[str],
     *,
     drop: bool,
+    truncate: bool,
+    append: bool,
+    insert_ignore: bool,
     batch_size: int,
     resume: bool,
     skip_foreign_keys: bool,
@@ -150,9 +122,19 @@ def dump_many(
 
     total = len(tables)
     todo = len(pending)
+    if drop:
+        mode = "drop"
+    elif append:
+        mode = "append-upsert"
+    elif insert_ignore:
+        mode = "insert-ignore"
+    elif truncate:
+        mode = "truncate"
+    else:
+        mode = "append-upsert"
     append_log(
         f"Start dump: {todo} pending of {total} selected "
-        f"(resume={resume}, drop={drop}, skip_fk={skip_foreign_keys})"
+        f"(resume={resume}, mode={mode}, skip_fk={skip_foreign_keys})"
     )
 
     ok = 0
@@ -165,7 +147,9 @@ def dump_many(
             dump_table(
                 table_name,
                 drop=drop,
-                truncate=False,
+                truncate=truncate and not drop and not append and not insert_ignore,
+                append=append or (not drop and not truncate and not insert_ignore),
+                insert_ignore=insert_ignore,
                 batch_size=batch_size,
                 skip_foreign_keys=skip_foreign_keys,
                 constraints_only=False,
@@ -226,6 +210,24 @@ def parse_args():
         help="Drop/recreate each MySQL table before load.",
     )
     parser.add_argument(
+        "--truncate",
+        action="store_true",
+        help="Keep structure; clear all rows then reload from Oracle.",
+    )
+    parser.add_argument(
+        "--append",
+        action="store_true",
+        help=(
+            "Keep existing rows. Upsert from Oracle "
+            "(INSERT ... ON DUPLICATE KEY UPDATE). Default mode."
+        ),
+    )
+    parser.add_argument(
+        "--insert-ignore",
+        action="store_true",
+        help="Keep existing rows. Insert only new primary keys (INSERT IGNORE).",
+    )
+    parser.add_argument(
         "--batch-size",
         type=int,
         default=5000,
@@ -272,9 +274,18 @@ def main():
     if not args.all and not args.prefix:
         print(
             "ERROR: choose --all or one/more --prefix FI_PN ...\n"
-            "Tip: start with first-pension set:\n"
+            "Tip: append/upsert without clearing tables:\n"
             "  python oracle_schema_to_mysql.py "
-            "--prefix FI_PN --prefix FI_XX --prefix FI_LA --prefix FI_PR --drop"
+            "--prefix FI_PN --prefix FI_XX --prefix FI_LA --prefix FI_PR --append"
+        )
+        sys.exit(1)
+
+    mode_flags = sum(
+        bool(x) for x in (args.drop, args.truncate, args.append, args.insert_ignore)
+    )
+    if mode_flags > 1:
+        print(
+            "ERROR: use only one of --append / --insert-ignore / --truncate / --drop"
         )
         sys.exit(1)
 
@@ -293,9 +304,17 @@ def main():
     # Safer default for huge schema: load data+PK first, FKs later.
     skip_fk = not args.with_foreign_keys
 
+    # Default = append/upsert (keep existing rows; refresh matching PKs).
+    append = bool(args.append) or (
+        not args.drop and not args.truncate and not args.insert_ignore
+    )
+
     dump_many(
         tables,
         drop=args.drop,
+        truncate=args.truncate,
+        append=append,
+        insert_ignore=args.insert_ignore,
         batch_size=max(1, args.batch_size),
         resume=args.resume,
         skip_foreign_keys=skip_fk,

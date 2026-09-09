@@ -22,21 +22,15 @@
 
 .fp-proposal-print__header {
   display: grid;
-  grid-template-columns: 70px 1fr auto;
+  grid-template-columns: 1fr auto;
   gap: 8px;
   align-items: start;
   margin-bottom: 8px;
 }
 
-.fp-proposal-print__logo {
-  width: 58px;
-  height: 58px;
-  object-fit: contain;
-}
-
 .fp-proposal-print__header-center {
   text-align: center;
-  padding-top: 4px;
+  padding-top: 2px;
 }
 
 .fp-proposal-print__org {
@@ -78,31 +72,93 @@
 }
 
 .fp-proposal-print__table .col-report {
-  width: 9%;
+  width: 7%;
 }
+
 .fp-proposal-print__table .col-name {
+  width: 20%;
+}
+
+.fp-proposal-print__table .col-nature-head {
+  width: 24%;
+}
+
+.fp-proposal-print__table .col-emp {
+  width: 7%;
+}
+
+.fp-proposal-print__table .col-desig {
+  width: 10%;
+}
+
+.fp-proposal-print__table .col-dept {
+  width: 7%;
+}
+
+.fp-proposal-print__table .col-date {
+  width: 8%;
+}
+
+.fp-proposal-print__table .col-reason {
+  width: 20%;
+}
+
+.fp-proposal-print__table .col-remarks {
   width: 16%;
 }
-.fp-proposal-print__table .col-nature {
-  width: 18%;
-}
-.fp-proposal-print__table .col-date {
-  width: 9%;
-}
-.fp-proposal-print__table .col-reason {
-  width: 22%;
-}
-.fp-proposal-print__table .col-remarks {
-  width: 17%;
+
+.fp-proposal-print__data-row td {
+  min-height: 42mm;
 }
 
 .fp-proposal-print__table .cell-top {
   vertical-align: top;
 }
 
+.fp-proposal-print__table .cell-report {
+  text-align: center;
+  font-weight: 700;
+}
+
+.fp-proposal-print__table .cell-name {
+  padding: 0;
+}
+
+.fp-proposal-print__name-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  min-height: 42mm;
+}
+
+.fp-proposal-print__photo-box {
+  flex: 0 0 32mm;
+  width: 32mm;
+  height: 40mm;
+  min-width: 32mm;
+  min-height: 40mm;
+  border: 1px solid #000;
+  margin: 4px;
+  background: #fff;
+  box-sizing: border-box;
+}
+
 .fp-proposal-print__name {
+  flex: 1;
+  padding: 4px 5px 4px 0;
   font-weight: 700;
   text-transform: uppercase;
+  line-height: 1.35;
+}
+
+.fp-proposal-print__pay-row td {
+  border-top: none;
+  vertical-align: top;
+}
+
+.fp-proposal-print__pay-row .cell-pay {
+  border-top: 1px solid #000;
+  font-size: 10px;
 }
 
 .fp-proposal-print__notes {
@@ -111,27 +167,65 @@
 }
 
 .fp-proposal-print__notes li {
-  margin-bottom: 4px;
+  margin-bottom: 6px;
+  text-align: left;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 .fp-proposal-print__remarks {
   white-space: pre-wrap;
+  line-height: 1.4;
 }
 
 .fp-proposal-print__footer {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  margin-top: 36px;
+  grid-template-columns: 1.35fr 0.75fr 0.85fr 1fr;
+  gap: 10px;
+  margin-top: 8mm;
+  align-items: end;
   font-weight: 700;
+  font-size: 10px;
+}
+
+.fp-proposal-print__id-card-box {
+  border: 1px solid #000;
+  padding: 5px 6px;
+  min-height: 20mm;
+  text-align: center;
+  line-height: 1.45;
+}
+
+.fp-proposal-print__sign-block {
+  text-align: center;
+  line-height: 1.45;
+}
+
+.fp-proposal-print__sign-space {
+  min-height: 14mm;
+  margin-top: 4px;
+}
+
+.fp-proposal-print__sign-line {
+  min-height: 8mm;
+  margin-top: 4px;
+  border-bottom: 1px solid #000;
 }
 
 .fp-proposal-print__footer-right {
   text-align: right;
+  line-height: 1.45;
 }
 
 @media print {
   .fp-proposal-print__page {
     margin: 0;
     box-shadow: none;
+  }
+
+  .fp-proposal-print__photo-box {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 }

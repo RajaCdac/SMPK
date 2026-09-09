@@ -28,6 +28,9 @@ export default function ProcessIntakeForm({
   employee,
   onComplete,
   onContinue,
+  onBack,
+  backLabel = "Back to ESR Check",
+  continueLabel = "Next — No-pay entry",
 }) {
   const [form, setForm] = useState(emptyForm);
   const [savedForm, setSavedForm] = useState(emptyForm);
@@ -167,7 +170,7 @@ export default function ProcessIntakeForm({
     <form onSubmit={handleSubmit} className="process-intake-form smpk-form">
       <p className="text-muted small mb-3">
         {recordExists && !isEditing
-          ? "Separation details are saved. Click Edit to change, or continue to pension processing."
+          ? "Separation details are saved. Click Edit to change, or continue to No-pay."
           : "Enter separation details before continuing. Separation date is not the same as retirement date."}
       </p>
 
@@ -235,6 +238,16 @@ export default function ProcessIntakeForm({
       )}
 
       <div className="smpk-form-actions process-intake-actions">
+        {onBack ? (
+          <button
+            type="button"
+            className="btn btn-outline-secondary"
+            onClick={onBack}
+            disabled={submitting}
+          >
+            {backLabel}
+          </button>
+        ) : null}
         {showSubmit && (
           <>
             <button
@@ -275,7 +288,7 @@ export default function ProcessIntakeForm({
               className="btn btn-primary"
               onClick={() => onContinue?.()}
             >
-              Continue to pension processing
+              {continueLabel}
             </button>
           </>
         )}

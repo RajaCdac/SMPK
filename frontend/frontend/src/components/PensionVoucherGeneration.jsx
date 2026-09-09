@@ -292,7 +292,9 @@ export default function PensionVoucherGeneration({
                   className={line.balancing ? "table-info" : ""}
                 >
                   <td>{line.dr_cr_flag}</td>
-                  <td>{line.zonal_cd}</td>
+                  <td title={line.zonal_cd != null ? `Stored zonal ${line.zonal_cd}` : undefined}>
+                    {line.zonal_label || line.zonal_cd}
+                  </td>
                   <td>{line.aloc_cd1}</td>
                   <td>{line.aloc_cd2}</td>
                   <td>{line.aloc_cd3}</td>

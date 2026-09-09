@@ -4,6 +4,39 @@ import AuditLogDetailModal from "../components/AuditLogDetailModal";
 import SmpkDataTable from "../components/DataTable/SmpkDataTable";
 import "../styles/AuditLogs.css";
 
+/** Show audit time as plain local string; avoid UTC/IST browser re-parse. */
+function formatAuditTime(value) {
+  if (value == null || value === "") return "—";
+  const text = String(value).trim();
+  // Already formatted by API: DD-MM-YYYY HH:MM:SS
+  if (/^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$/.test(text)) {
+    return text;
+  }
+  // Fallback ISO / other
+  const d = new Date(text);
+  if (Number.isNaN(d.getTime())) return text;
+  const pad = (n) => String(n).padStart(2, "0");
+  return (
+    `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  );
+}
+
+/** Sort key for DataTables from DD-MM-YYYY HH:MM:SS or ISO. */
+function auditTimeOrder(value) {
+  if (value == null || value === "") return 0;
+  const text = String(value).trim();
+  const m = text.match(
+    /^(\d{2})-(\d{2})-(\d{4}) (\d{2}):(\d{2}):(\d{2})$/
+  );
+  if (m) {
+    const [, dd, mm, yyyy, hh, mi, ss] = m;
+    return Date.UTC(+yyyy, +mm - 1, +dd, +hh, +mi, +ss);
+  }
+  const d = new Date(text);
+  return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
 export default function AuditLogs() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -41,7 +74,10 @@ export default function AuditLogs() {
     <div className="audit-page">
       <div className="audit-header">
         <h1>Audit Logs</h1>
-        <p>System activity and tracking details. Click a record ID to view changes.</p>
+        <p>
+          System activity (login, logout, save, generate). Time shown as local
+          date/time (DD-MM-YYYY HH:MM:SS). Click a record ID for details.
+        </p>
       </div>
 
       <div className="audit-table-container">
@@ -88,8 +124,12 @@ export default function AuditLogs() {
                     {log.action}
                   </span>
                 </td>
-                <td data-order={log.timestamp}>
-                  {new Date(log.timestamp).toLocaleString("en-IN")}
+                <td
+                  data-order={auditTimeOrder(
+                    log.timestamp_local || log.timestamp
+                  )}
+                >
+                  {formatAuditTime(log.timestamp_local || log.timestamp)}
                 </td>
                 <td>{log.ip_address || "—"}</td>
               </tr>

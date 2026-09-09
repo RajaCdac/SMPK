@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from "react";
+import { Link } from "react-router-dom";
 import PensionBillGeneration from "./PensionBillGeneration";
 import PensionPpcBillGeneration from "./PensionPpcBillGeneration";
 import PensionVoucherGeneration from "./PensionVoucherGeneration";
@@ -78,7 +79,12 @@ function renderBillJournalPanel(section, { employee, journalIdPrefix, idPrefix, 
   }
 }
 
-export default function PensionBillJournalTabs({ employee, idPrefix = "emp" }) {
+export default function PensionBillJournalTabs({
+  employee,
+  idPrefix = "emp",
+  nextTo = "",
+  nextLabel = "Next: Reports →",
+}) {
   const journalIdPrefix = `${idPrefix}-billjournal`;
   const { billContext, loading, reload } = useEmployeeBillContext(employee);
   const showPpcBill = isVoluntaryRetirement(employee);
@@ -178,6 +184,14 @@ export default function PensionBillJournalTabs({ employee, idPrefix = "emp" }) {
           );
         })}
       </div>
+
+      {nextTo ? (
+        <div className="smpk-form-actions justify-content-end mt-3">
+          <Link to={nextTo} className="btn btn-primary">
+            {nextLabel}
+          </Link>
+        </div>
+      ) : null}
     </div>
   );
 }

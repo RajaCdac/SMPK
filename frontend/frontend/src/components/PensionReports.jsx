@@ -79,7 +79,7 @@ function JournalSummaryReportSection({ employee, idPrefix }) {
   );
 }
 
-const REPORT_SECTIONS = [
+export const REPORT_SECTIONS = [
   {
     key: "lic",
     label: "LIC Report",

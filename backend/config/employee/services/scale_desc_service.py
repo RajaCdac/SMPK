@@ -91,24 +91,13 @@ def batch_fetch_scale_desc_map(scale_cds):
 
 def resolve_scale_from_employee_cache(emp_key):
     """Use a previously cached Oracle employee search row when mirror mapping fails."""
-    from first_pension.models import CachedRetirementEmployee
     from first_pension.services.oracle_cache_service import load_employee_from_cache
 
+    # Do not query first_pension_cached_retirement_emp — that table is optional
+    # offline cache and must not break Methodology / employee lookup.
     cached = load_employee_from_cache(emp_key)
     if cached:
         scale = cached.get("scale")
-        if _looks_like_pay_band(scale):
-            return str(scale).strip()
-
-    row = (
-        CachedRetirementEmployee.objects.filter(emp_code=str(emp_key).strip())
-        .order_by("-retirement_year", "-retirement_month")
-        .first()
-    )
-    if row and _looks_like_pay_band(row.scale):
-        return str(row.scale).strip()
-    if row and row.row_payload:
-        scale = row.row_payload.get("scale")
         if _looks_like_pay_band(scale):
             return str(scale).strip()
 

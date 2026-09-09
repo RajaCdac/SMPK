@@ -3,21 +3,13 @@ import "./Footer.css";
 
 const Footer = () => {
   return (
-    <footer className="footer">
-
-      <div className="footer-left">
-        © 2026 SMP Kolkata
-      </div>
-
-      <div className="footer-center">
-        Developed by CDAC, Kolkata
-      </div>
-
-      <div className="footer-right">
+    <footer className="smpk-footer">
+      <div className="smpk-footer__left">© 2026 SMP Kolkata</div>
+      <div className="smpk-footer__center">Developed by CDAC, Kolkata</div>
+      <div className="smpk-footer__right">
         <a href="#">Privacy Policy</a>
         <a href="#">Terms</a>
       </div>
-
     </footer>
   );
 };

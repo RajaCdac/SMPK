@@ -1,6 +1,48 @@
+from django.db import transaction
 from django.db.models import Q
+from django.db.utils import OperationalError, ProgrammingError
 
-from master_data.models import FiPmMhBank, FiPmMhBankAbbr
+from master_data.models import FiPmMhBank, FiPmMhBankAbbr, FiPmMhBankMax
+
+
+def allocate_bank_cd(bank_type):
+    """Oracle PRE-INSERT: BANK_CD = bank type || LPAD(next FI_PM_MH_BANK_MAX.MAX_NO, 4, 0)."""
+    prefix = str(bank_type or "").strip().upper()[:2]
+    if len(prefix) != 2:
+        raise ValueError("Bank type is required.")
+
+    def _max_existing_serial():
+        max_n = 0
+        for cd in FiPmMhBank.objects.filter(bank_cd__istartswith=prefix).values_list(
+            "bank_cd", flat=True
+        ):
+            tail = str(cd or "")[2:]
+            if tail.isdigit():
+                max_n = max(max_n, int(tail))
+        return max_n
+
+    with transaction.atomic():
+        max_n = _max_existing_serial()
+        try:
+            row = (
+                FiPmMhBankMax.objects.select_for_update()
+                .filter(bank_type=prefix)
+                .first()
+            )
+            if row:
+                try:
+                    max_n = max(max_n, int(str(row.max_no or "0").strip() or "0"))
+                except ValueError:
+                    pass
+                next_n = max_n + 1
+                row.max_no = str(next_n)
+                row.save(update_fields=["max_no"])
+            else:
+                next_n = max_n + 1
+                FiPmMhBankMax.objects.create(bank_type=prefix, max_no=str(next_n))
+        except (OperationalError, ProgrammingError):
+            next_n = max_n + 1
+        return f"{prefix}{next_n:04d}"
 
 
 def _serialize_bank(obj):
@@ -40,7 +82,7 @@ def fetch_bank_master_list(*, search=None, limit=500):
 
 
 def fetch_bank_abbr_list(*, search=None, limit=500):
-    qs = FiPmMhBankAbbr.objects.all().order_by("bank_name", "bank_type")
+    qs = FiPmMhBankAbbr.objects.all().order_by("bank_type")
     if search:
         term = str(search).strip()
         qs = qs.filter(

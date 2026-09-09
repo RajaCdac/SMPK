@@ -1,12 +1,19 @@
-from django.shortcuts import render
-from rest_framework.response import Response
-from rest_framework.decorators import api_view
-from rest_framework_simplejwt.views import TokenObtainPairView
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework.views import APIView
 from datetime import datetime
-from employee.models import PensionCase
+
+from django.contrib.auth import get_user_model
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView
+
 from accounts.user_auth import build_user_auth_payload
+from audit.services import log_failed_login, log_login, log_logout
+from employee.models import PensionCase
+
+User = get_user_model()
+
 
 class CustomTokenSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
@@ -16,7 +23,54 @@ class CustomTokenSerializer(TokenObtainPairSerializer):
 
 
 class CustomTokenView(TokenObtainPairView):
+    """JWT login — writes LOGIN row to audit log with date/time."""
+
     serializer_class = CustomTokenSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception:
+            username = ""
+            if isinstance(request.data, dict):
+                username = str(
+                    request.data.get("username")
+                    or request.data.get("email")
+                    or ""
+                ).strip()
+            log_failed_login(request, username or "unknown")
+            raise
+
+        user = serializer.user
+        user_payload = (serializer.validated_data or {}).get("user") or {}
+        log_login(
+            request,
+            user,
+            extra={
+                "success": True,
+                "role": user_payload.get("role"),
+                "role_code": user_payload.get("role_code"),
+                "display_name": user_payload.get("display_name"),
+            },
+        )
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+
+class LogoutView(APIView):
+    """Record logout in audit log (client should clear tokens after this)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        log_logout(
+            request,
+            request.user,
+            extra={
+                "role": getattr(request.user, "role", None),
+            },
+        )
+        return Response({"ok": True, "message": "Logged out"})
 
 class DashboardView(APIView):
     def get(self, request):
@@ -50,10 +104,13 @@ class DashboardView(APIView):
         )
 
         def attach_workflow(payload):
-            enriched, _summary = enrich_retirement_list(
-                payload.get("retirement_list") or []
-            )
-            payload["retirement_list"] = enriched
+            try:
+                enriched, _summary = enrich_retirement_list(
+                    payload.get("retirement_list") or []
+                )
+                payload["retirement_list"] = enriched
+            except Exception as exc:
+                logger.warning("Dashboard workflow enrich failed: %s", exc)
             return payload
 
         payload = None
@@ -75,7 +132,11 @@ class DashboardView(APIView):
                 logger.warning("Dashboard mirror fetch failed: %s", exc)
 
         if payload is None:
-            cached = load_dashboard_from_cache(month, year)
+            try:
+                cached = load_dashboard_from_cache(month, year)
+            except Exception as exc:
+                logger.warning("Dashboard cache load failed: %s", exc)
+                cached = None
             if cached is not None:
                 payload = cached
                 data_source = "cache"

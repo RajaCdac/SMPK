@@ -10,6 +10,21 @@ function formatValue(value) {
   return String(value);
 }
 
+function formatAuditTime(value) {
+  if (value == null || value === "") return "—";
+  const text = String(value).trim();
+  if (/^\d{2}-\d{2}-\d{4} \d{2}:\d{2}:\d{2}$/.test(text)) {
+    return text;
+  }
+  const d = new Date(text);
+  if (Number.isNaN(d.getTime())) return text;
+  const pad = (n) => String(n).padStart(2, "0");
+  return (
+    `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  );
+}
+
 export default function AuditLogDetailModal({ detail, loading, onClose }) {
   if (!detail && !loading) return null;
 
@@ -55,7 +70,7 @@ export default function AuditLogDetailModal({ detail, loading, onClose }) {
               </span>
               <span>
                 <strong>When:</strong>{" "}
-                {new Date(detail.timestamp).toLocaleString("en-IN")}
+                {formatAuditTime(detail.timestamp_local || detail.timestamp)}
               </span>
               <span>
                 <strong>IP:</strong> {detail.ip_address || "—"}

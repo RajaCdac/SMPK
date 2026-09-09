@@ -240,6 +240,59 @@ def resolve_separation_date(emp_code, case=None):
     return None
 
 
+def _as_plain_date(value):
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    return value
+
+
+def _days_to_ymd_30(total_days: int) -> tuple[int, int, int]:
+    """
+    Convert a day-count to Y/M/D using Oracle-style 30-day months (360-day year).
+
+    Used when deducting NPAY_PRIOR_10MTH from qualifying service (TQS).
+    Example: 1353 days → 3y 9m 3d  (1353 = 3*360 + 9*30 + 3).
+    """
+    days = int(total_days or 0)
+    if days <= 0:
+        return 0, 0, 0
+    years = days // 360
+    rem = days % 360
+    months = rem // 30
+    day = rem % 30
+    return years, months, day
+
+
+def _subtract_service_ymd(
+    years: int,
+    months: int,
+    days: int,
+    sub_years: int,
+    sub_months: int,
+    sub_days: int,
+) -> tuple[int, int, int]:
+    """
+    Subtract service period Y/M/D with 30-day month borrow (Oracle TQS path).
+    """
+    y = int(years or 0)
+    m = int(months or 0)
+    d = int(days or 0)
+    d -= int(sub_days or 0)
+    while d < 0:
+        d += 30
+        m -= 1
+    m -= int(sub_months or 0)
+    while m < 0:
+        m += 12
+        y -= 1
+    y -= int(sub_years or 0)
+    if y < 0:
+        return 0, 0, 0
+    return y, m, d
+
+
 def resolve_service_tenure(
     *,
     joining_date,
@@ -253,20 +306,31 @@ def resolve_service_tenure(
     """
     Oracle FFUNC_TQS_ROUND_2_Org service dates.
 
+    Gross length (join → separation) via calendar Y/M/D (dateutil relativedelta).
+
     TCCS end = separation − (dies-non + suspension + boys service)
                [− 12 months × NPAY_MORETHAN_240_DYS when that field > 0]
-    TQS end  = separation − (dies-non + suspension + boys service)
-               − no-pay days (NPAY_PRIOR_10MTH + MD OLDBILL days)
+               then calendar Y/M/D from join.
 
-    When no-pay in a year exceeded 240 days, Oracle deducts whole years
-    (12 months each) from TCCS and still subtracts day-count no-pay from TQS.
+    TQS       = same base length as join→(separation − dies/susp/boys),
+               then deduct no-pay as Y/M/D on a **30-day month / 360-day year**
+               (not plain timedelta days). Emp 44377: NPAY 1353 → 3y 9m 3d
+               subtracted from 37y 7m 27d → 33y 10m 24d (matches Oracle).
     """
-    join_date = joining_date
-    end_date = service_end
-    if isinstance(join_date, datetime):
-        join_date = join_date.date()
-    if isinstance(end_date, datetime):
-        end_date = end_date.date()
+    join_date = _as_plain_date(joining_date)
+    end_date = _as_plain_date(service_end)
+    if not join_date or not end_date:
+        return {
+            "total_service_years": 0,
+            "total_service_months": 0,
+            "total_service_days": 0,
+            "tccs_years": 0,
+            "tccs_months": 0,
+            "tccs_days": 0,
+            "tqs_years": 0,
+            "tqs_months": 0,
+            "tqs_days": 0,
+        }
 
     base_subtract = (
         int(dies_non_days or 0)
@@ -281,11 +345,21 @@ def resolve_service_tenure(
         tccs_end = base_end - relativedelta(months=12 * more_240)
     else:
         tccs_end = base_end
-    tqs_end = base_end - timedelta(days=nopay)
 
     total_diff = relativedelta(end_date, join_date)
     tccs_diff = relativedelta(tccs_end, join_date)
-    tqs_diff = relativedelta(tqs_end, join_date)
+
+    # TQS: calendar length join → base_end, then YMD no-pay (30-day months)
+    base_diff = relativedelta(base_end, join_date)
+    ny, nm, nd = _days_to_ymd_30(nopay)
+    tqs_y, tqs_m, tqs_d = _subtract_service_ymd(
+        base_diff.years,
+        base_diff.months,
+        base_diff.days,
+        ny,
+        nm,
+        nd,
+    )
 
     return {
         "total_service_years": total_diff.years,
@@ -294,9 +368,9 @@ def resolve_service_tenure(
         "tccs_years": tccs_diff.years,
         "tccs_months": tccs_diff.months,
         "tccs_days": tccs_diff.days,
-        "tqs_years": tqs_diff.years,
-        "tqs_months": tqs_diff.months,
-        "tqs_days": tqs_diff.days,
+        "tqs_years": tqs_y,
+        "tqs_months": tqs_m,
+        "tqs_days": tqs_d,
     }
 
 

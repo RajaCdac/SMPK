@@ -226,10 +226,37 @@ class FiPmMhBankAbbr(models.Model):
         db_table = "fi_pm_mh_bankabbr"
         verbose_name = "Bank abbreviation (FI_PM_MH_BANKABBR)"
         verbose_name_plural = "Bank abbreviations (FI_PM_MH_BANKABBR)"
-        ordering = ["bank_name", "bank_type"]
+        ordering = ["bank_type"]
 
     def __str__(self):
         return f"{self.bank_type} — {self.bank_name}"
+
+
+class FiPmMhBankMax(models.Model):
+    """Local mirror of Oracle FINANCE.FI_PM_MH_BANK_MAX (next serial per bank type)."""
+
+    bank_type = models.CharField(
+        max_length=2,
+        primary_key=True,
+        db_column="BANK_TYPE",
+        verbose_name="Bank type",
+    )
+    max_no = models.CharField(
+        max_length=10,
+        blank=True,
+        default="0",
+        db_column="MAX_NO",
+        verbose_name="Max serial",
+    )
+
+    class Meta:
+        db_table = "fi_pm_mh_bank_max"
+        managed = False
+        verbose_name = "Bank serial (FI_PM_MH_BANK_MAX)"
+        verbose_name_plural = "Bank serials (FI_PM_MH_BANK_MAX)"
+
+    def __str__(self):
+        return f"{self.bank_type} — {self.max_no}"
 
 
 class FiPnMhEarndedn(models.Model):

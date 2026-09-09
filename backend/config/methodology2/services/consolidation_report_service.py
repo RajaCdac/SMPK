@@ -1,10 +1,11 @@
-"""Excel report from methodology2_consolidation (M-I vs M-II comparison)."""
+﻿"""Excel report from methodology2_consolidation (M-I vs M-II comparison)."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time, timedelta
 from io import BytesIO
 
+from django.utils import timezone
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
@@ -100,13 +101,46 @@ def _row_values(sl_no: int, row: Methodology2Consolidation):
     ]
 
 
-def report_filename() -> str:
+def report_filename(
+    from_date: date | None = None, to_date: date | None = None
+) -> str:
+    if from_date and to_date:
+        return (
+            f"M2_consolidation_report_{from_date:%Y%m%d}_{to_date:%Y%m%d}.xlsx"
+        )
     return f"M2_consolidation_report_{date.today():%Y-%m-%d}.xlsx"
 
 
-def build_consolidation_report_bytes() -> tuple[bytes, int]:
+def _inclusive_updated_range(from_date: date, to_date: date):
+    """
+    Day bounds for updated_at filtering.
+
+    Avoid __date / CONVERT_TZ: MySQL often lacks timezone tables, so
+    DATE(CONVERT_TZ(...)) becomes NULL and returns zero rows.
+    """
+    start = timezone.make_aware(datetime.combine(from_date, time.min))
+    end_excl = timezone.make_aware(
+        datetime.combine(to_date + timedelta(days=1), time.min)
+    )
+    return start, end_excl
+
+
+def build_consolidation_report_bytes(
+    from_date: date, to_date: date
+) -> tuple[bytes, int]:
+    """
+    Excel export filtered by methodology2_consolidation.updated_at date range
+    (inclusive calendar days in Django TIME_ZONE).
+    """
+    if from_date > to_date:
+        raise ValueError("from_date cannot be after to_date")
+
+    start, end_excl = _inclusive_updated_range(from_date, to_date)
     rows = list(
-        Methodology2Consolidation.objects.all().order_by("case_no", "emp_cd")
+        Methodology2Consolidation.objects.filter(
+            updated_at__gte=start,
+            updated_at__lt=end_excl,
+        ).order_by("case_no", "emp_cd")
     )
 
     wb = Workbook()

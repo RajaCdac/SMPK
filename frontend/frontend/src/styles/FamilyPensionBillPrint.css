@@ -1,0 +1,217 @@
+/* Oracle-style First Family Pension Bill — landscape monospaced */
+
+.fp-bill-print {
+  font-family: "Courier New", Courier, monospace;
+  color: #000;
+  background: #fff;
+}
+
+.fp-bill-print__page {
+  width: 297mm;
+  min-height: 210mm;
+  margin: 0 auto;
+  padding: 8mm 12mm 10mm;
+  box-sizing: border-box;
+  background: #fff;
+  page-break-after: always;
+}
+
+.fp-bill-print__page:last-child {
+  page-break-after: auto;
+}
+
+.fp-bill-print__sheet {
+  width: 100%;
+  max-width: 270mm;
+  margin: 0 auto;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.fp-bill-print__title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.fp-bill-print__org {
+  flex: 1;
+  text-align: center;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.fp-bill-print__page-no {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.fp-bill-print__subtitle {
+  text-align: center;
+  font-weight: 700;
+  font-size: 13px;
+  margin-top: 2px;
+  margin-bottom: 4px;
+}
+
+.fp-bill-print__rule {
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11px;
+  letter-spacing: -0.5px;
+  margin: 3px 0 4px;
+  color: #222;
+}
+
+.fp-bill-print__meta {
+  display: flex;
+  gap: 40px;
+  font-weight: 600;
+  margin: 2px 0 4px;
+}
+
+.fp-bill-print__meta-date {
+  margin-left: 48px;
+}
+
+.fp-bill-print__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 20px;
+  margin: 1px 0;
+}
+
+.fp-bill-print__pair .left {
+  text-align: left;
+}
+
+.fp-bill-print__pair .right {
+  text-align: right;
+}
+
+.fp-bill-print__earn-head {
+  display: grid;
+  grid-template-columns: 1fr 110px;
+  gap: 8px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.fp-bill-print__earn-head.muted {
+  font-weight: 600;
+  margin-top: 0;
+  margin-bottom: 4px;
+}
+
+.fp-bill-print__col-amt {
+  text-align: right;
+}
+
+.fp-bill-print__earn-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.55fr);
+  gap: 12px 24px;
+  align-items: start;
+  min-height: 52mm;
+}
+
+.fp-bill-print__earn-left {
+  min-width: 0;
+}
+
+.fp-bill-print__earn-row {
+  display: grid;
+  grid-template-columns: 1fr 110px;
+  gap: 8px;
+  margin: 1px 0;
+}
+
+.fp-bill-print__earn-row .desc {
+  text-align: left;
+}
+
+.fp-bill-print__earn-row .amt {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fp-bill-print__earn-row.totals {
+  margin-top: 6px;
+  font-weight: 700;
+}
+
+.fp-bill-print__hold {
+  font-size: 11px;
+  padding-top: 2px;
+  white-space: normal;
+}
+
+.fp-bill-print__words {
+  margin-top: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.fp-bill-print__bottom {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 32px;
+  margin-top: 12px;
+  align-items: start;
+}
+
+.fp-bill-print__ack-label {
+  margin-top: 10px;
+}
+
+.fp-bill-print__ack-box {
+  margin-top: 4px;
+  width: 70%;
+  max-width: 90mm;
+  min-height: 28mm;
+  border: 1.5px solid #000;
+}
+
+.fp-bill-print__bottom-right {
+  justify-self: end;
+  min-width: 52mm;
+  margin-top: 4px;
+}
+
+.fp-bill-print__sum-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 18px;
+  font-weight: 700;
+  margin: 2px 0;
+  white-space: nowrap;
+}
+
+.fp-bill-print__sign {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 18mm;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.fp-bill-print__sign .right {
+  text-align: right;
+}
+
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 8mm;
+  }
+
+  .fp-bill-print__page {
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    page: landscape-page;
+  }
+}

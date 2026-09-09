@@ -14,6 +14,7 @@ from methodology2.services.excel_loader import (
     load_class12_da1992_table,
     load_class12_payscale_table,
 )
+from methodology2.services.revision_resolver import methodology2_calc_as_of_date
 from methodology2.services.rounding_helpers import round2, round_up_to_10
 from methodology2.services.scale_parser import get_next_higher_stage
 
@@ -45,9 +46,10 @@ REVISION_TITLE = {
 
 
 def get_class12_start_revision(separation_date):
-    """Separation date -> starting revision stage."""
-    if isinstance(separation_date, str):
-        separation_date = datetime.strptime(separation_date, "%Y-%m-%d")
+    """Separation date -> starting revision stage (as on day before separation)."""
+    separation_date = methodology2_calc_as_of_date(separation_date)
+    if separation_date is None:
+        raise ValueError("separation_date is required")
 
     if separation_date <= datetime(1986, 12, 31):
         return "1984"
@@ -267,7 +269,7 @@ def _block_2007(rows, basic_1997):
     fitment = round2((basic_1997 + da) * 0.30)
     basic_2007 = round_up_to_10(basic_1997 + da + fitment)
     rows.append({"description": "DA @ 78.2% on Basic", "value": da})
-    rows.append({"description": "Fitment @ 30% on Basic + DA", "value": fitment})
+    rows.append({"description": "Fitment @ 30% on (Basic+DA)", "value": fitment})
     rows.append({"description": "Basic Pay Over 126 CPI Points (01.01.2007)", "value": basic_2007})
     return basic_2007
 
@@ -277,7 +279,7 @@ def _block_2017(rows, basic_2007):
     fitment = round2((basic_2007 + da) * 0.15)
     basic_2017 = round_up_to_10(basic_2007 + da + fitment)
     rows.append({"description": "DA @ 119.8% on Basic", "value": da})
-    rows.append({"description": "Fitment @ 15% on Basic + DA", "value": fitment})
+    rows.append({"description": "Fitment @ 15% on (Basic+DA)", "value": fitment})
     rows.append({"description": "Basic Pay Over 277 CPI Points (01.01.2017)", "value": basic_2017})
     return basic_2017
 

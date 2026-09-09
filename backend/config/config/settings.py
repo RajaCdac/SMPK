@@ -108,7 +108,8 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('MYSQL_DATABASE', 'smpk_pension'),
+        #'NAME': os.environ.get('MYSQL_DATABASE', 'smpk_pension'),
+        'NAME': os.environ.get('MYSQL_DATABASE', 'finance'),
         'USER': os.environ.get('MYSQL_USER', 'root'),
         'PASSWORD': os.environ.get('MYSQL_PASSWORD', 'root123'),
         'HOST': os.environ.get('MYSQL_HOST', 'localhost'),
@@ -137,7 +138,7 @@ DATABASES = {
 ORACLE_DB = {
     "HOST": os.environ.get("ORACLE_DB_HOST", "192.168.4.62"),
     "PORT": int(os.environ.get("ORACLE_DB_PORT", "1521")),
-    #"SERVICE_NAME": os.environ.get("ORACLE_DB_SERVICE_NAME", "kopttestfin"),
+    # Live finance service (was kopttest for UAT; production SID is koptfin).
     "SERVICE_NAME": os.environ.get("ORACLE_DB_SERVICE_NAME", "koptfin"),
     "USER": os.environ.get("ORACLE_DB_USER", "system"),
     "PASSWORD": os.environ.get("ORACLE_DB_PASSWORD", "system"),
@@ -200,7 +201,7 @@ AUTH_USER_MODEL = 'accounts.User'
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = os.environ.get("DJANGO_TIME_ZONE", "Asia/Kolkata")
 
 USE_I18N = True
 

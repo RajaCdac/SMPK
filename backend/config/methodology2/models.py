@@ -19,8 +19,13 @@ class Methodology2Consolidation(models.Model):
     wage_emp_name = models.CharField(max_length=200, blank=True, default="")
     pensioner_name = models.CharField(max_length=200, blank=True, default="")
     is_employee_pension = models.BooleanField(default=False)
+    # DOD from family claim — when set, print may split 277/359 into employee+family columns.
+    date_of_death = models.DateField(null=True, blank=True)
+    # Print comparison columns (may be 2–4 cols when DOD splits a CPI period).
+    pension_comparison = models.JSONField(default=dict, blank=True)
     case_no = models.CharField(max_length=20, blank=True, default="")
     roll_no = models.CharField(max_length=30, blank=True, default="")
+    retirement_type = models.CharField(max_length=80, blank=True, default="")
     retirement_date = models.DateField(null=True, blank=True)
     category = models.CharField(max_length=20, blank=True, default="")
     designation = models.CharField(max_length=200, blank=True, default="")

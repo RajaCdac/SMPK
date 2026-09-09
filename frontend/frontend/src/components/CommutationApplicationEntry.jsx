@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import API from "../services/Api";
 import { isVoluntaryRetirement } from "../utils/voluntaryRetirement";
+import PensionSepcomGeneration from "./PensionSepcomGeneration";
 import "../styles/CommutationApplication.css";
 
 const emptyForm = {
@@ -171,7 +173,11 @@ function mapCommutationDataToForm(data, employee) {
   };
 }
 
-export default function CommutationApplicationEntry({ employee }) {
+export default function CommutationApplicationEntry({
+  employee,
+  nextTo = "",
+  nextLabel = "Next →",
+}) {
   const [commutationForm, setCommutationForm] = useState(emptyForm);
   const [isSaved, setIsSaved] = useState(false);
   const [isEditing, setIsEditing] = useState(true);
@@ -338,7 +344,10 @@ export default function CommutationApplicationEntry({ employee }) {
 
   if (!employee) return null;
 
+  const showSepcom = isVoluntaryRetirement(employee);
+
   return (
+    <>
     <form onSubmit={handleCommutationSubmit} className="smpk-form commutation-form">
       {/* <h2 className="commutation-form-title">
         Application for Commutation of Pension
@@ -489,11 +498,25 @@ export default function CommutationApplicationEntry({ employee }) {
         </div>
       </section>
 
-      <div className="smpk-form-actions justify-content-end">
+      <div className="smpk-form-actions justify-content-end flex-wrap gap-2">
         {isSaved && (
         <button type="button" className="btn btn-secondary me-2" onClick={handleEdit} > Edit </button> )}
         <button type="submit" className="btn btn-success" disabled={fieldDisabled}> Save</button>
+        {isSaved && !isEditing && nextTo ? (
+          <Link to={nextTo} className="btn btn-primary">
+            {nextLabel}
+          </Link>
+        ) : null}
       </div>
     </form>
+    {showSepcom ? (
+      <PensionSepcomGeneration
+        key={`sepcom-${isSaved ? commutationForm.id || commutationForm.appcn_no || "saved" : "draft"}`}
+        employee={employee}
+        commutationDt={commutationForm.commutation_dt}
+        appcnDt={commutationForm.appcn_dt}
+      />
+    ) : null}
+    </>
   );
 }

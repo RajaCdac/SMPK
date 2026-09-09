@@ -1,4 +1,5 @@
-/* HEADER */
+/* HEADER — site chrome (header.header avoids clashing with report inner .header) */
+header.header,
 .header {
   width: 100%;
   min-height: 100px;
@@ -16,14 +17,17 @@
   flex-shrink: 0;
 }
 
-/* LOGOS */
+/* LOGOS — max-width:none beats Bootstrap reboot img{max-width:100%} in Docker */
+header.header .left img,
+header.header .right img,
 .left img,
 .right img {
   height: clamp(56px, 12vw, 100px);
   width: auto;
-  max-width: 100%;
+  max-width: none;
   margin: 0;
   object-fit: contain;
+  display: block;
 }
 
 /* CENTER TEXT */

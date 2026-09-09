@@ -81,6 +81,51 @@ def _fmt_amount_int(value):
     return str(int(round(n)))
 
 
+def _cpi_number_from_revision(revision):
+    """Extract CPI points from a revision label, e.g. '2017(277 CPI)' → 277."""
+    import re
+
+    match = re.search(r"\((\d+)\s*CPI\)", str(revision or ""), re.I)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_retirement_cpi(claim, fp, pensioner, retirement_dt):
+    """
+    CPI at retirement / separation — for sanction header "On CPI".
+
+    Prefer claim RETIREMENT_CPI; else derive from retirement date.
+    Do not use process/current CPI (e.g. 359 after upgrade).
+    """
+    n = _num(claim.get("retirement_cpi"))
+    if n is not None and n > 0:
+        return float(int(n)) if float(n).is_integer() else float(n)
+
+    if retirement_dt:
+        try:
+            from methodology1.services.revision_resolver import get_revision_column
+
+            dt = retirement_dt
+            if isinstance(dt, date) and not isinstance(dt, datetime):
+                dt = datetime(dt.year, dt.month, dt.day)
+            cpi = _cpi_number_from_revision(get_revision_column(dt))
+            if cpi is not None:
+                return float(cpi)
+        except Exception:
+            pass
+
+    # Last resort only — these fields may already reflect a later upgrade.
+    for src in (fp.get("base_cpi"), pensioner.get("base_cpi")):
+        n = _num(src)
+        if n is not None and n > 0:
+            return float(int(n)) if float(n).is_integer() else float(n)
+    return None
+
+
 def _emp_key(emp_cd):
     text = _clip(emp_cd, 5)
     if text.isdigit() and len(text) < 5:
@@ -148,7 +193,7 @@ def _fetch_claim(clmca_id=None, emp_cd=None):
         if clmca_id:
             cur.execute(
                 """
-                SELECT CLMCA_ID, CLM_CA_TYPE, CA_NO, EMP_CD, APPCN_NO,
+                SELECT CLMCA_ID, CLM_CA_TYPE, CA_NO, EMP_CD, APPCN_NO, APPCN_DATE,
                        APPLICANT_NAME, APPLICANT_TYPE, DOD_EMP_PENSIONER,
                        GURDIAN_RELATION_CD, SERVICE_PENSION_AMT,
                        FPEN_START_MNTH, FPRN_START_YR, RETIREMENT_CPI,
@@ -163,7 +208,7 @@ def _fetch_claim(clmca_id=None, emp_cd=None):
         elif emp_cd:
             cur.execute(
                 """
-                SELECT CLMCA_ID, CLM_CA_TYPE, CA_NO, EMP_CD, APPCN_NO,
+                SELECT CLMCA_ID, CLM_CA_TYPE, CA_NO, EMP_CD, APPCN_NO, APPCN_DATE,
                        APPLICANT_NAME, APPLICANT_TYPE, DOD_EMP_PENSIONER,
                        GURDIAN_RELATION_CD, SERVICE_PENSION_AMT,
                        FPEN_START_MNTH, FPRN_START_YR, RETIREMENT_CPI,
@@ -205,13 +250,32 @@ def _fetch_pensioner(emp_cd):
         return dict(zip(cols, row))
 
 
+def _fetch_fin(emp_cd):
+    with connection.cursor() as cur:
+        cur.execute(
+            """
+            SELECT EMP_CLASS, SCALE_SL
+            FROM fi_xx_mh_emp_fin
+            WHERE EMP_CD = %s
+            LIMIT 1
+            """,
+            [_emp_key(emp_cd)],
+        )
+        row = cur.fetchone()
+        if not row:
+            return {}
+        cols = [d[0].lower() for d in cur.description]
+        return dict(zip(cols, row))
+
+
 def _fetch_familypensioner(clmca_id, emp_cd):
     with connection.cursor() as cur:
         if clmca_id:
             cur.execute(
                 """
                 SELECT ORIGINAL_FAMILY_PENSION_AMT, ORIGINAL_SINGLE_FPENSION_AMT,
-                       ORIGINAL_DOUBLE_FPENSION_AMT, BASE_CPI, WEF_DT,
+                       ORIGINAL_DOUBLE_FPENSION_AMT, DOUBLE_FPENSION_UPTO,
+                       BASE_CPI, WEF_DT, APP_CLASS,
                        EMP_RET_DT, DESIG_CD, FPENSION_ROLL_NO, PENSION_OPTION
                 FROM fi_pn_mh_familypensioner
                 WHERE CLMCA_ID = %s
@@ -227,7 +291,8 @@ def _fetch_familypensioner(clmca_id, emp_cd):
         cur.execute(
             """
             SELECT ORIGINAL_FAMILY_PENSION_AMT, ORIGINAL_SINGLE_FPENSION_AMT,
-                   ORIGINAL_DOUBLE_FPENSION_AMT, BASE_CPI, WEF_DT,
+                   ORIGINAL_DOUBLE_FPENSION_AMT, DOUBLE_FPENSION_UPTO,
+                   BASE_CPI, WEF_DT, APP_CLASS,
                    EMP_RET_DT, DESIG_CD, FPENSION_ROLL_NO, PENSION_OPTION
             FROM fi_pn_mh_familypensioner
             WHERE EMP_CD = %s
@@ -319,17 +384,6 @@ def _retirement_reason_and_age(adm, per, retirement_dt):
     )
 
 
-def _family_pension_amount(claim, fp):
-    double_eligible = claim.get("double_fpen_eligibility") in (1, "1", True)
-    if double_eligible and _num(fp.get("original_double_fpension_amt")) is not None:
-        return _num(fp.get("original_double_fpension_amt"))
-    if _num(fp.get("original_single_fpension_amt")) is not None:
-        return _num(fp.get("original_single_fpension_amt"))
-    if _num(fp.get("original_family_pension_amt")) is not None:
-        return _num(fp.get("original_family_pension_amt"))
-    return None
-
-
 def _wef_date(claim, fp):
     wef = _as_date(fp.get("wef_dt"))
     if wef:
@@ -337,7 +391,6 @@ def _wef_date(claim, fp):
     dod = _as_date(claim.get("dod_emp_pensioner"))
     if dod:
         return dod + timedelta(days=1)
-    # start month/year from claim
     m = claim.get("fpen_start_mnth")
     y = claim.get("fprn_start_yr")
     try:
@@ -348,19 +401,243 @@ def _wef_date(claim, fp):
     return None
 
 
-def _build_notes(claim, fp, base_cpi):
+def _pick_fp_amount_and_cpi(m1_result, preferred_cpi=None):
+    """
+    Same band selection as First FP generation (_m1_amount_and_cpi):
+    honour claim RETIREMENT_CPI (277/359) when set; else latest band.
+    """
+    if not m1_result or m1_result.get("error"):
+        return None, None
+    fp_359 = _num(m1_result.get("FP_359_cpi"))
+    fp_277 = _num(m1_result.get("FP_277_cpi"))
+    pref = None
+    if preferred_cpi not in (None, ""):
+        try:
+            pref = int(float(preferred_cpi))
+        except (TypeError, ValueError):
+            pref = None
+    if pref == 277 and fp_277 is not None and fp_277 > 0:
+        return float(int(round(fp_277))), 277
+    if pref == 359 and fp_359 is not None and fp_359 > 0:
+        return float(int(round(fp_359))), 359
+    if fp_359 is not None and fp_359 > 0:
+        return float(int(round(fp_359))), 359
+    if fp_277 is not None and fp_277 > 0:
+        return float(int(round(fp_277))), 277
+    return None, None
+
+
+def _recompute_fp_single_rate(claim, fp, pensioner, adm, emp, sep_dt, last_pay):
+    """
+    Mirror First FP generate: class 1/2 → officer chain; class 3/4 → M1 CPI chain.
+    """
+    from family_pension.services.class12_fp_service import (
+        calculate_class12_family_pension_for_fp,
+        load_familypensioner_app_class,
+        resolve_category_for_fp,
+    )
+    from methodology1.services.family_pension_calculation_service import (
+        calculate_family_pension,
+    )
+
+    fin = _fetch_fin(emp)
+    familypensioner_app_class = fp.get("app_class") or load_familypensioner_app_class(emp)
+    category = resolve_category_for_fp(
+        claim,
+        fin,
+        pensioner,
+        familypensioner_app_class=familypensioner_app_class,
+    )
+    scale = _clip(claim.get("scale_cd")) or _clip(fin.get("scale_sl")) or None
+    preferred_cpi = (
+        _num(claim.get("retirement_cpi"))
+        or _num(fp.get("base_cpi"))
+        or _num(pensioner.get("base_cpi"))
+    )
+    if not sep_dt or not last_pay or last_pay <= 0:
+        return None, None, category, scale
+
+    try:
+        if category in ("1", "2"):
+            m1 = calculate_class12_family_pension_for_fp(
+                separation_date=sep_dt.isoformat(),
+                last_pay=last_pay,
+                scale=scale,
+            )
+        else:
+            m1 = calculate_family_pension(
+                separation_date=sep_dt.isoformat(),
+                category=category,
+                pay=last_pay,
+                scale=scale,
+            )
+    except Exception:
+        return None, None, category, scale
+
+    amt, cpi = _pick_fp_amount_and_cpi(m1, preferred_cpi=preferred_cpi)
+    return amt, cpi, category, scale
+
+
+def _family_pension_amounts(claim, fp, pensioner, adm, per, emp):
+    """
+    Resolve single / double monthly rates and double upto for the print text.
+
+    Recomputes using the same class + Methodology path as First FP generation
+    (class 1/2 officer chain; class 3/4 generic M1), with RETIREMENT_CPI band pick.
+    """
+    from family_pension.services.double_fpension_service import (
+        compute_double_family_pension,
+        resolve_double_fpen_upto,
+        _truthy_eligibility,
+    )
+
+    eligible = _truthy_eligibility(claim.get("double_fpen_eligibility"))
+    single = _num(fp.get("original_single_fpension_amt"))
+    if single is None:
+        single = _num(fp.get("original_family_pension_amt"))
+    double = _num(fp.get("original_double_fpension_amt"))
+    double_upto = _as_date(fp.get("double_fpension_upto")) or _as_date(
+        claim.get("double_fpen_upto")
+    )
+    wef = _wef_date(claim, fp)
+
+    last_pay = (
+        _num(claim.get("last_basic_at_ret"))
+        or _num(pensioner.get("pension_emoluments"))
+        or 0
+    )
+    sep_dt = (
+        _as_date(adm.get("separation_dt"))
+        or _as_date(pensioner.get("emp_ret_dt"))
+        or _as_date(fp.get("emp_ret_dt"))
+    )
+    ret_dt = sep_dt
+    dod = _as_date(claim.get("dod_emp_pensioner"))
+    emp_dob = _as_date(per.get("birth_dt"))
+
+    m1_single, process_cpi, category, scale = _recompute_fp_single_rate(
+        claim, fp, pensioner, adm, emp, sep_dt, last_pay
+    )
+    if m1_single is not None:
+        single = m1_single
+
+    if eligible and dod and wef and (last_pay > 0) and single:
+        try:
+            bill_m = wef.month
+            bill_y = wef.year
+            dbl = compute_double_family_pension(
+                claim=claim,
+                emp_dob=emp_dob,
+                single_fp_rate=float(single),
+                last_basic=float(last_pay),
+                dod=dod,
+                retirement_dt=ret_dt,
+                original_pension_amt=_num(pensioner.get("original_pension_amt")),
+                wef=wef,
+                bill_month=bill_m,
+                bill_year=bill_y,
+                separation_date=sep_dt,
+                category=category,
+                scale=scale,
+                separation_type=adm.get("separation_type"),
+                exp_ret_dt=_as_date(adm.get("exp_ret_dt")),
+            )
+            double = dbl.double_rate
+            double_upto = dbl.double_fpen_upto
+        except Exception:
+            if not double_upto and emp_dob and (sep_dt or dod):
+                try:
+                    double_upto = resolve_double_fpen_upto(
+                        separation_dt=sep_dt,
+                        emp_dob=emp_dob,
+                        emp_class=category,
+                        claim_upto=None,
+                        dod=dod,
+                        separation_type=adm.get("separation_type"),
+                        exp_ret_dt=_as_date(adm.get("exp_ret_dt")),
+                    )
+                except Exception:
+                    pass
+
+    return {
+        "eligible": eligible,
+        "single": single,
+        "double": double,
+        "double_upto": double_upto,
+        "wef": wef,
+        "process_cpi": process_cpi,
+        "emp_class": category,
+    }
+
+
+def _build_notes(claim, fp, base_cpi, amounts=None):
+    """
+    Print notes matching FI_PN_MH_FPENSION_PROPOSAL / sample sanction:
+
+    Double / full-pension case:
+      Family pension to be paid @ <full> P.M. w.e.f. <wef> to <double_upto>
+      and thereafter @ <single> P.M. w.e.f. <double_upto+1>
+      till Death or Re-Marriage whichever is earlier.
+
+    Normal:
+      Family pension to be paid @ <single> P.M. w.e.f. <wef>
+      till Death or Re-Marriage whichever is earlier.
+    """
     notes = []
-    amt = _family_pension_amount(claim, fp)
-    wef = _fmt_dd_mm_yyyy(_wef_date(claim, fp))
-    if amt is not None:
-        notes.append(
-            f"Family pension to be paid @ {_fmt_amount_int(amt)} P.M. "
-            f"w.e.f. {wef} till Death or Re-Marriage whichever is earlier."
+    amounts = amounts or {}
+    eligible = amounts.get("eligible")
+    if eligible is None:
+        eligible = claim.get("double_fpen_eligibility") in (1, "1", True)
+
+    single = amounts.get("single")
+    if single is None:
+        single = _num(fp.get("original_single_fpension_amt")) or _num(
+            fp.get("original_family_pension_amt")
         )
+    double = amounts.get("double")
+    if double is None:
+        double = _num(fp.get("original_double_fpension_amt"))
+    wef = amounts.get("wef") or _wef_date(claim, fp)
+    double_upto = amounts.get("double_upto") or _as_date(
+        claim.get("double_fpen_upto")
+    ) or _as_date(fp.get("double_fpension_upto"))
+
+    wef_s = _fmt_dd_mm_yyyy(wef)
+    if (
+        eligible
+        and double is not None
+        and single is not None
+        and wef
+        and double_upto
+    ):
+        thereafter = double_upto + timedelta(days=1)
+        notes.append(
+            f"Family pension to be paid @ {_fmt_amount_int(double)} P.M. "
+            f"w.e.f. {wef_s} to {_fmt_dd_mm_yyyy(double_upto)} "
+            f"and thereafter @ {_fmt_amount_int(single)} P.M. "
+            f"w.e.f. {_fmt_dd_mm_yyyy(thereafter)} "
+            f"till Death or Re-Marriage whichever is earlier."
+        )
+    elif single is not None:
+        notes.append(
+            f"Family pension to be paid @ {_fmt_amount_int(single)} P.M. "
+            f"w.e.f. {wef_s} till Death or Re-Marriage whichever is earlier."
+        )
+    elif double is not None:
+        notes.append(
+            f"Family pension to be paid @ {_fmt_amount_int(double)} P.M. "
+            f"w.e.f. {wef_s} till Death or Re-Marriage whichever is earlier."
+        )
+
     notes.append("Submitted to the FA & CAO for sanction.")
-    cpi = _num(base_cpi)
+
+    # Relief line uses calculated pension CPI (process band), not retirement CPI.
+    cpi = amounts.get("process_cpi")
+    if cpi is None:
+        cpi = _num(base_cpi)
     if cpi is not None:
-        notes.append(f"Relief to be given over {int(cpi)}")
+        notes.append(f"Relief to be given over {int(cpi)} CPI.")
+
     return notes
 
 
@@ -426,8 +703,20 @@ def build_family_pension_proposal_report(*, clmca_id=None, emp_cd=None):
     )
     dod = claim.get("dod_emp_pensioner")
 
+    amounts = _family_pension_amounts(
+        claim, fp, pensioner, adm, per, emp
+    )
+
+    # Header "On CPI" = CPI at retirement, not process/current band (often 359).
+    retirement_cpi = _resolve_retirement_cpi(
+        claim, fp, pensioner, retirement_dt
+    )
+    # Notes / relief line use calculated (process) CPI when available.
+    process_cpi = amounts.get("process_cpi")
     base_cpi = (
-        fp.get("base_cpi")
+        process_cpi
+        or retirement_cpi
+        or fp.get("base_cpi")
         or claim.get("retirement_cpi")
         or pensioner.get("base_cpi")
     )
@@ -445,15 +734,28 @@ def build_family_pension_proposal_report(*, clmca_id=None, emp_cd=None):
         "designation": designation,
         "department": department,
         "pay": _fmt_amount_int(pay),
-        "last_pension_basic": "",
-        "on_cpi": "",
+        "last_pension_basic": _fmt_amount_int(
+            pensioner.get("original_pension_amt")
+            or pensioner.get("payable_pension")
+        ),
+        "on_cpi": (
+            str(int(retirement_cpi))
+            if _num(retirement_cpi) is not None
+            else ""
+        ),
         "entered_service": _fmt_dd_mm_yyyy(join_dt),
         "retired_from": _fmt_dd_mm_yyyy(retirement_dt),
         "retirement_reason": _retirement_reason_and_age(
             adm, per, retirement_dt
         ),
-        "notes": _build_notes(claim, fp, base_cpi),
+        "notes": _build_notes(claim, fp, base_cpi, amounts=amounts),
         "remarks": _build_remarks(emp_name, join_dt, retirement_dt, dod),
+        # detail fields for frontend if needed later
+        "family_pension_single": _fmt_amount_int(amounts.get("single")),
+        "family_pension_double": _fmt_amount_int(amounts.get("double")),
+        "double_fpen_upto": _fmt_dd_mm_yyyy(amounts.get("double_upto")),
+        "wef_dt": _fmt_dd_mm_yyyy(amounts.get("wef")),
+        "double_eligible": bool(amounts.get("eligible")),
     }
 
     return {

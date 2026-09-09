@@ -1,11 +1,14 @@
 import "../styles/PensionFirstPensionAdviceReport.css";
 
-function SignatureBlock({ page }) {
+function SignatureBlock({ page, showLeftCode = true }) {
   return (
     <div className="fp-advice-print__signature">
-      <div className="fp-advice-print__signature-left">{page.signatory_left_code}</div>
+      <div className="fp-advice-print__signature-left">
+        {showLeftCode ? page.signatory_left_code : null}
+      </div>
       <div className="fp-advice-print__signature-right">
-        {page.signatory_title.map((line) => (
+        <div className="fp-advice-print__signature-space" aria-hidden="true" />
+        {(page.signatory_title || []).map((line) => (
           <div key={line}>{line}</div>
         ))}
       </div>
@@ -13,8 +16,8 @@ function SignatureBlock({ page }) {
   );
 }
 
-function AdvicePageOne({ page }) {
-  const bodyParas = page.paragraphs.slice(0, page.page1_paragraph_count);
+function AdviceLetter({ page }) {
+  const bodyParas = page.body_paragraphs || page.paragraphs || [];
 
   return (
     <section className="fp-advice-print__page">
@@ -46,32 +49,19 @@ function AdvicePageOne({ page }) {
           <p key={index}>{text}</p>
         ))}
       </div>
-    </section>
-  );
-}
 
-function AdvicePageTwo({ page }) {
-  const bodyParas = page.paragraphs.slice(page.page1_paragraph_count, 5);
-  const copyText = page.paragraphs[5];
-
-  return (
-    <section className="fp-advice-print__page">
-      <div className="fp-advice-print__body">
-        {bodyParas.map((text, index) => (
-          <p key={index}>{text}</p>
-        ))}
-      </div>
-
-      <SignatureBlock page={page} />
+      {/* Signature before Copy to — CVF left, space then FA & CAO */}
+      <SignatureBlock page={page} showLeftCode />
 
       <div className="fp-advice-print__copy-to">
         <div className="fp-advice-print__copy-to-label">
           Copy to: {page.copy_to_office}
         </div>
-        <p>{copyText}</p>
+        <p>{page.copy_to_text}</p>
       </div>
 
-      <SignatureBlock page={page} />
+      {/* Signature space after Copy-to paragraph */}
+      <SignatureBlock page={page} showLeftCode />
     </section>
   );
 }
@@ -83,8 +73,7 @@ export default function PensionFirstPensionAdvicePrint({ report }) {
     <div className="fp-advice-print">
       {report.pages.map((page) => (
         <div key={page.emp_cd} className="fp-advice-print__letter">
-          <AdvicePageOne page={page} />
-          <AdvicePageTwo page={page} />
+          <AdviceLetter page={page} />
         </div>
       ))}
     </div>

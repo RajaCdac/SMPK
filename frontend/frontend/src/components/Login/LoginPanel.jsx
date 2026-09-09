@@ -31,8 +31,18 @@ export default function LoginPanel({ onBack }) {
       localStorage.setItem("refresh", res.data.refresh);
       localStorage.setItem("user", JSON.stringify(res.data.user));
       window.location.href = defaultDashboardPath(res.data.user);
-    } catch {
-      alert("Invalid credentials");
+    } catch (err) {
+      const status = err?.response?.status;
+      if (!err?.response) {
+        alert(
+          "Cannot reach the server. If you changed Wi‑Fi, restart Docker Desktop, then run: docker compose --env-file .env.docker up -d"
+        );
+      } else if (status === 401) {
+        alert("Invalid username or password");
+      } else {
+        alert(`Login failed (${status || "error"}). Check backend is running.`);
+      }
+      refreshCaptcha();
     }
   };
 

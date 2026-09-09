@@ -49,12 +49,52 @@
   }
 }
 
-.bank-form-grid label {
+.bank-form-grid label,
+.bank-form-row label {
   display: block;
   font-size: 0.85rem;
   font-weight: 600;
   color: #475569;
   margin-bottom: 0.25rem;
+}
+
+.bank-form-row {
+  display: grid;
+  gap: 0.75rem 1rem;
+  margin-top: 0.75rem;
+}
+
+.bank-form-row-2 {
+  grid-template-columns: 1fr;
+}
+
+.bank-form-row-4,
+.bank-form-row-6 {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .bank-form-row-2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .bank-form-row-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .bank-form-row-6 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 992px) {
+  .bank-form-row-4 {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .bank-form-row-6 {
+    grid-template-columns: repeat(6, 1fr);
+  }
 }
 
 .bank-form-actions {
@@ -109,4 +149,27 @@
 .bank-alert-success {
   background: #e8f5e9;
   color: #2e7d32;
+}
+
+.bank-code-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: #1565c0;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bank-code-link:hover {
+  color: #0d47a1;
+}
+
+.bank-row-selected {
+  background-color: #e3f2fd !important;
+}
+
+.bank-row-selected .bank-code-link {
+  color: #0d47a1;
 }

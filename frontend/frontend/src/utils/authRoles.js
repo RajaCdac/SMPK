@@ -116,20 +116,138 @@ const ADMIN_NAV = [
   { to: "/dashboard/logs", label: "Audit Logs" },
   { to: "/dashboard/workflow", label: "Workflow" },
   { to: "/dashboard/master-data", label: "Master Data" },
+  { to: "/dashboard/oracle-transfer", label: "Oracle Transfer" },
 ];
+
+const ESR_NAV = {
+  key: "esr",
+  label: "ESR",
+  children: [
+    { to: "/dashboard/esr/personal", label: "Personal" },
+    { to: "/dashboard/esr/admin", label: "Admin" },
+    { to: "/dashboard/esr/finance", label: "Finance" },
+    { to: "/dashboard/esr/salary", label: "Salary" },
+    { to: "/dashboard/nominee", label: "Nominee" },
+  ],
+};
 
 const FIRST_PENSION_NAV = [
   { to: "/dashboard", label: "Dashboard", end: true },
   { to: "/dashboard/cases", label: "Pension Cases" },
-  { to: "/dashboard/firstpensioncases", label: "First Pension" },
+  {
+    key: "first-pension",
+    label: "First Pension",
+    children: [
+      { to: "/dashboard/firstpension/esr-check", label: "ESR Check", end: true },
+      { to: "/dashboard/firstpension/nopay", label: "No-pay" },
+      { to: "/dashboard/firstpension/commutation", label: "Commutation" },
+      { to: "/dashboard/firstpension/proposal", label: "Proposal" },
+      { to: "/dashboard/firstpension/amount", label: "Amount" },
+      { to: "/dashboard/firstpension/bill", label: "Bill & Journal" },
+      { to: "/dashboard/firstpension/reports", label: "Reports" },
+    ],
+  },
+  ESR_NAV,
+  {
+    key: "fp-report",
+    label: "Report",
+    children: [
+      {
+        to: "/dashboard/fp-reports/sanction",
+        label: "Pension Sanction",
+        end: true,
+      },
+      {
+        to: "/dashboard/fp-reports/firstpensionadvice",
+        label: "First Pension Advice",
+      },
+      { to: "/dashboard/fp-reports/lic", label: "LIC Report" },
+      {
+        to: "/dashboard/fp-reports/combill",
+        label: "Commutation Sanction",
+      },
+      {
+        to: "/dashboard/fp-reports/sepcombill",
+        label: "Sep. Commutation Bill",
+      },
+      { to: "/dashboard/fp-reports/billabstract", label: "Bill Abstract" },
+      { to: "/dashboard/fp-reports/journalsummary", label: "Journal Summary" },
+    ],
+  },
   { to: "/dashboard/archive", label: "Archive" },
   { to: "/dashboard/methodology2", label: "Methodology 2" },
 ];
 
 const FAMILY_PENSION_NAV = [
-  { to: "/dashboard/familypensioncases", label: "Dashboard", end: true },
-  { to: "/dashboard/familypension", label: "Family Pension" },
-  { to: "/dashboard/methodology1", label: "Methodology I" },
+  {
+    to: "/dashboard/familypensioncases",
+    label: "Dashboard",
+    end: true,
+  },
+  ESR_NAV,
+  {
+    key: "die-in-harness",
+    label: "Die-in-Harness",
+    children: [
+      {
+        to: "/dashboard/die-in-harness",
+        label: "No-pay Entry",
+        end: true,
+      },
+      {
+        to: "/dashboard/die-in-harness/proposal",
+        label: "Pension Proposal",
+      },
+      {
+        to: "/dashboard/die-in-harness/claim",
+        label: "Pension Application",
+      },
+    ],
+  },
+  {
+    key: "family-pension",
+    label: "Family Pension",
+    children: [
+      { to: "/dashboard/familypension", label: "Claim Entry", end: true },
+      {
+        to: "/dashboard/familypension/recovery-deduction",
+        label: "Recovery/Deduction",
+      },
+      { to: "/dashboard/methodology1", label: "Methodology I" },
+    ],
+  },
+  {
+    key: "report",
+    label: "Report",
+    children: [
+      {
+        to: "/dashboard/reports/first-pension-generation",
+        label: "Sanction Of Family Pension (Normal)",
+      },
+      {
+        to: "/dashboard/reports/fp-dih-application",
+        label: "Application for FP(DIH)",
+      },
+      {
+        to: "/dashboard/reports/bill-generation",
+        label: "Bill Generation",
+      },
+      {
+        to: "/dashboard/reports/bill-abstract",
+        label: "Bill Abstract",
+      },
+      {
+        to: "/dashboard/reports/journal-voucher",
+        label: "Journal Voucher",
+      },
+      {
+        to: "/dashboard/reports/first-fp-bill-lic",
+        label: "First FP Bill (LIC)",
+      },
+      { to: "/dashboard/reports/arrear", label: "Arrear" },
+      { to: "/dashboard/reports/cpi-upgrade", label: "CPI-Upgrade" },
+    ],
+  },
 ];
 
 const BILL_GENERATION_NAV = [];

@@ -330,13 +330,19 @@ def _build_row(header, bill, *, billpass=None, amounts=None):
     if billpass and billpass.get("dbill_reg_dt"):
         bill_reg_dt = billpass["dbill_reg_dt"]
 
+    employee = _employee_block(header)
+    # Rendered column: employee name (not bank narrative)
+    rendered = _clip(employee.get("payee_name"), 62)
+    if not rendered:
+        rendered = _clip(header.emp_cd, 5)
+
     return {
         "bill_reg_no": bill.bill_no,
         "bill_reg_dt": _format_dd_mm_yy(bill_reg_dt),
-        "rendered": _rendered_narrative(_clip(header.bank_cd, 2), [header]),
+        "rendered": rendered,
         "cheque_no": str(bill.cheque_no or ""),
         **_amount_fields(earn, dedn),
-        "employee": _employee_block(header),
+        "employee": employee,
     }
 
 

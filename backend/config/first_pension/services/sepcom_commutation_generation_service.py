@@ -66,21 +66,56 @@ def _allocate_sepcom_serial(fin_yr, bill_month, bill_year):
         return max_serial + 1
 
 
-def _get_comm_app(emp_cd):
+def _emp_cd_variants(emp_cd):
     emp_key = _clip(emp_cd, 5)
-    comm = CommutationApplication.objects.filter(emp_cd=emp_key).first()
-    if not comm and emp_key.isdigit():
-        comm = CommutationApplication.objects.filter(emp_cd=str(int(emp_key))).first()
-    return comm
+    variants = {emp_key}
+    if emp_key.isdigit():
+        variants.add(str(int(emp_key)))
+        variants.add(str(int(emp_key)).zfill(5))
+    return [v for v in variants if v]
+
+
+def _get_comm_app(emp_cd):
+    variants = _emp_cd_variants(emp_cd)
+    if not variants:
+        return None
+    return CommutationApplication.objects.filter(emp_cd__in=variants).first()
+
+
+def _period_from_ref(ref, start_mnth=None, fallback_year=None):
+    if ref:
+        return int(ref.month), int(ref.year)
+    month = int(start_mnth or 1)
+    year = int(fallback_year or timezone.localdate().year)
+    return month, year
 
 
 def _commutation_period(comm_app):
     ref = comm_app.commutation_dt or comm_app.appcn_dt
-    if ref:
-        return int(ref.month), int(ref.year)
-    return int(comm_app.comm_start_mnth or 1), int(
-        (comm_app.appcn_dt or timezone.localdate()).year
+    fallback_year = None
+    if comm_app.appcn_dt:
+        fallback_year = comm_app.appcn_dt.year
+    return _period_from_ref(ref, comm_app.comm_start_mnth, fallback_year)
+
+
+def _oracle_application(emp_cd):
+    variants = _emp_cd_variants(emp_cd)
+    if not variants:
+        return None
+    return (
+        FiPnMhApplication.objects.filter(emp_cd__in=variants)
+        .order_by("-appcn_dt", "-appcn_no")
+        .first()
     )
+
+
+def _oracle_commutation_period(emp_cd):
+    app = _oracle_application(emp_cd)
+    if not app:
+        return None
+    ref = app.commutation_date or app.appcn_dt
+    fallback_year = app.appcn_dt.year if app.appcn_dt else None
+    return _period_from_ref(ref, app.comm_start_mnth, fallback_year)
 
 
 def _resolve_bank_cd(comm_app, proposal):
@@ -232,12 +267,20 @@ def refresh_sepcom_commutation_amounts(header, *, user=None):
 
 def get_sepcom_status(emp_cd):
     comm = _get_comm_app(emp_cd)
+    oracle_period = _oracle_commutation_period(emp_cd)
     if not comm:
+        cm, cy = oracle_period or (1, timezone.localdate().year)
         return {
             "has_commutation_application": False,
+            "impl_fpen_combill": "",
+            "sepcom_month": cm,
+            "sepcom_year": cy,
             "sepcom_generated": False,
             "sepcom_id": "",
             "bill_no": "",
+            "original_com_amt": None,
+            "ready_for_sepcom_generation": False,
+            "block_reason": "Save commutation application first.",
         }
 
     cm, cy = _commutation_period(comm)
@@ -252,6 +295,7 @@ def get_sepcom_status(emp_cd):
         .first()
     )
 
+    ready, reason = _can_generate_sepcom(comm)
     return {
         "has_commutation_application": True,
         "impl_fpen_combill": comm.impl_fpen_combill or "",
@@ -268,8 +312,8 @@ def get_sepcom_status(emp_cd):
             if header
             else None
         ),
-        "ready_for_sepcom_generation": _can_generate_sepcom(comm)[0],
-        "block_reason": _can_generate_sepcom(comm)[1],
+        "ready_for_sepcom_generation": ready,
+        "block_reason": reason,
     }
 
 
@@ -280,7 +324,7 @@ def _can_generate_sepcom(comm_app):
 
     cm, cy = _commutation_period(comm_app)
     existing = FiPnThSepcom.objects.filter(
-        emp_cd=comm_app.emp_cd,
+        emp_cd=_clip(comm_app.emp_cd, 5),
         sepcom_month=cm,
         sepcom_yr=cy,
         com_proc_tag=COM_PROC_TAG,
@@ -345,7 +389,6 @@ def generate_sepcom_for_employees(
 
     user_code = _user_code(user)
     today = timezone.localdate()
-    fin_yr = _resolve_fin_year_for_month(bill_month, bill_year)
 
     created = []
     for raw in emp_cds:
@@ -357,12 +400,9 @@ def generate_sepcom_for_employees(
         if not ready:
             raise SepcomGenerationError(f"{comm.emp_cd}: {reason}")
 
+        # Always post against commutation date (e.g. Aug 2004), not today's bill month.
         cm, cy = _commutation_period(comm)
-        if cm != int(bill_month) or cy != int(bill_year):
-            raise SepcomGenerationError(
-                f"{comm.emp_cd}: commutation period is {cm:02d}/{cy}, "
-                f"not {int(bill_month):02d}/{int(bill_year)}."
-            )
+        fin_yr = _resolve_fin_year_for_month(cm, cy)
 
         case = reload_pension_case_from_db(comm.emp_cd)
         amounts = calculate_commutation_amount(case, comm)
@@ -373,14 +413,14 @@ def generate_sepcom_for_employees(
             22,
         )
 
-        serial = _allocate_sepcom_serial(fin_yr, bill_month, bill_year)
-        sepcom_id = _format_sepcom_id(bill_month, bill_year, serial)
+        serial = _allocate_sepcom_serial(fin_yr, cm, cy)
+        sepcom_id = _format_sepcom_id(cm, cy, serial)
         lump = _dec(amounts["lump_sum"])
 
         FiPnThSepcom.objects.create(
             sepcom_id=sepcom_id,
-            sepcom_month=int(bill_month),
-            sepcom_yr=int(bill_year),
+            sepcom_month=int(cm),
+            sepcom_yr=int(cy),
             ca_no=ca_no,
             original_com_amt=lump,
             bill_no="",
@@ -421,12 +461,15 @@ def generate_sepcom_for_employees(
                 "original_com_amt": float(lump),
                 "commutation_percent": amounts["commutation_percent"],
                 "monthly_commuted": amounts["monthly_commuted"],
+                "sepcom_month": int(cm),
+                "sepcom_year": int(cy),
             }
         )
 
+    last = created[-1]
     return {
         "sepcom_records": created,
-        "bill_month": int(bill_month),
-        "bill_year": int(bill_year),
-        "fin_year": fin_yr,
+        "bill_month": last["sepcom_month"],
+        "bill_year": last["sepcom_year"],
+        "fin_year": _resolve_fin_year_for_month(last["sepcom_month"], last["sepcom_year"]),
     }

@@ -4,6 +4,7 @@ First Pension Advice letter (FI_PN_ADVICE).
 
 from django.utils import timezone
 
+from employee.services.dept_wise_service import resolve_dept_wise_department
 from employee.services.emp_data_service import (
     fetch_emp_data_posting,
     resolve_department_from_posting,
@@ -28,7 +29,7 @@ class FirstPensionAdviceReportError(Exception):
 ADVICE_REF_NO = "Fin/Adv/06/"
 HANDOVER_TIME = "11-00 A.M."
 CASH_WRITER_CONTACT = "Mr. Dilip Pal"
-SIGNATORY_LEFT_CODE = "CVDFC"
+SIGNATORY_LEFT_CODE = "CVF"
 SIGNATORY_TITLE = ("Financial Adviser &", "Chief Accounts Officer")
 
 
@@ -46,6 +47,9 @@ def _format_case_no(ca_number):
 
 
 def _resolve_through_office(emp_cd):
+    dept = resolve_dept_wise_department(emp_cd)
+    if dept:
+        return dept
     posting = fetch_emp_data_posting(emp_cd)
     if posting:
         alloc = (posting.get("alloc_desc") or "").upper()
@@ -75,20 +79,16 @@ def _resolve_handover_date(proposal):
     return ""
 
 
-def _build_paragraphs(*, handover_date, handover_time):
-    pension_handover = handover_date or "____________"
+def _build_body_paragraphs():
     cash_writer_date = "____________"
     cash_writer_time = "____________"
     cheque_date = "____________"
-    copy_report_date = "____________"
-    copy_report_time = "____________"
 
     return [
         (
             "This is to inform you that your pension card would be handed over to you "
             "by the Pension Section, Finance Department, at Head office, on "
             "___________________ at ____________________ i.e. on your superannuation/"
-            #f"{pension_handover} at {handover_time} i.e. on your superannuation/"
             "last working days."
         ),
         (
@@ -114,22 +114,26 @@ def _build_paragraphs(*, handover_date, handover_time):
             f"clearing necessary formalities required to recieve the cheque on "
             f"{cheque_date}."
         ),
-        ("Copy to:- {}"),
-        (
-            "for information with a request to hand over the original advice to collect "
-            "the Pension Card to the employee concerned. He/she may be advised to "
-            "bring alongwith him/her a joint photograph with his/her spouse, if any, "
-            "in 4 copies, duly attested by a Competent Authority, in case the same "
-            "has not been forwarded with the case file at Pension Section. The "
-            "incumbent may be advised to report to the Pension Section, Finance "
-            f"Department on {copy_report_date} at {copy_report_time} alongwith the "
-            "statement of leave duly certified by the department for the last working "
-            "month to enable him to get the payment of leave encashment on the said day "
-            "itself. The payment of gratuity and commutation, if any, would also be "
-            "attempted to be made on the said day itself to the employee concerned "
-            "alongwith the handing over of the Pension Card."
-        ),
     ]
+
+
+def _build_copy_to_text():
+    copy_report_date = "____________"
+    copy_report_time = "____________"
+    return (
+        "for information with a request to hand over the original advice to collect "
+        "the Pension Card to the employee concerned. He/she may be advised to "
+        "bring alongwith him/her a joint photograph with his/her spouse, if any, "
+        "in 4 copies, duly attested by a Competent Authority, in case the same "
+        "has not been forwarded with the case file at Pension Section. The "
+        "incumbent may be advised to report to the Pension Section, Finance "
+        f"Department on {copy_report_date} at {copy_report_time} alongwith the "
+        "statement of leave duly certified by the department for the last working "
+        "month to enable him to get the payment of leave encashment on the said day "
+        "itself. The payment of gratuity and commutation, if any, would also be "
+        "attempted to be made on the said day itself to the employee concerned "
+        "alongwith the handing over of the Pension Card."
+    )
 
 
 def _build_row(emp_cd):
@@ -155,10 +159,8 @@ def _build_row(emp_cd):
 
     handover_date = _resolve_handover_date(proposal)
     through_office = _resolve_through_office(emp_key)
-    paragraphs = _build_paragraphs(
-        handover_date=handover_date,
-        handover_time=HANDOVER_TIME,
-    )
+    body_paragraphs = _build_body_paragraphs()
+    copy_to_text = _build_copy_to_text()
 
     return {
         "emp_cd": emp_key,
@@ -172,13 +174,16 @@ def _build_row(emp_cd):
         "pension_roll_no": _format_roll_no(proposal, pensioner),
         "through_office": through_office,
         "copy_to_office": through_office,
+        "copy_to_text": copy_to_text,
         "handover_date": handover_date,
         "handover_time": HANDOVER_TIME,
         "cash_writer_contact": CASH_WRITER_CONTACT,
         "signatory_left_code": SIGNATORY_LEFT_CODE,
         "signatory_title": list(SIGNATORY_TITLE),
-        "paragraphs": paragraphs,
-        "page1_paragraph_count": 3,
+        # Body only (no Copy-to). Kept as `paragraphs` for older UI clients.
+        "paragraphs": body_paragraphs,
+        "body_paragraphs": body_paragraphs,
+        "page1_paragraph_count": len(body_paragraphs),
     }
 
 
@@ -192,7 +197,7 @@ def build_first_pension_advice_report(*, emp_codes=None):
     for emp_cd in codes:
         pages.append(_build_row(emp_cd))
 
-    total_pages = len(pages) * 2 or 2
+    total_pages = len(pages) or 1
     for index, page in enumerate(pages, start=1):
         page["page_no"] = index
         page["total_pages"] = len(pages)

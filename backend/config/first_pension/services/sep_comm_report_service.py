@@ -7,10 +7,12 @@ joined to commutation application / pension case.
 
 from django.utils import timezone
 
+from employee.services.emp_data_service import resolve_employee_designation_name
+
 from master_data.models import FiPnMhEarndedn
 
 from ..models import CommutationApplication, PensionProposal
-from ..oracle_mirror import FiPnTdSepcom, FiPnThSepcom
+from ..oracle_mirror import FiPnTdSepcom, FiPnThSepcom, FiPnMhPensioner
 from ..pension_calculation import reload_pension_case_from_db
 from ..utils.amount_words import rupees_amount_in_words
 from .commutation_bill_report_service import (
@@ -39,6 +41,7 @@ def _build_sepcom_page(header):
         raise CommutationBillReportError("Pension case not found.")
 
     proposal = PensionProposal.objects.filter(emp_cd=header.emp_cd).first()
+    pensioner = FiPnMhPensioner.objects.filter(emp_cd=header.emp_cd).first()
     earn, dedn = _sum_sepcom_earn_dedn(header)
     lump = float(header.original_com_amt or earn)
     desc_map = _line_descriptions()
@@ -69,7 +72,9 @@ def _build_sepcom_page(header):
         "ref_no": comm.ref_no if comm else "",
         "fa_cao_report": _format_case_no(header.ca_no or (proposal.ca_number if proposal else "")),
         "pensioner_name": _clean_report_name(case.name),
-        "designation": (case.designation or "").strip().upper(),
+        "designation": resolve_employee_designation_name(
+            header.emp_cd, case=case, pensioner=pensioner
+        ),
         "sepcom_month": header.sepcom_month,
         "sepcom_year": header.sepcom_yr,
         "gross_earn": float(earn),

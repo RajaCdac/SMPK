@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import Header from "../Header/Header";
 import Navbar from "../Navbar/Navbar";
 import Footer from "../Footer/Footer";
@@ -9,7 +9,7 @@ export default function MainLayout() {
   const { pathname } = useLocation();
   const isHome = pathname === "/" || pathname === "/login";
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (isHome) {
       document.body.classList.add("page-home");
     } else {

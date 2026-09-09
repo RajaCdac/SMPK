@@ -1,113 +1,37 @@
-/**
- * Print only the cloned report in #pension-print-portal (see pensionReportPrint.js).
- * Screen: portal is hidden. Print: everything else is hidden.
- */
-
 .pension-print-portal {
   display: none;
 }
 
-@media print {
-  /* Default: portrait (Methodology 2 consolidation). Landscape reports opt in via named page. */
-  @page {
-    size: A4 portrait;
-    margin: 12mm;
-  }
+html.pension-report-printing .pension-print-portal {
+  display: block;
+}
 
-  @page landscape-page {
-    size: A4 landscape;
-    margin: 8mm;
-  }
+html.pension-report-printing body > *:not(.pension-print-portal) {
+  display: none !important;
+}
 
-  @page portrait-page {
-    size: A4 portrait;
-    margin: 12mm;
-  }
+html.pension-report-printing .pension-print-portal .fp-proposal-print__page,
+html.pension-report-printing .pension-print-portal .proposal-sanction-print__page,
+html.pension-report-printing .pension-print-portal .fp-dih-print__page,
+html.pension-report-printing .pension-print-portal .fp-bill-print__page,
+html.pension-report-printing .pension-print-portal .fp-lic-bill-print__page {
+  width: 100% !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 4mm 8mm !important;
+  box-sizing: border-box;
+  page-break-after: always;
+  break-after: page;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
 
-  html.pension-report-printing,
-  html.pension-report-printing body {
-    margin: 0 !important;
-    padding: 0 !important;
-    background: #fff !important;
-  }
+html.pension-report-printing .pension-print-portal .fp-dih-print__page {
+  width: 277mm !important;
+  max-width: 277mm !important;
+}
 
-  /* Hide full app shell — navbar, tabs, workflow, etc. */
-  html.pension-report-printing body > *:not(#pension-print-portal) {
-    display: none !important;
-  }
-
-  html.pension-report-printing #pension-print-portal {
-    display: block !important;
-    position: static !important;
-    width: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    background: #fff !important;
-    page: landscape-page;
-  }
-
-  /* Do not set display:revert on portal descendants — it breaks grid/flex layouts. */
-
-  /* Other pension reports — landscape, single flow. */
-  html.pension-report-printing .proposal-sanction-print__page,
-  html.pension-report-printing .fp-proposal-print__page,
-  html.pension-report-printing .comm-sanction-print__page,
-  html.pension-report-printing .sepcom-bill-print__page {
-    width: 100% !important;
-    min-height: 0 !important;
-    margin: 0 !important;
-    padding: 4mm 8mm !important;
-    box-sizing: border-box;
-    page: landscape-page;
-    page-break-after: always;
-    break-after: page;
-    page-break-inside: avoid;
-    break-inside: avoid;
-  }
-
-  html.pension-report-printing .proposal-sanction-print__page:last-child,
-  html.pension-report-printing .fp-proposal-print__page:last-child,
-  html.pension-report-printing .comm-sanction-print__page:last-child,
-  html.pension-report-printing .sepcom-bill-print__page:last-child {
-    page-break-after: auto;
-    break-after: auto;
-  }
-
-  html.pension-report-printing .bill-abstract-print,
-  html.pension-report-printing .journal-summary-print {
-    width: 100% !important;
-    max-width: none !important;
-    margin: 0 !important;
-    padding: 3mm 6mm !important;
-    box-sizing: border-box;
-    page: landscape-page;
-  }
-
-  html.pension-report-printing .bill-abstract-print__main-table,
-  html.pension-report-printing .journal-summary-print table {
-    width: 100%;
-    table-layout: fixed;
-  }
-
-  html.pension-report-printing .lic-report-print__page {
-    page: landscape-page;
-  }
-
-  html.pension-report-printing .fp-advice-print__page {
-    page: portrait-page;
-    width: 100% !important;
-    min-height: 0 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    box-sizing: border-box;
-    page-break-after: always;
-    break-after: page;
-    page-break-inside: avoid;
-    break-inside: avoid;
-  }
-
-  html.pension-report-printing .fp-advice-print__page:last-child {
-    page-break-after: auto;
-    break-after: auto;
-  }
+html.pension-report-printing .pension-print-portal .fp-proposal-print__page:last-child {
+  page-break-after: auto;
+  break-after: auto;
 }

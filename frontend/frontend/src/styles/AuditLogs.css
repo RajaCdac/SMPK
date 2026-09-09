@@ -51,6 +51,10 @@
   background: #ede9fe;
   color: #6d28d9;
 }
+.status.logout {
+  background: #ffedd5;
+  color: #c2410c;
+}
 .no-data {
   text-align: center;
   padding: 30px;

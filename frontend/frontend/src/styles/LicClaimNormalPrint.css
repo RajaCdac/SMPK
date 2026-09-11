@@ -1,0 +1,172 @@
+.lic-claim-print {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #000;
+  background: #fff;
+}
+
+.lic-claim-print__page {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto 1.5rem;
+  padding: 12mm 14mm 10mm;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.lic-claim-print__head {
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.lic-claim-print__scheme {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.lic-claim-print__policy,
+.lic-claim-print__sub,
+.lic-claim-print__dock {
+  margin-top: 2px;
+  font-weight: 700;
+}
+
+.lic-claim-print__amt-box {
+  margin: 10px 0 6px;
+  display: grid;
+  gap: 2px;
+}
+
+.lic-claim-print__meta-side {
+  text-align: right;
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.lic-claim-print__item13 {
+  margin: 6px 0;
+}
+
+.lic-claim-print__pension-box {
+  margin: 4px 0 4px 28px;
+  border: 1px solid #000;
+  padding: 4px 10px;
+  max-width: 320px;
+}
+
+.lic-claim-print__pension-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
+.lic-claim-print__pension-row--total {
+  margin-top: 4px;
+  font-weight: 700;
+  border-top: 1px solid #000;
+  padding-top: 2px;
+}
+
+.lic-claim-print__pan {
+  margin: 2px 0 4px 18px;
+  font-weight: 700;
+}
+
+.lic-claim-print__val--note {
+  border-bottom: none;
+  font-style: italic;
+}
+
+.lic-claim-print__fields {
+  display: grid;
+  gap: 3px;
+}
+
+.lic-claim-print__field {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 12px minmax(0, 1.1fr);
+  gap: 4px;
+  align-items: start;
+}
+
+.lic-claim-print__field--wide {
+  grid-template-columns: 28px minmax(0, 0.9fr) 12px minmax(0, 1.3fr);
+}
+
+.lic-claim-print__no,
+.lic-claim-print__lbl {
+  font-weight: 700;
+}
+
+.lic-claim-print__val {
+  border-bottom: 1px dotted #333;
+  min-height: 1.2em;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.lic-claim-print__comm,
+.lic-claim-print__bank {
+  margin: 6px 0;
+  padding-left: 4px;
+}
+
+.lic-claim-print__comm-title {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.lic-claim-print__comm-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) 12px minmax(0, 1fr);
+  gap: 6px;
+  margin-left: 18px;
+  margin-bottom: 2px;
+}
+
+.lic-claim-print__note {
+  margin-top: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.lic-claim-print__sign-boxes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin: 10px 40px 16px;
+}
+
+.lic-claim-print__sign-box {
+  height: 56px;
+  border: 1px solid #000;
+}
+
+.lic-claim-print__footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.lic-claim-print__trustee {
+  text-align: center;
+  line-height: 1.45;
+}
+
+.lic-claim-print__sig-line {
+  margin-top: 36px;
+}
+
+@media print {
+  html.pension-report-printing .lic-claim-print__page {
+    width: 210mm;
+    min-height: auto;
+    margin: 0 auto;
+    padding: 10mm 12mm;
+    box-shadow: none;
+  }
+}

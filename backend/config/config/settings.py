@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     'family_pension',
     'methodology1',
     'methodology2',
+    'M2_oldage_arrear.apps.M2OldageArrearConfig',
     'master_data',
 ]
 
@@ -221,3 +222,21 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Methodology-2 bulk PDFs: parent of M2_YYYY-MM-DD (default Desktop).
 _bulk_out = (os.environ.get("BULK_OUTPUT_DIR") or "").strip()
 BULK_OUTPUT_DIR = Path(_bulk_out) if _bulk_out else (Path.home() / "Desktop")
+# Host path shown in UI when container writes to BULK_OUTPUT_DIR (Docker).
+BULK_OUTPUT_HOST_HINT = (os.environ.get("BULK_OUTPUT_HOST_HINT") or "").strip()
+
+
+def display_bulk_output_dir(container_path) -> str:
+    """Map container /output/... to host Desktop path for API responses."""
+    raw = str(container_path or "")
+    hint = BULK_OUTPUT_HOST_HINT
+    if not hint:
+        return raw
+    parent = str(BULK_OUTPUT_DIR).replace("\\", "/").rstrip("/")
+    out = raw.replace("\\", "/")
+    if out != parent and not out.startswith(parent + "/"):
+        return raw
+    rest = out[len(parent) :].lstrip("/")
+    sep = "\\" if "\\" in hint else "/"
+    base = hint.rstrip("\\/")
+    return f"{base}{sep}{rest.replace('/', sep)}" if rest else base

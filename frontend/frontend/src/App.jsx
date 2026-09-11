@@ -16,6 +16,7 @@ import PensionCaseList from "./pages/PensionCaseList";
 import AuditLogs from "./pages/AuditLogs";
 import Methodology1 from "./pages/Methodology1";
 import Methodology2 from "./pages/Methodology2";
+import Methodology2OldAge from "./pages/Methodology2OldAge";
 import FirstPensionCase from "./pages/FirstPensionCase";
 import FamilyPensionCase from "./pages/FamilyPensionCase";
 import FamilyPension from "./pages/FamilyPension";
@@ -30,6 +31,8 @@ import EsrFinance from "./pages/EsrFinance";
 import EsrSalary from "./pages/EsrSalary";
 import FamilyPensionReport from "./pages/FamilyPensionReport";
 import FirstPensionReport from "./pages/FirstPensionReport";
+import LicClaimGeneration from "./pages/LicClaimGeneration";
+import FamilyLicClaimGeneration from "./pages/FamilyLicClaimGeneration";
 import ArchiveFirstPension from "./pages/ArchiveFirstPension";
 import MasterDataManagement from "./pages/MasterDataManagement";
 import BankBranchManagement from "./pages/BankBranchManagement";
@@ -124,6 +127,10 @@ function App() {
             <Route path="cases" element={<PensionCaseList />} />
             <Route path="methodology2" element={<Methodology2 />} />
             <Route
+              path="methodology2-oldage-arrear"
+              element={<Methodology2OldAge />}
+            />
+            <Route
               path="firstpensioncases"
               element={<Navigate to="/dashboard/firstpension/esr-check" replace />}
             />
@@ -186,6 +193,10 @@ function App() {
             <Route
               path="fp-reports/journalsummary"
               element={<FirstPensionReport section="journalsummary" />}
+            />
+            <Route
+              path="lic-claim-generation"
+              element={<LicClaimGeneration />}
             />
             <Route path="archive" element={<ArchiveFirstPension />} />
           </Route>
@@ -251,6 +262,10 @@ function App() {
             <Route
               path="reports/cpi-upgrade"
               element={<FamilyPensionCpiUpgrade />}
+            />
+            <Route
+              path="family-lic-claim-generation"
+              element={<FamilyLicClaimGeneration />}
             />
           </Route>
         </Route>

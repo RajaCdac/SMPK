@@ -27,6 +27,10 @@ from .views import (
     FamilyPensionRecoveryLineAPIView,
     FamilyPensionRecoveryLookupAPIView,
 )
+from .lic_claim_api import (
+    FamilyLicClaimGenerationAPIView,
+    FamilyLicClaimPrintAPIView,
+)
 
 urlpatterns = [
     path("pensioners/", FamilyPensionerListAPIView.as_view()),
@@ -75,4 +79,12 @@ urlpatterns = [
     path("esr/admin/", EsrAdminAPIView.as_view()),
     path("esr/finance/", EsrFinanceAPIView.as_view()),
     path("esr/salary/", EsrSalaryAPIView.as_view()),
+    path(
+        "lic-claim-generation/",
+        FamilyLicClaimGenerationAPIView.as_view(),
+    ),
+    path(
+        "lic-claim-generation/print/",
+        FamilyLicClaimPrintAPIView.as_view(),
+    ),
 ]

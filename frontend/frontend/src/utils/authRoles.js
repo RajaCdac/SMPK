@@ -174,8 +174,16 @@ const FIRST_PENSION_NAV = [
       { to: "/dashboard/fp-reports/journalsummary", label: "Journal Summary" },
     ],
   },
+  {
+    to: "/dashboard/lic-claim-generation",
+    label: "LIC Claim Generation",
+  },
   { to: "/dashboard/archive", label: "Archive" },
   { to: "/dashboard/methodology2", label: "Methodology 2" },
+  {
+    to: "/dashboard/methodology2-oldage-arrear",
+    label: "M2 Old Age Arrear",
+  },
 ];
 
 const FAMILY_PENSION_NAV = [
@@ -247,6 +255,10 @@ const FAMILY_PENSION_NAV = [
       { to: "/dashboard/reports/arrear", label: "Arrear" },
       { to: "/dashboard/reports/cpi-upgrade", label: "CPI-Upgrade" },
     ],
+  },
+  {
+    to: "/dashboard/family-lic-claim-generation",
+    label: "LIC Claim Generation",
   },
 ];
 

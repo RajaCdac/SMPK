@@ -67,6 +67,10 @@ from .process_intake_api import (
     ProcessIntakeAPIView,
     ProcessIntakeLookupAPIView,
 )
+from .lic_claim_api import (
+    LicClaimGenerationNormalAPIView,
+    LicClaimNormalPrintAPIView,
+)
 
 urlpatterns = [
 
@@ -203,5 +207,13 @@ urlpatterns = [
     path(
         'archive/journal/<str:voucher_no>/',
         ArchiveJournalDetailAPIView.as_view(),
+    ),
+    path(
+        'lic-claim-generation/normal/',
+        LicClaimGenerationNormalAPIView.as_view(),
+    ),
+    path(
+        'lic-claim-generation/normal/print/',
+        LicClaimNormalPrintAPIView.as_view(),
     ),
 ]

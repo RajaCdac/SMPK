@@ -12,6 +12,7 @@ urlpatterns = [
     path("api/audit/", include("audit.urls")),
     path("api/methodology1/", include("methodology1.urls")),
     path("api/methodology2/", include("methodology2.urls")),
+    path("api/m2-oldage-arrear/", include("M2_oldage_arrear.urls")),
     path("api/master-data/", include("master_data.urls")),
     path("api/finance-transfer/", include("finance_transfer.urls")),
 ]

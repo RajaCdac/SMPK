@@ -4,7 +4,7 @@ export const PRINT_PORTAL_ID = "pension-print-portal";
 const PRINT_PAGE_STYLE_ID = "pension-print-page-style";
 
 const PRINT_ROOT_SELECTOR =
-  ".lic-report-print, .bill-abstract-print, .proposal-sanction-print, .fp-proposal-print, .fp-dih-print, .fp-advice-print, .comm-sanction-print, .sepcom-bill-print, .journal-summary-print, .fp-bill-print, .fp-lic-bill-print";
+  ".lic-report-print, .bill-abstract-print, .proposal-sanction-print, .fp-proposal-print, .fp-dih-print, .fp-advice-print, .comm-sanction-print, .sepcom-bill-print, .journal-summary-print, .fp-bill-print, .fp-lic-bill-print, .lic-claim-print";
 
 /** Force @page orientation (Chrome often ignores named CSS page rules). */
 function applyPageOrientation(orientation = "landscape") {

@@ -154,17 +154,15 @@ table.m2-consol-print__cpi-card td {
 .m2-consol-print__fp-title {
   font-weight: 700;
   text-align: center;
-  margin: 8px 0 4px;
+  margin: 6px 0 3px;
   font-size: 12px;
 }
 
 table.m2-consol-print__fp-wrap {
   width: 100% !important;
   border-collapse: collapse !important;
-  margin-bottom: 12px !important;
+  margin-bottom: 8px !important;
   display: table !important;
-  break-inside: avoid;
-  page-break-inside: avoid;
 }
 
 table.m2-consol-print__fp-wrap td.wrap-cell {
@@ -177,12 +175,17 @@ table.m2-consol-print__fp-wrap td.wrap-cell {
   border-collapse: collapse !important;
   margin: 0 !important;
   display: table !important;
+  table-layout: fixed !important;
+}
+
+.m2-consol-print__fp-table col.part-col {
+  width: 48%;
 }
 
 .m2-consol-print__fp-table th,
 .m2-consol-print__fp-table td {
   border: 1px solid #333 !important;
-  padding: 4px 6px !important;
+  padding: 3px 5px !important;
 }
 
 .m2-consol-print__fp-table th {
@@ -199,8 +202,17 @@ table.m2-consol-print__fp-wrap td.wrap-cell {
   margin-top: 2px;
 }
 
+.m2-consol-print__fp-table th:first-child,
+.m2-consol-print__fp-table td:first-child,
+.m2-consol-print__fp-table td.part {
+  text-align: left !important;
+  white-space: nowrap !important;
+  width: 48% !important;
+}
+
 .m2-consol-print__fp-table td.amt {
   text-align: center !important;
+  white-space: nowrap !important;
 }
 
 .m2-consol-print__fp-table tr.m2-consol-print__oa-section td {
@@ -208,11 +220,12 @@ table.m2-consol-print__fp-wrap td.wrap-cell {
   font-weight: 700 !important;
   text-align: center !important;
   font-size: 10px !important;
+  white-space: normal !important;
 }
 
 .m2-consol-print__footer {
   width: 100% !important;
-  margin-top: 60px !important;
+  margin-top: 14px !important;
   border-collapse: collapse !important;
   display: table !important;
 }
@@ -290,15 +303,38 @@ table.m2-consol-print__fp-wrap td.wrap-cell {
 
   html.m2-consol-printing #m2-print-portal .m2-consol-print__emp-grid,
   html.m2-consol-printing #m2-print-portal .m2-consol-print__cpi-wrap,
-  html.m2-consol-printing #m2-print-portal .m2-consol-print__cpi-card,
+  html.m2-consol-printing #m2-print-portal .m2-consol-print__cpi-card {
+    display: table !important;
+    width: 100%;
+    border-collapse: collapse;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
   html.m2-consol-printing #m2-print-portal .m2-consol-print__fp-wrap,
   html.m2-consol-printing #m2-print-portal .m2-consol-print__fp-table,
   html.m2-consol-printing #m2-print-portal .m2-consol-print__footer {
     display: table !important;
     width: 100%;
     border-collapse: collapse;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    break-inside: auto;
+    page-break-inside: auto;
+  }
+
+  html.m2-consol-printing #m2-print-portal .m2-consol-print__fp-table col.part-col,
+  html.m2-consol-printing #m2-print-portal .m2-consol-print__fp-table th:first-child,
+  html.m2-consol-printing #m2-print-portal .m2-consol-print__fp-table td:first-child,
+  html.m2-consol-printing #m2-print-portal .m2-consol-print__fp-table td.part {
+    width: 48% !important;
+    white-space: nowrap !important;
+  }
+
+  html.m2-consol-printing #m2-print-portal .m2-consol-print__fp-table {
+    table-layout: fixed !important;
+  }
+
+  html.m2-consol-printing #m2-print-portal .m2-consol-print__footer {
+    margin-top: 14px !important;
   }
 
   html.m2-consol-printing .no-print {

@@ -1,16 +1,20 @@
 """
 Consolidation print columns with old-age splits (similar to DOD mid-CPI columns).
 
-Print formula (no DA):
-  M2′ = M2 + M2×%
-  M1′ = M1 + M1×%
-  Difference = M2′ − M1′
-  Payable = max(M2′, M1′)
-  Revised total basic = Payable
+Print formula (no DA) — benefit part only:
+  OA_M2 = M2 × %          (0 when % = 0)
+  OA_M1 = M1 × %          (0 when % = 0)
+  OA Diff = OA_M2 − OA_M1
+
+Separate table — Pension with Old Age Benefit:
+  Payable basic = max(M2, M1)
+  Old age benefit = max(OA_M2, OA_M1)
+  Revised basic = Payable + Old age benefit
 
 Example — age-80 WEF Aug 2024:
-  277: plain
-  359: upto Jul 2024 (plain) | from Aug 2024 @20%
+  277: OA = 0
+  359 upto Jul 2024: OA = 0
+  359 from Aug 2024 @20%: OA = 20% of basic
 """
 
 from __future__ import annotations
@@ -68,13 +72,11 @@ def _float_or_none(value):
         return None
 
 
-def _apply_pct(amount: Decimal | None, pct: Decimal) -> Decimal | None:
-    """amount + amount×pct/100."""
-    if amount is None:
-        return None
-    if pct <= 0:
-        return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return (amount + amount * pct / Decimal("100")).quantize(
+def _benefit_only(amount: Decimal | None, pct: Decimal) -> Decimal:
+    """amount × pct/100 — benefit part only (0 when pct=0 or amount missing)."""
+    if amount is None or pct <= 0:
+        return Decimal("0.00")
+    return (amount * pct / Decimal("100")).quantize(
         Decimal("0.01"), rounding=ROUND_HALF_UP
     )
 
@@ -124,28 +126,30 @@ def _build_cpi_columns(
             continue
 
         pct = percent_on_wef_date(dob, seg_start)
-        m2_oa = _apply_pct(m2, pct)
-        m1_oa = _apply_pct(m1, pct)
-        m2_oa_f = _float_or_none(m2_oa)
-        m1_oa_f = _float_or_none(m1_oa)
+        oa_m2 = _benefit_only(m2, pct)
+        oa_m1 = _benefit_only(m1, pct)
+        oa_m2_f = float(oa_m2)
+        oa_m1_f = float(oa_m1)
+        oa_diff = round(oa_m2_f - oa_m1_f, 2)
 
         base_diff = None
         if m2f is not None and m1f is not None:
             base_diff = round(m2f - m1f, 2)
 
-        oa_diff = None
-        if m2_oa_f is not None and m1_oa_f is not None:
-            oa_diff = round(m2_oa_f - m1_oa_f, 2)
+        if m2f is not None and m1f is not None:
+            payable = max(m2f, m1f)
+        elif m2f is not None:
+            payable = m2f
+        elif m1f is not None:
+            payable = m1f
+        else:
+            payable = None
 
-        payable = None
-        if m2_oa_f is not None and m1_oa_f is not None:
-            payable = max(m2_oa_f, m1_oa_f)
-        elif m2_oa_f is not None:
-            payable = m2_oa_f
-        elif m1_oa_f is not None:
-            payable = m1_oa_f
+        oa_benefit = max(oa_m2_f, oa_m1_f)
+        revised = (
+            round(payable + oa_benefit, 2) if payable is not None else oa_benefit
+        )
 
-        # Period notes (month-year), parallel to DOD split style.
         notes = []
         if i == 0 and len(starts) > 1:
             notes.append(f"upto {_month_label(_prev_month_end(starts[1]))}")
@@ -171,20 +175,17 @@ def _build_cpi_columns(
                 "period_from": seg_start.isoformat(),
                 "period_to": None if open_end else (seg_end.isoformat() if seg_end else None),
                 "oldage_percent": float(pct),
-                # Base (without OA) — top EMP PENSION rows
                 "m2_base": m2f,
                 "m2": m2f,
                 "m1": m1f,
                 "diff": base_diff,
-                # Old-age calc details (M2/M1 × % on full basic; no DA)
-                "m2_oa_basic": m2_oa_f,
-                "m1_oa_basic": m1_oa_f,
+                "oa_benefit_m2": oa_m2_f,
+                "oa_benefit_m1": oa_m1_f,
                 "oa_diff": oa_diff,
                 "payable_basic": payable,
-                "revised_total_basic": payable,
-                "oldage_addl": (
-                    _money(m2_oa - m2) if m2 is not None and m2_oa is not None and pct > 0 else 0.0
-                ),
+                "oa_benefit": oa_benefit,
+                "revised_total_basic": revised,
+                "oldage_addl": _money(oa_m2) if pct > 0 else 0.0,
             }
         )
     return cols
@@ -202,7 +203,7 @@ def build_oldage_pension_comparison(
 ) -> dict[str, Any]:
     """
     Build pension_comparison with old-age mid-CPI columns for print.
-    OA enhancement on print = % of full M2 / full M1 (not M2−M1). No DA.
+    OA on print = % of full M2 / M1 (benefit only). No DA.
     """
     dob_d = _as_date(dob)
     as_on = _as_date(as_on_date) or date.today()
@@ -211,6 +212,7 @@ def build_oldage_pension_comparison(
     if not dob_d:
         return {
             "has_oldage_split": False,
+            "has_oldage_calc_table": False,
             "columns": [],
             "section_title": (
                 "EMPLOYEE PENSION" if is_employee_pension else "FAMILY PENSION"
@@ -262,9 +264,7 @@ def build_oldage_pension_comparison(
         "date_of_birth": dob_d.isoformat(),
         "as_on_date": as_on.isoformat(),
         "section_title": (
-            "EMPLOYEE PENSION"
-            if is_employee_pension
-            else "FAMILY PENSION"
+            "EMPLOYEE PENSION" if is_employee_pension else "FAMILY PENSION"
         ),
         "is_employee_pension": is_employee_pension,
         "columns": columns,

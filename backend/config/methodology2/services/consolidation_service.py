@@ -176,6 +176,40 @@ def _row_has_value(row):
         return True
 
 
+def _next_wage_revision_year(revision_key):
+    """
+    Next CPI / pay-revision year after this block.
+    e.g. 1997(1708 CPI) → 2007; 2017(277 CPI) → 2022; 2022 → None.
+    """
+    text = str(revision_key or "").strip()
+    m = re.match(r"^(\d{4})", text)
+    if not m:
+        return None
+    year = m.group(1)
+    years = []
+    for key in REVISION_ORDER:
+        ym = re.match(r"^(\d{4})", key)
+        if ym:
+            years.append(ym.group(1))
+    if year not in years:
+        return None
+    idx = years.index(year)
+    if idx + 1 >= len(years):
+        return None
+    return years[idx + 1]
+
+
+def _append_wage_revision_order(title, revision_key):
+    """Append 'As per {next year} Wage Revision Order' when a next CPI exists."""
+    text = str(title or "")
+    if re.search(r"As per\s+\d{4}\s+Wage Revision Order", text, re.I):
+        return text
+    next_year = _next_wage_revision_year(revision_key)
+    if not next_year:
+        return text
+    return f"{text} — As per {next_year} Wage Revision Order"
+
+
 def _format_print_block_title(revision_key, scale_band=""):
     """e.g. 2007(126 CPI) + 11000-29400 → Year 2007 - CPI 126 (11000-29400)."""
     text = str(revision_key or "")
@@ -190,8 +224,8 @@ def _format_print_block_title(revision_key, scale_band=""):
 
     band = format_scale_range_display(scale_band) if scale_band else ""
     if band:
-        return f"{title} ({band})"
-    return title
+        title = f"{title} ({band})"
+    return _append_wage_revision_order(title, revision_key)
 
 
 def build_revision_blocks(calculation_rows, start_revision, equivalent_scales=None):
@@ -315,6 +349,7 @@ def build_class12_revision_blocks(
             key = str(start_revision or "start")
         title = _title_with_scale(title, key)
         scale_band = _scale_for(key)
+        title = _append_wage_revision_order(title, key)
         blocks.append(
             {
                 "revision_key": key,

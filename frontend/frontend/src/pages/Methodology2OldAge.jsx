@@ -548,8 +548,10 @@ export default function Methodology2OldAge() {
               <p className="text-muted small mb-3">
                 Upload Excel with column <code>EMP_CD</code> (optional{" "}
                 <code>name</code>, <code>roll_no</code>). Each employee is
-                calculated, consolidation saved, and PDF written to Desktop{" "}
-                <code>M2_YYYY-MM-DD</code> as <code>case_no.pdf</code>.
+                calculated with <strong>Old Age</strong> print columns,
+                consolidation saved to the old-age table, and PDF written to
+                Desktop <code>M2_OldAge_YYYY-MM-DD</code> as{" "}
+                <code>case_no.pdf</code>.
                 Click <strong>Report (Excel)</strong> with an{" "}
                 <strong>Updated from / to</strong> range to export only rows
                 whose <code>updated_at</code> falls in that period (not the full

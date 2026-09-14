@@ -3,19 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <title>M2 Consolidation {{ s.emp_cd }}</title>
+  {# Layout/CSS matched to Methodology2ConsolidationPrint (single-emp print). #}
   <style>
     @page {
       size: A4 portrait;
-      margin: 5mm 8mm;
-      margin-left: 20mm;
-      margin-right: 20mm;
+      margin: 4mm 16mm;
     }
     body {
       font-family: "Times New Roman", Times, serif;
       color: #000;
       background: #fff;
       font-size: 11px;
-      line-height: 1.00;
+      line-height: 1;
       margin: 0;
       padding: 0;
     }
@@ -50,40 +49,32 @@
     .m2-consol-print__emp-grid {
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 8px;
+      margin-bottom: 4px;
       table-layout: fixed;
     }
     .m2-consol-print__emp-grid td {
       border: 1px solid #333;
       padding: 3px 6px;
       vertical-align: top;
-      width: 50%;
+      width: 33.33%;
     }
     .m2-consol-print__emp-grid .label {
       font-weight: 700;
       margin-right: 4px;
     }
-    /*
-      xhtml2pdf splits multi-row tables between rows (ignores page-break-inside).
-      Wrap each CPI card in a 1-cell outer table: a cell cannot be split across
-      pages, so the full card (A–F for 277) stays together — like browser print.
-    */
+    .m2-consol-print__emp-cell--prominent {
+      background: #f3f4f6;
+    }
+    .m2-consol-print__case-no {
+      font-weight: 800;
+      font-size: 14px;
+      letter-spacing: 0.02em;
+    }
     table.m2-consol-print__cpi-wrap {
       width: 100%;
       border-collapse: collapse;
-      margin: 0 0 8px 0;
-      -pdf-keep-in-frame-mode: overflow;
+      margin: 0 0 3px 0;
     }
-    /* After 277 CPI card → new page for 359 + pension + signing 
-    .m2-page-break {
-      page-break-after: always;
-      -pdf-page-break: after;
-      height: 0;
-      margin: 0;
-      padding: 0;
-      font-size: 1px;
-      line-height: 0;
-    }*/
     table.m2-consol-print__cpi-wrap > tr > td,
     table.m2-consol-print__cpi-wrap td.wrap-cell {
       border: none;
@@ -113,12 +104,6 @@
       background: #f3f3f3;
       padding: 3px 6px;
     }
-    .m2-consol-print__block-header-row td {
-      background: #eee;
-      font-size: 10px;
-      text-align: center;
-      font-weight: 700;
-    }
     .m2-consol-print__cpi-card td.code {
       width: 28px;
       max-width: 28px;
@@ -134,14 +119,13 @@
     .m2-consol-print__fp-title {
       font-weight: 700;
       text-align: center;
-      margin: 8px 0 4px;
+      margin: 4px 0 2px;
       font-size: 12px;
     }
     table.m2-consol-print__fp-wrap {
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 12px;
-      -pdf-keep-in-frame-mode: overflow;
+      margin-bottom: 4px;
     }
     table.m2-consol-print__fp-wrap td.wrap-cell {
       border: none;
@@ -151,11 +135,15 @@
       width: 100%;
       border-collapse: collapse;
       margin: 0;
+      table-layout: fixed;
+    }
+    .m2-consol-print__fp-table col.part-col {
+      width: 48%;
     }
     .m2-consol-print__fp-table th,
     .m2-consol-print__fp-table td {
       border: 1px solid #333;
-      padding: 4px 6px;
+      padding: 2px 4px;
     }
     .m2-consol-print__fp-table th {
       background: #eee;
@@ -169,12 +157,27 @@
       font-size: 9px;
       margin-top: 2px;
     }
+    .m2-consol-print__fp-table th:first-child,
+    .m2-consol-print__fp-table td:first-child,
+    .m2-consol-print__fp-table td.part {
+      text-align: left;
+      white-space: nowrap;
+      width: 48%;
+    }
     .m2-consol-print__fp-table td.amt {
       text-align: center;
+      white-space: nowrap;
+    }
+    .m2-consol-print__fp-table tr.m2-consol-print__oa-section td {
+      background: #eee;
+      font-weight: 700;
+      text-align: center;
+      font-size: 10px;
+      white-space: normal;
     }
     .m2-consol-print__footer {
       width: 100%;
-      margin-top: 60px;
+      margin-top: 14px;
       border-collapse: collapse;
     }
     .m2-consol-print__footer td {
@@ -213,9 +216,28 @@
 
         <tr>
           <td><span class="label">Emp ID:</span> {{ s.emp_cd|default:"—" }}</td>
-          <td><span class="label">Case NO:</span> {{ s.case_no|default:"—" }}</td>
-          <td><span class="label">Roll No:</span> {{s.roll_no|default:"—"  }}</td>
+          <td class="m2-consol-print__emp-cell--prominent">
+            <span class="label">Case NO:</span>
+            <span class="m2-consol-print__case-no">{{ s.case_no|default:"—" }}</span>
+          </td>
+          <td><span class="label">Roll No:</span> {{ s.roll_no|default:"—" }}</td>
         </tr>
+
+        {% if date_of_birth_display and date_of_birth_display != "—" %}
+        <tr>
+          <td><span class="label">Retirement Date:</span> {{ retirement_date }}</td>
+          <td><span class="label">Date of Birth:</span> {{ date_of_birth_display }}</td>
+          <td><span class="label">Category:</span> {{ s.category|default:"—" }}</td>
+        </tr>
+        <tr>
+          <td><span class="label">TQS:</span> {{ tqs }}</td>
+          <td><span class="label">Average Pay:</span> {{ average_pay }}</td>
+          <td><span class="label">Last Pay:</span> {{ last_pay }}</td>
+        </tr>
+        <tr>
+          <td colspan="3"><span class="label">Designation:</span> {{ s.designation|default:"—" }}</td>
+        </tr>
+        {% else %}
         <tr>
           <td><span class="label">Retirement Date:</span> {{ retirement_date }}</td>
           <td><span class="label">TQS:</span> {{ tqs }}</td>
@@ -226,6 +248,8 @@
           <td><span class="label">Average Pay:</span> {{ average_pay }}</td>
           <td><span class="label">Last Pay:</span> {{ last_pay }}</td>
         </tr>
+        {% endif %}
+
         {% if date_of_death_display or double_fpension_upto_display %}
         <tr>
           {% if date_of_death_display %}
@@ -252,11 +276,6 @@
             <tr class="m2-consol-print__block-title-row">
               <td colspan="3">{{ block.title }}</td>
             </tr>
-            <tr class="m2-consol-print__block-header-row">
-              <td class="code"></td>
-              <td>Breakdown Component</td>
-              <td class="amt">Amount (Rs)</td>
-            </tr>
             {% for row in block.rows %}
             <tr>
               <td class="code">{{ row.code }}</td>
@@ -279,6 +298,12 @@
       <tr>
         <td class="wrap-cell">
           <table class="m2-consol-print__fp-table">
+            <colgroup>
+              <col class="part-col" />
+              {% for col in comparison_columns %}
+              <col />
+              {% endfor %}
+            </colgroup>
             <tr>
               <th>Particulars</th>
               {% for col in comparison_columns %}
@@ -290,27 +315,98 @@
               {% endfor %}
             </tr>
             <tr>
-              <td>Pension fixed as per Methodology-2</td>
+              <td class="part">Pension fixed as per Methodology-2</td>
               {% for col in comparison_columns %}
               <td class="amt">{{ col.m2_display }}</td>
               {% endfor %}
             </tr>
             <tr>
-              <td>Pension fixed as per Methodology-1</td>
+              <td class="part">Pension fixed as per Methodology-1</td>
               {% for col in comparison_columns %}
               <td class="amt">{{ col.m1_display }}</td>
               {% endfor %}
             </tr>
             <tr>
-              <td>Difference</td>
+              <td class="part">Difference</td>
               {% for col in comparison_columns %}
               <td class="amt">{{ col.diff_display }}</td>
+              {% endfor %}
+            </tr>
+            {% if show_oldage_calc %}
+            <tr class="m2-consol-print__oa-section">
+              <td colspan="{{ comparison_columns|length|add:1 }}">
+                Old Age Benefit Calculation Details
+              </td>
+            </tr>
+            <tr>
+              <td class="part">Old Age Benefit as per M2</td>
+              {% for col in comparison_columns %}
+              <td class="amt">{{ col.oa_m2_display }}</td>
+              {% endfor %}
+            </tr>
+            <tr>
+              <td class="part">Old Age Benefit as per M1</td>
+              {% for col in comparison_columns %}
+              <td class="amt">{{ col.oa_m1_display }}</td>
+              {% endfor %}
+            </tr>
+            <tr>
+              <td class="part">Difference</td>
+              {% for col in comparison_columns %}
+              <td class="amt">{{ col.oa_diff_display }}</td>
+              {% endfor %}
+            </tr>
+            {% endif %}
+          </table>
+        </td>
+      </tr>
+    </table>
+
+    {% if show_oldage_calc %}
+    <div class="m2-consol-print__fp-title">PENSION WITH OLD AGE BENEFIT</div>
+    <table class="m2-consol-print__fp-wrap">
+      <tr>
+        <td class="wrap-cell">
+          <table class="m2-consol-print__fp-table">
+            <colgroup>
+              <col class="part-col" />
+              {% for col in comparison_columns %}
+              <col />
+              {% endfor %}
+            </colgroup>
+            <tr>
+              <th>Particulars</th>
+              {% for col in comparison_columns %}
+              <th>
+                {% for line in col.header_lines %}
+                  {% if forloop.first %}{{ line }}{% else %}<span class="sub">{{ line }}</span>{% endif %}
+                {% endfor %}
+              </th>
+              {% endfor %}
+            </tr>
+            <tr>
+              <td class="part">Payable Basic Pension (Higher of M1 &amp; M2)</td>
+              {% for col in comparison_columns %}
+              <td class="amt">{{ col.payable_display }}</td>
+              {% endfor %}
+            </tr>
+            <tr>
+              <td class="part">Old Age Benefit (Higher of M1 &amp; M2)</td>
+              {% for col in comparison_columns %}
+              <td class="amt">{{ col.oa_benefit_display }}</td>
+              {% endfor %}
+            </tr>
+            <tr>
+              <td class="part">Revised Basic Pension</td>
+              {% for col in comparison_columns %}
+              <td class="amt">{{ col.revised_display }}</td>
               {% endfor %}
             </tr>
           </table>
         </td>
       </tr>
     </table>
+    {% endif %}
 
     <table class="m2-consol-print__footer">
       <tr>

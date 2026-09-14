@@ -9,6 +9,21 @@ function money(value) {
   return `₹ ${formatCardValue(value)}`;
 }
 
+const REVISION_YEARS = [
+  1979, 1984, 1988, 1993, 1997, 2007, 2012, 2017, 2022,
+];
+
+/** e.g. 1997 block → "As per 2007 Wage Revision Order". */
+function blockTitleWithWageOrder(block) {
+  const title = block?.title || "";
+  if (/As per\s+\d{4}\s+Wage Revision Order/i.test(title)) return title;
+  const m = String(block?.revision_key || title).match(/(\d{4})/);
+  if (!m) return title;
+  const idx = REVISION_YEARS.indexOf(Number(m[1]));
+  if (idx < 0 || idx >= REVISION_YEARS.length - 1) return title;
+  return `${title} — As per ${REVISION_YEARS[idx + 1]} Wage Revision Order`;
+}
+
 /** Last Pay shows actual stage; stagnation labelled in braces when present. */
 function lastPayWithStagnation(lastPay, stagnationAmount) {
   const base = money(lastPay);
@@ -74,8 +89,9 @@ function columnAmounts(col) {
 }
 
 /**
- * Old-age print calc: M2′=M2+M2×%, M1′=M1+M1×%, payable=max, revised=payable.
- * Uses backend fields when present; otherwise derives from base + percent.
+ * Old-age print amounts (benefit part only + separate pension-with-OA table).
+ * OA_M2 = M2×%, OA_M1 = M1×% (0 when % = 0).
+ * Payable = max(M2,M1); OA benefit = max(OA_M2,OA_M1); Revised = payable + OA.
  */
 function oldAgeCalcAmounts(col) {
   const pct = Number(col.oldage_percent || 0);
@@ -92,30 +108,39 @@ function oldAgeCalcAmounts(col) {
     return Number.isNaN(n) ? null : n;
   };
 
-  let m2Oa = fromBackend("m2_oa_basic");
-  let m1Oa = fromBackend("m1_oa_basic");
-  if (m2Oa == null && m2Base != null && !Number.isNaN(m2Base)) {
-    m2Oa = Math.round((m2Base + (m2Base * pct) / 100) * 100) / 100;
+  let oaM2 = fromBackend("oa_benefit_m2");
+  let oaM1 = fromBackend("oa_benefit_m1");
+  // Prefer benefit-only fields; do not use legacy m2_oa_basic (= full enhanced).
+  if (oaM2 == null && m2Base != null && !Number.isNaN(m2Base)) {
+    oaM2 =
+      pct > 0 ? Math.round(((m2Base * pct) / 100) * 100) / 100 : 0;
   }
-  if (m1Oa == null && m1 != null && !Number.isNaN(m1)) {
-    m1Oa = Math.round((m1 + (m1 * pct) / 100) * 100) / 100;
+  if (oaM1 == null && m1 != null && !Number.isNaN(m1)) {
+    oaM1 = pct > 0 ? Math.round(((m1 * pct) / 100) * 100) / 100 : 0;
   }
+  if (oaM2 == null) oaM2 = 0;
+  if (oaM1 == null) oaM1 = 0;
 
   let oaDiff = fromBackend("oa_diff");
-  if (oaDiff == null && m2Oa != null && m1Oa != null) {
-    oaDiff = Math.round((m2Oa - m1Oa) * 100) / 100;
+  if (oaDiff == null) {
+    oaDiff = Math.round((oaM2 - oaM1) * 100) / 100;
   }
 
   let payable = fromBackend("payable_basic");
   if (payable == null) {
-    if (m2Oa != null && m1Oa != null) payable = Math.max(m2Oa, m1Oa);
-    else payable = m2Oa ?? m1Oa;
+    if (m2Base != null && m1 != null) payable = Math.max(m2Base, m1);
+    else payable = m2Base ?? m1;
   }
 
-  let revised = fromBackend("revised_total_basic");
-  if (revised == null) revised = payable;
+  let oaBenefit = fromBackend("oa_benefit");
+  if (oaBenefit == null) oaBenefit = Math.max(oaM2, oaM1);
 
-  return { m2Oa, m1Oa, oaDiff, payable, revised, pct };
+  let revised = fromBackend("revised_total_basic");
+  if (revised == null && payable != null) {
+    revised = Math.round((payable + oaBenefit) * 100) / 100;
+  }
+
+  return { oaM2, oaM1, oaDiff, payable, oaBenefit, revised, pct };
 }
 
 function buildFallbackColumns(snapshot) {
@@ -322,19 +347,14 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
                     </colgroup>
                     <tbody>
                       <tr className="m2-consol-print__block-title-row">
-                        <td colSpan={3}>{block.title}</td>
-                      </tr>
-                      <tr className="m2-consol-print__block-header-row">
-                        <td className="code"></td>
-                        <td>Breakdown Component</td>
-                        <td className="amt">Amount (Rs)</td>
+                        <td colSpan={3}>{blockTitleWithWageOrder(block)}</td>
                       </tr>
                       {(block.rows || []).map((row) => (
                         <tr key={row.row || row.description}>
                           <td className="code">{row.code || ""}</td>
                           <td>{row.description}</td>
                           <td className="amt">
-                            {formatCardValue(row.value)}
+                            {money(row.value)}
                           </td>
                         </tr>
                       ))}
@@ -352,6 +372,12 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
             <tr>
               <td className="wrap-cell">
                 <table className="m2-consol-print__fp-table">
+                  <colgroup>
+                    <col className="part-col" />
+                    {columns.map((col) => (
+                      <col key={`c-${col.key || col.header}`} />
+                    ))}
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>Particulars</th>
@@ -373,7 +399,9 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
                   </thead>
                   <tbody>
                     <tr>
-                      <td>Pension fixed as per Methodology-2</td>
+                      <td className="part">
+                        Pension fixed as per Methodology-2
+                      </td>
                       {columns.map((col) => (
                         <td
                           key={`m2-${col.key || col.header}`}
@@ -384,7 +412,9 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
                       ))}
                     </tr>
                     <tr>
-                      <td>Pension fixed as per Methodology-1</td>
+                      <td className="part">
+                        Pension fixed as per Methodology-1
+                      </td>
                       {columns.map((col) => (
                         <td
                           key={`m1-${col.key || col.header}`}
@@ -395,7 +425,7 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
                       ))}
                     </tr>
                     <tr>
-                      <td>Difference</td>
+                      <td className="part">Difference</td>
                       {columns.map((col) => (
                         <td
                           key={`diff-${col.key || col.header}`}
@@ -413,57 +443,35 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
                           </td>
                         </tr>
                         <tr>
-                          <td>Basic Pension (M2) with Old Age Benefit</td>
+                          <td className="part">Old Age Benefit as per M2</td>
                           {columns.map((col) => (
                             <td
-                              key={`m2oa-${col.key || col.header}`}
+                              key={`oam2-${col.key || col.header}`}
                               className="amt"
                             >
-                              {money(oldAgeCalcAmounts(col).m2Oa)}
+                              {money(oldAgeCalcAmounts(col).oaM2)}
                             </td>
                           ))}
                         </tr>
                         <tr>
-                          <td>Basic pension (M1) with Old Age Benefit</td>
+                          <td className="part">Old Age Benefit as per M1</td>
                           {columns.map((col) => (
                             <td
-                              key={`m1oa-${col.key || col.header}`}
+                              key={`oam1-${col.key || col.header}`}
                               className="amt"
                             >
-                              {money(oldAgeCalcAmounts(col).m1Oa)}
+                              {money(oldAgeCalcAmounts(col).oaM1)}
                             </td>
                           ))}
                         </tr>
                         <tr>
-                          <td>Difference</td>
+                          <td className="part">Difference</td>
                           {columns.map((col) => (
                             <td
                               key={`oadiff-${col.key || col.header}`}
                               className="amt"
                             >
                               {money(oldAgeCalcAmounts(col).oaDiff)}
-                            </td>
-                          ))}
-                        </tr>
-                        <tr>
-                          <td>Payable Basic Pension (Higher of M2 & M1)</td>
-                          {columns.map((col) => (
-                            <td
-                              key={`pay-${col.key || col.header}`}
-                              className="amt"
-                            >
-                              {money(oldAgeCalcAmounts(col).payable)}
-                            </td>
-                          ))}
-                        </tr>
-                        <tr>
-                          <td>Revised Basic Pension</td>
-                          {columns.map((col) => (
-                            <td
-                              key={`rev-${col.key || col.header}`}
-                              className="amt"
-                            >
-                              {money(oldAgeCalcAmounts(col).revised)}
                             </td>
                           ))}
                         </tr>
@@ -475,6 +483,88 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
             </tr>
           </tbody>
         </table>
+
+        {showOldAgeCalcTable ? (
+          <>
+            <div className="m2-consol-print__fp-title">
+              PENSION WITH OLD AGE BENEFIT
+            </div>
+            <table className="m2-consol-print__fp-wrap">
+              <tbody>
+                <tr>
+                  <td className="wrap-cell">
+                    <table className="m2-consol-print__fp-table">
+                      <colgroup>
+                        <col className="part-col" />
+                        {columns.map((col) => (
+                          <col key={`oa2c-${col.key || col.header}`} />
+                        ))}
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th>Particulars</th>
+                          {columns.map((col) => (
+                            <th key={`oa2-${col.key || col.header}`}>
+                              {(col.header_lines || [col.header || ""]).map(
+                                (line, idx) =>
+                                  idx === 0 ? (
+                                    <span key={line}>{line}</span>
+                                  ) : (
+                                    <span key={line} className="sub">
+                                      {line}
+                                    </span>
+                                  )
+                              )}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td className="part">
+                            Payable Basic Pension (Higher of M1 & M2)
+                          </td>
+                          {columns.map((col) => (
+                            <td
+                              key={`pay-${col.key || col.header}`}
+                              className="amt"
+                            >
+                              {money(oldAgeCalcAmounts(col).payable)}
+                            </td>
+                          ))}
+                        </tr>
+                        <tr>
+                          <td className="part">
+                            Old Age Benefit (Higher of M1 & M2)
+                          </td>
+                          {columns.map((col) => (
+                            <td
+                              key={`oaben-${col.key || col.header}`}
+                              className="amt"
+                            >
+                              {money(oldAgeCalcAmounts(col).oaBenefit)}
+                            </td>
+                          ))}
+                        </tr>
+                        <tr>
+                          <td className="part">Revised Basic Pension</td>
+                          {columns.map((col) => (
+                            <td
+                              key={`rev-${col.key || col.header}`}
+                              className="amt"
+                            >
+                              {money(oldAgeCalcAmounts(col).revised)}
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </>
+        ) : null}
 
         <table className="m2-consol-print__footer">
           <tbody>

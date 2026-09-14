@@ -1,4 +1,4 @@
-"""Bulk Excel upload — same Met2 engine; snapshots go to old-age table only."""
+"""Bulk Excel upload — Met2 calc + Old Age print columns/PDF."""
 
 from datetime import date
 from pathlib import Path
@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 import methodology2.services.bulk_run_service as m2_bulk
 import methodology2.services.consolidation_service as m2_cs
 from M2_oldage_arrear.models import M2OldageArrearConsolidation
+from M2_oldage_arrear.services.bulk_run_service import run_bulk_from_excel
 
 
 def _oldage_output_dir(run_date: date | None = None) -> Path:
@@ -44,7 +45,7 @@ class BulkUploadView(APIView):
         m2_cs.Methodology2Consolidation = M2OldageArrearConsolidation
         m2_bulk.default_run_output_dir = _oldage_output_dir
         try:
-            summary = m2_bulk.run_bulk_from_excel(upload.read(), output_dir=out)
+            summary = run_bulk_from_excel(upload.read(), output_dir=out)
         except ValueError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:

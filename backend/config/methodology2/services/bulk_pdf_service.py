@@ -204,15 +204,42 @@ def _build_print_context(snapshot: dict) -> dict:
     else:
         enriched = []
         for col in columns:
+            m2_base = (
+                col.get("m2_base")
+                if col.get("m2_base") is not None
+                else col.get("m2")
+            )
+            m1_val = col.get("m1")
+            base_diff = col.get("diff")
+            if base_diff is None and m2_base is not None and m1_val is not None:
+                try:
+                    base_diff = float(m2_base) - float(m1_val)
+                except (TypeError, ValueError):
+                    base_diff = None
             enriched.append(
                 {
                     **col,
-                    "m2_display": _money(col.get("m2")),
-                    "m1_display": _money(col.get("m1")),
-                    "diff_display": _money(col.get("diff")),
+                    "m2_display": _money(m2_base),
+                    "m1_display": _money(m1_val),
+                    "diff_display": _money(base_diff),
+                    "oa_m2_display": _money(col.get("oa_benefit_m2") or 0),
+                    "oa_m1_display": _money(col.get("oa_benefit_m1") or 0),
+                    "oa_diff_display": _money(col.get("oa_diff") or 0),
+                    "payable_display": _money(col.get("payable_basic")),
+                    "oa_benefit_display": _money(col.get("oa_benefit") or 0),
+                    "revised_display": _money(col.get("revised_total_basic")),
                 }
             )
         columns = enriched
+
+    show_oldage_calc = bool(
+        is_employee_pension
+        and (
+            comparison.get("has_oldage_calc_table")
+            or comparison.get("has_oldage_split")
+            or any(float(c.get("oldage_percent") or 0) > 0 for c in columns)
+        )
+    )
 
     avg = s.get("last_pay")
     if avg is None:
@@ -223,6 +250,14 @@ def _build_print_context(snapshot: dict) -> dict:
         else comparison.get("stagnation_amount")
     )
     last_pay_display = _last_pay_with_stagnation(avg, stag)
+
+    # Wage-revision order suffix on block titles (same as screen print).
+    try:
+        from methodology2.services.consolidation_service import (
+            _append_wage_revision_order,
+        )
+    except Exception:
+        _append_wage_revision_order = None
 
     blocks = []
     for block in s.get("revision_blocks") or []:
@@ -236,21 +271,20 @@ def _build_print_context(snapshot: dict) -> dict:
                 {
                     "code": row.get("code") or "",
                     "description": row.get("description") or row.get("label") or "",
-                    "amount_display": _format_card_value(row.get("value")),
+                    "amount_display": _money(row.get("value")),
                 }
             )
         rev_key = str(block.get("revision_key") or "")
         title = block.get("title") or rev_key or ""
-        is_277 = bool(
-            re.search(r"277", rev_key, re.I)
-            or re.search(r"CPI\s*277|277\s*CPI", str(title), re.I)
-        )
+        if _append_wage_revision_order:
+            title = _append_wage_revision_order(title, rev_key or title)
         blocks.append(
             {
                 "revision_key": rev_key,
                 "title": title,
                 "rows": rows,
-                "page_break_after": is_277,
+                # Keep bulk PDF on one page (no forced break after 277).
+                "page_break_after": False,
             }
         )
 
@@ -273,6 +307,9 @@ def _build_print_context(snapshot: dict) -> dict:
     show_double_upto = bool(
         double_upto_display and comparison.get("double_fpension_upto")
     )
+    date_of_birth_display = _format_date_en_in(
+        s.get("date_of_birth") or comparison.get("date_of_birth")
+    )
 
     return {
         "s": s,
@@ -280,6 +317,7 @@ def _build_print_context(snapshot: dict) -> dict:
         "generated_on": _format_date_en_in(date.today()),
         "retirement_date": _format_date_en_in(s.get("retirement_date")),
         "retirement_type": s.get("retirement_type") or "—",
+        "date_of_birth_display": date_of_birth_display,
         "tqs": _tqs_display(s),
         "average_pay": _money(avg),
         "last_pay": last_pay_display,
@@ -293,6 +331,7 @@ def _build_print_context(snapshot: dict) -> dict:
         ),
         "pension_section_title": pension_section_title,
         "comparison_columns": columns,
+        "show_oldage_calc": show_oldage_calc,
         "blocks": blocks,
     }
 

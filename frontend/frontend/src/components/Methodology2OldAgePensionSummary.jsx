@@ -37,6 +37,28 @@ function PensionBlock({ title, basic, pension, familyPension }) {
   );
 }
 
+const REVISION_YEARS = [
+  1979, 1984, 1988, 1993, 1997, 2007, 2012, 2017, 2022,
+];
+
+/** Next CPI year for "As per {year} Wage Revision Order". */
+function nextWageRevisionYear(revisionKeyOrTitle) {
+  const m = String(revisionKeyOrTitle || "").match(/(\d{4})/);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const idx = REVISION_YEARS.indexOf(year);
+  if (idx < 0 || idx >= REVISION_YEARS.length - 1) return null;
+  return REVISION_YEARS[idx + 1];
+}
+
+function withWageRevisionOrder(title, revisionKey) {
+  const text = String(title || "");
+  if (/As per\s+\d{4}\s+Wage Revision Order/i.test(text)) return text;
+  const next = nextWageRevisionYear(revisionKey || text);
+  if (!next) return text;
+  return `${text} — As per ${next} Wage Revision Order`;
+}
+
 function cardsToRevisionBlocks(cards, equivalentScales = null) {
   const scales = equivalentScales || {};
   return cards.map((card) => {
@@ -61,6 +83,7 @@ function cardsToRevisionBlocks(cards, equivalentScales = null) {
     } else if (scaleBand) {
       title = `${card.title} (${scaleBand})`;
     }
+    title = withWageRevisionOrder(title, card.revisionKey);
     return {
       revision_key: card.revisionKey,
       title,
@@ -137,6 +160,7 @@ export function buildClass12RevisionBlocks(
       key = String(startRevision || "start");
     }
     title = withScale(title, key);
+    title = withWageRevisionOrder(title, key);
     blocks.push({
       revision_key: key,
       title,

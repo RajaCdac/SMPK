@@ -2,16 +2,28 @@
 Consolidation print columns with old-age splits (similar to DOD mid-CPI columns).
 
 Print formula (no DA) — benefit part only:
-  OA_M2 = M2 × %          (0 when % = 0)
-  OA_M1 = M1 × %          (0 when % = 0)
-  OA Diff = OA_M2 − OA_M1
+  OA_M2 = ceil_rupee(M2 x %)   (0 when % = 0)
+  OA_M1 = ceil_rupee(M1 x %)   (0 when % = 0)
+  OA Diff = OA_M2 - OA_M1
+
+  ceil_rupee: any fraction -> next whole rupee (1011.01 / 1011.7 -> 1012).
 
 Separate table — Pension with Old Age Benefit:
   Payable basic = max(M2, M1)
   Old age benefit = max(OA_M2, OA_M1)
   Revised basic = Payable + Old age benefit
 
-Example — age-80 WEF Aug 2024:
+Class 3/4 (has 359 bases):
+  277 window 01.01.2017-31.12.2021, then 359 window from 01.01.2022 (open).
+
+Class 1/2 (no 359 revision — only 277 bases):
+  One continuous OA timeline from 01.01.2017 through the display horizon,
+  always using 277 M2/M1 under heading "In 2017 (277 CPI)" (never "2022").
+  Example — age-80 WEF Mar 2026:
+    In 2017 (277 CPI) | upto Feb 2026
+    In 2017 (277 CPI) | from Mar 2026 — Old age @20%
+
+Example — age-80 WEF Aug 2024 (class 3/4):
   277: OA = 0
   359 upto Jul 2024: OA = 0
   359 from Aug 2024 @20%: OA = 20% of basic
@@ -20,7 +32,7 @@ Example — age-80 WEF Aug 2024:
 from __future__ import annotations
 
 from datetime import date, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_CEILING
 from typing import Any
 
 from M2_oldage_arrear.services.oldage_service import (
@@ -36,6 +48,104 @@ from M2_oldage_arrear.services.oldage_service import (
 )
 
 CPI_277_END = date(2021, 12, 31)
+
+
+# One Excel group per age slab. Difference is M-II minus M-I for that %.
+OA_EXCEL_SLAB_PCTS = (20, 30, 40, 50, 100)
+
+
+def oldage_slab_excel_headers() -> list[str]:
+    headers: list[str] = []
+    for pct in OA_EXCEL_SLAB_PCTS:
+        headers.extend(
+            [
+                f"Old Age {pct}% from",
+                f"OA Benefit M-I @{pct}%",
+                f"OA Benefit M-II @{pct}%",
+                f"Difference @{pct}%",
+            ]
+        )
+    return headers
+
+
+def oldage_slab_excel_keys() -> list[str]:
+    keys: list[str] = []
+    for pct in OA_EXCEL_SLAB_PCTS:
+        keys.extend(
+            [
+                f"oa_{pct}_from",
+                f"oa_{pct}_m1",
+                f"oa_{pct}_m2",
+                f"oa_{pct}_diff",
+            ]
+        )
+    return keys
+
+
+def _slab_percent(value) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        pct = int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
+    if pct in OA_EXCEL_SLAB_PCTS:
+        return pct
+    return None
+
+
+def _slab_month_year(value) -> str:
+    d = _as_date(value)
+    if not d:
+        return ""
+    return _month_label(d).replace(" ", "-")
+
+
+def oldage_slab_excel_values(columns) -> list:
+    """
+    From-month plus M-I, M-II and Difference for each old-age slab.
+
+    From is the month that percentage first starts. Amounts are the latest
+    column at that percentage, so a slab that continues into 359 CPI shows
+    the 359 rupee benefit. Blank when that slab has not started.
+    """
+    grouped: dict[int, list[dict]] = {pct: [] for pct in OA_EXCEL_SLAB_PCTS}
+    for col in columns or []:
+        if not isinstance(col, dict):
+            continue
+        pct = _slab_percent(col.get("oldage_percent"))
+        if pct is None or pct <= 0:
+            continue
+        grouped[pct].append(col)
+
+    cells: list = []
+    for pct in OA_EXCEL_SLAB_PCTS:
+        cols = sorted(
+            grouped[pct],
+            key=lambda c: str(c.get("period_from") or ""),
+        )
+        if not cols:
+            cells.extend(["", None, None, None])
+            continue
+        latest = cols[-1]
+        m1 = _float_or_none(latest.get("oa_benefit_m1"))
+        m2 = _float_or_none(latest.get("oa_benefit_m2"))
+        diff = _float_or_none(latest.get("oa_diff"))
+        if diff is None and m1 is not None and m2 is not None:
+            diff = round(m2 - m1, 2)
+        cells.extend(
+            [
+                _slab_month_year(cols[0].get("period_from")),
+                m1,
+                m2,
+                diff,
+            ]
+        )
+    return cells
+
+
+def oldage_slab_excel_dict(columns) -> dict:
+    return dict(zip(oldage_slab_excel_keys(), oldage_slab_excel_values(columns)))
 
 
 def _month_label(d: date | None) -> str:
@@ -72,13 +182,23 @@ def _float_or_none(value):
         return None
 
 
+def _ceil_rupee(value: Decimal) -> Decimal:
+    """
+    As per M1 OA rule: if any fraction after decimal, round up to next rupee.
+    1011.01 / 1011.7 -> 1012; 1011.00 stays 1011.
+    """
+    return value.to_integral_value(rounding=ROUND_CEILING)
+
+
 def _benefit_only(amount: Decimal | None, pct: Decimal) -> Decimal:
-    """amount × pct/100 — benefit part only (0 when pct=0 or amount missing)."""
+    """
+    amount x pct/100 for Old Age Benefit Calculation Details (M1 / M2 rows).
+    Ceil to next whole rupee when any paise/fraction exists.
+    """
     if amount is None or pct <= 0:
-        return Decimal("0.00")
-    return (amount * pct / Decimal("100")).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
-    )
+        return Decimal("0")
+    raw = amount * pct / Decimal("100")
+    return _ceil_rupee(raw)
 
 
 def _segment_breaks(dob: date, window_start: date, window_end: date | None) -> list[date]:
@@ -92,6 +212,25 @@ def _segment_breaks(dob: date, window_start: date, window_end: date | None) -> l
     return sorted(b for b in breaks if b <= end)
 
 
+def _header_for_segment(
+    *,
+    seg_start: date,
+    year_label: str,
+    cpi: int,
+    continuous_277: bool,
+) -> tuple[str, int, str]:
+    """
+    Return (year_label, cpi, header first line).
+
+    Class 1/2 has no 359 revision — 277 CPI is always the 2017 revision.
+    OA slab splits after Mar 2022 stay under "In 2017 (277 CPI)"; only the
+    period note (upto / from / Old age @%) changes.
+    """
+    if continuous_277:
+        return "2017", 277, "In 2017 (277 CPI)"
+    return year_label, cpi, f"In {year_label} ({cpi} CPI)"
+
+
 def _build_cpi_columns(
     *,
     dob: date,
@@ -102,6 +241,7 @@ def _build_cpi_columns(
     m2: Decimal | None,
     m1: Decimal | None,
     kind: str,
+    continuous_277: bool = False,
 ) -> list[dict[str, Any]]:
     if m2 is None and m1 is None:
         return []
@@ -159,21 +299,29 @@ def _build_cpi_columns(
             notes.append(f"Old age @{float(pct):g}%")
 
         period_note = " — ".join(notes)
-        header_lines = [f"In {year_label} ({cpi} CPI)"]
+        yl, cpi_tag, head = _header_for_segment(
+            seg_start=seg_start,
+            year_label=year_label,
+            cpi=cpi,
+            continuous_277=continuous_277,
+        )
+        header_lines = [head]
         if period_note:
             header_lines.append(period_note)
 
         cols.append(
             {
-                "key": f"{cpi}_oa_{seg_start.isoformat()}",
-                "cpi": cpi,
+                "key": f"{cpi_tag}_oa_{seg_start.isoformat()}",
+                "cpi": cpi_tag,
                 "kind": kind,
-                "year_label": year_label,
+                "year_label": yl,
                 "period_note": period_note,
                 "header_lines": header_lines,
                 "header": " — ".join(header_lines),
                 "period_from": seg_start.isoformat(),
-                "period_to": None if open_end else (seg_end.isoformat() if seg_end else None),
+                "period_to": (
+                    None if open_end else (seg_end.isoformat() if seg_end else None)
+                ),
                 "oldage_percent": float(pct),
                 "m2_base": m2f,
                 "m2": m2f,
@@ -186,6 +334,7 @@ def _build_cpi_columns(
                 "oa_benefit": oa_benefit,
                 "revised_total_basic": revised,
                 "oldage_addl": _money(oa_m2) if pct > 0 else 0.0,
+                "bases_from_cpi": 277 if continuous_277 else cpi,
             }
         )
     return cols
@@ -204,6 +353,9 @@ def build_oldage_pension_comparison(
     """
     Build pension_comparison with old-age mid-CPI columns for print.
     OA on print = % of full M2 / M1 (benefit only). No DA.
+
+    When 359 bases are absent (class 1/2), build one continuous OA timeline
+    on 277 amounts from 01.01.2017 through the horizon.
     """
     dob_d = _as_date(dob)
     as_on = _as_date(as_on_date) or date.today()
@@ -224,31 +376,51 @@ def build_oldage_pension_comparison(
     b359 = _as_decimal(m2_359)
     a359 = _as_decimal(m1_359)
 
+    has_277 = b277 is not None or a277 is not None
+    has_359 = b359 is not None or a359 is not None
+    # Class 1/2: no post-277 CPI revision — carry 277 bases across 2017→horizon.
+    class12_continuous = has_277 and not has_359
+
     columns: list[dict[str, Any]] = []
-    columns.extend(
-        _build_cpi_columns(
-            dob=dob_d,
-            cpi=277,
-            year_label="2017",
-            window_start=CPI_277_FROM,
-            window_end=CPI_277_END,
-            m2=b277,
-            m1=a277,
-            kind=kind,
+    if class12_continuous:
+        columns.extend(
+            _build_cpi_columns(
+                dob=dob_d,
+                cpi=277,
+                year_label="2017",
+                window_start=CPI_277_FROM,
+                window_end=None,
+                m2=b277,
+                m1=a277,
+                kind=kind,
+                continuous_277=True,
+            )
         )
-    )
-    columns.extend(
-        _build_cpi_columns(
-            dob=dob_d,
-            cpi=359,
-            year_label="2022",
-            window_start=CPI_359_FROM,
-            window_end=None,
-            m2=b359,
-            m1=a359,
-            kind=kind,
+    else:
+        columns.extend(
+            _build_cpi_columns(
+                dob=dob_d,
+                cpi=277,
+                year_label="2017",
+                window_start=CPI_277_FROM,
+                window_end=CPI_277_END,
+                m2=b277,
+                m1=a277,
+                kind=kind,
+            )
         )
-    )
+        columns.extend(
+            _build_cpi_columns(
+                dob=dob_d,
+                cpi=359,
+                year_label="2022",
+                window_start=CPI_359_FROM,
+                window_end=None,
+                m2=b359,
+                m1=a359,
+                kind=kind,
+            )
+        )
 
     has_split = len(columns) > 2 or any(
         (c.get("oldage_percent") or 0) > 0 for c in columns
@@ -259,6 +431,7 @@ def build_oldage_pension_comparison(
         "has_oldage_split": has_split,
         "has_death_split": False,
         "has_oldage_calc_table": has_split,
+        "class12_continuous_277": class12_continuous,
         "oldage_wef_80": wef80.isoformat(),
         "oldage_wef_80_display": _month_label(wef80),
         "date_of_birth": dob_d.isoformat(),
@@ -268,10 +441,20 @@ def build_oldage_pension_comparison(
         ),
         "is_employee_pension": is_employee_pension,
         "columns": columns,
-        "m1_family_pension_277": _float_or_none(a277),
-        "m1_family_pension_359": _float_or_none(a359),
+        # Family Methodology-1 only. Empty while the employee is alive.
+        "m1_family_pension_277": (
+            None if is_employee_pension else _float_or_none(a277)
+        ),
+        "m1_family_pension_359": (
+            None if is_employee_pension else _float_or_none(a359)
+        ),
         "display_m2_277": columns[0]["m2"] if columns else _float_or_none(b277),
         "display_m2_359": (
-            next((c["m2"] for c in reversed(columns) if c["cpi"] == 359), None)
+            None
+            if class12_continuous
+            else next(
+                (c["m2"] for c in reversed(columns) if c.get("cpi") == 359),
+                None,
+            )
         ),
     }

@@ -90,3 +90,52 @@ export function formatCardValue(value) {
     maximumFractionDigits: 2,
   });
 }
+
+function class12BlockYear(block) {
+  const key = String(block?.revision_key || block?.revisionKey || "");
+  const fromKey = key.match(/^(\d{4})/);
+  if (fromKey) return fromKey[1];
+  const fromTitle = String(block?.title || "").match(/Year\s+(\d{4})/i);
+  return fromTitle ? fromTitle[1] : "";
+}
+
+function isClass12OpeningBasic(description) {
+  return /basic\s+pay\s+(as\s+on|in\s+the\s+existing\s+scale|over)/i.test(
+    String(description || "")
+  );
+}
+
+/**
+ * Each class 1/2 scale block starts with that scale's basic
+ * (e.g. Basic Pay as on 01.01.2007), then DA and fitment.
+ */
+export function ensureClass12OpeningBasic(blocks) {
+  let previousBasic = null;
+  return (blocks || []).map((block) => {
+    const year = class12BlockYear(block);
+    const rows = (block.rows || []).map((row) => ({ ...row }));
+    if (rows.length) {
+      const first = String(rows[0].description || "");
+      // First scale keeps "Basic Pay in the existing scale (YYYY …)".
+      // Later scales open with "Basic Pay as on 01.01.YYYY".
+      if (
+        year &&
+        previousBasic != null &&
+        previousBasic !== "" &&
+        !isClass12OpeningBasic(first)
+      ) {
+        rows.unshift({
+          description: `Basic Pay as on 01.01.${year}`,
+          value: previousBasic,
+        });
+      }
+      rows.forEach((row, idx) => {
+        row.row = idx + 1;
+        row.code = idx < 26 ? String.fromCharCode(65 + idx) : String(idx + 1);
+      });
+      const last = rows[rows.length - 1];
+      if (last?.value != null && last.value !== "") previousBasic = last.value;
+    }
+    return { ...block, rows };
+  });
+}

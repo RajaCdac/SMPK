@@ -1,11 +1,18 @@
 const ADMIN_CODES = new Set(["ADMIN", "PENSION_ADMIN", "ADMINISTRATOR"]);
 
+/** Docker M2_OA_Benifit build: only M2 Old Age Arrear menu + routes. */
+export function isM2OaOnlyBuild() {
+  return String(import.meta.env.VITE_M2_OA_ONLY || "").toLowerCase() === "true";
+}
+
 export const ROLE = {
   ADMIN: "ADMIN",
   FIRST_PENSION_USER: "FIRST_PENSION_USER",
   FAMILY_PENSION_USER: "FAMILY_PENSION_USER",
   BILL_GENERATION_USER: "BILL_GENERATION_USER",
   LIC_SECTION_USER: "LIC_SECTION_USER",
+  /** Methodology 2 + M2 Old Age Arrear */
+  M2_USER: "M2_USER",
   /** Legacy catch-all from older role names */
   PENSION_USER: "PENSION_USER",
 };
@@ -33,6 +40,16 @@ export function normalizeRoleCode(user) {
   if (ADMIN_CODES.has(code)) {
     return ROLE.ADMIN;
   }
+  // Role created as "Methodology II User" often stores code METHODOLOGY_II_USER
+  if (
+    code === ROLE.M2_USER ||
+    code === "METHODOLOGY_II_USER" ||
+    code === "METHODOLOGY_2_USER" ||
+    code === "METHODOLOGYII_USER" ||
+    code === "M2USER"
+  ) {
+    return ROLE.M2_USER;
+  }
 
   const roleName = (user?.role || "").toString().toLowerCase().trim();
   if (roleName.includes("family pension")) {
@@ -46,6 +63,22 @@ export function normalizeRoleCode(user) {
   }
   if (roleName.includes("lic section")) {
     return ROLE.LIC_SECTION_USER;
+  }
+  // "M2 user" / "Methodology II User" / "Methodology 2 user"
+  if (
+    roleName === "m2 user" ||
+    roleName === "m2user" ||
+    roleName === "m2" ||
+    roleName.includes("m2 user") ||
+    (roleName.includes("methodology") &&
+      (roleName.includes(" ii") ||
+        roleName.includes(" 2") ||
+        roleName.includes("2 ")) &&
+      roleName.includes("user")) ||
+    roleName.includes("methodology ii") ||
+    roleName.includes("methodology 2")
+  ) {
+    return ROLE.M2_USER;
   }
   if (roleName.includes("admin") && !roleName.includes("pension user")) {
     return ROLE.ADMIN;
@@ -97,6 +130,10 @@ export function isBillGenerationUser(user = getStoredUser()) {
 
 export function isLicSectionUser(user = getStoredUser()) {
   return normalizeRoleCode(user) === ROLE.LIC_SECTION_USER;
+}
+
+export function isM2User(user = getStoredUser()) {
+  return normalizeRoleCode(user) === ROLE.M2_USER;
 }
 
 /** @deprecated Prefer role-specific helpers; kept for older imports. */
@@ -179,11 +216,39 @@ const FIRST_PENSION_NAV = [
     label: "LIC Claim Generation",
   },
   { to: "/dashboard/archive", label: "Archive" },
-  { to: "/dashboard/methodology2", label: "Methodology 2" },
+];
+
+/** Methodology 2 + M2 Old Age Arrear (role: M2_USER). */
+const M2_USER_NAV = [
   {
-    to: "/dashboard/methodology2-oldage-arrear",
-    label: "M2 Old Age Arrear",
+    to: "/dashboard/methodology2-consolidation-dashboard",
+    label: "Consolidation Dashboard",
+    end: true,
   },
+  {
+    key: "m2-oldage-arrear",
+    label: "Methodology 2 Consolidation",
+    children: [
+      {
+        to: "/dashboard/methodology2-oldage-arrear",
+        label: "Consolidation",
+        end: true,
+      },
+      {
+        to: "/dashboard/methodology2-oldage-arrear/macp",
+        label: "MACP cases",
+      },
+      {
+        to: "/dashboard/methodology2-oldage-arrear/manual",
+        label: "M2-manual entry",
+      },
+      {
+        to: "/dashboard/methodology2-oldage-arrear/report",
+        label: "Report",
+      },
+    ],
+  },
+  { to: "/dashboard/methodology2-arrear", label: "Arrear Calculation", end: true },
 ];
 
 const FAMILY_PENSION_NAV = [
@@ -265,7 +330,43 @@ const FAMILY_PENSION_NAV = [
 const BILL_GENERATION_NAV = [];
 const LIC_SECTION_NAV = [];
 
+/** Only menu shown when VITE_M2_OA_ONLY=true (M2_OA_Benifit Docker). */
+const M2_OA_ONLY_NAV = [
+  {
+    to: "/dashboard/methodology2-consolidation-dashboard",
+    label: "Consolidation Dashboard",
+    end: true,
+  },
+  {
+    key: "m2-oldage-arrear",
+    label: "Methodology 2 Consolidation",
+    children: [
+      {
+        to: "/dashboard/methodology2-oldage-arrear",
+        label: "Consolidation",
+        end: true,
+      },
+      {
+        to: "/dashboard/methodology2-oldage-arrear/macp",
+        label: "MACP cases",
+      },
+      {
+        to: "/dashboard/methodology2-oldage-arrear/manual",
+        label: "M2-manual entry",
+      },
+      {
+        to: "/dashboard/methodology2-oldage-arrear/report",
+        label: "Report",
+      },
+    ],
+  },
+  { to: "/dashboard/methodology2-arrear", label: "Arrear Calculation", end: true },
+];
+
 export function getNavItemsForUser(user = getStoredUser()) {
+  if (isM2OaOnlyBuild()) {
+    return M2_OA_ONLY_NAV;
+  }
   if (isAdminUser(user)) {
     return ADMIN_NAV;
   }
@@ -279,6 +380,9 @@ export function getNavItemsForUser(user = getStoredUser()) {
   ) {
     return FIRST_PENSION_NAV;
   }
+  if (code === ROLE.M2_USER) {
+    return M2_USER_NAV;
+  }
   if (code === ROLE.BILL_GENERATION_USER) {
     return BILL_GENERATION_NAV;
   }
@@ -289,11 +393,17 @@ export function getNavItemsForUser(user = getStoredUser()) {
 }
 
 export function defaultDashboardPath(user = getStoredUser()) {
+  if (isM2OaOnlyBuild()) {
+    return "/dashboard/methodology2-consolidation-dashboard";
+  }
   if (isAdminUser(user)) {
     return "/dashboard/admin";
   }
   if (isFamilyPensionUser(user)) {
     return "/dashboard/familypensioncases";
+  }
+  if (isM2User(user)) {
+    return "/dashboard/methodology2-consolidation-dashboard";
   }
   if (isFirstPensionUser(user)) {
     return "/dashboard";
@@ -303,7 +413,7 @@ export function defaultDashboardPath(user = getStoredUser()) {
 
 /**
  * Route guard helper.
- * @param {"admin"|"first_pension"|"family_pension"|string[]} allow
+ * @param {"admin"|"first_pension"|"family_pension"|"m2"|string[]} allow
  */
 export function roleAllows(allow, user = getStoredUser()) {
   const code = normalizeRoleCode(user);
@@ -318,6 +428,9 @@ export function roleAllows(allow, user = getStoredUser()) {
   }
   if (allow === "family_pension") {
     return isFamilyPensionUser(user);
+  }
+  if (allow === "m2") {
+    return isM2User(user);
   }
   return code === String(allow).toUpperCase();
 }

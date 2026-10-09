@@ -199,6 +199,32 @@ def get_class12_equivalent_scales(grade):
     return scales
 
 
+def pay_scale_for_report(scale, retirement_date):
+    """
+    Rupee pay scale for the consolidation Excel.
+
+    Class 1/2 rows saved from the screen store the executive grade (E-14).
+    The report column is the pay band at retirement for that grade.
+    A scale that is already a rupee band is returned unchanged.
+    """
+    text = str(scale or "").strip()
+    if not text:
+        return ""
+    grade = normalize_executive_grade(text)
+    row = _get_scale_row(grade) if grade else None
+    if row is None:
+        return text
+    try:
+        start = get_class12_start_revision(retirement_date)
+    except (TypeError, ValueError):
+        return text
+    raw = row.get(SCALE_COLUMNS[start])
+    if raw is None or str(raw) == "nan" or not str(raw).strip():
+        return text
+    display = format_class12_scale_display(str(raw).strip())
+    return display or text
+
+
 def get_class12_pay_stages(separation_date, grade):
     """Pay stages of the start-revision scale for a grade (last-pay dropdown)."""
     row = _get_scale_row(grade)
@@ -235,7 +261,7 @@ def _block_1987(rows, row, basic_1984):
     basic_1987 = _fix_into_scale(row.get(SCALE_COLUMNS["1987"]), notional)
     rows.append({"description": "D.A of Rs.838.35 at AICPI 685 as on 1.1.1987", "value": da})
     rows.append({"description": "Fitment", "value": fitment})
-    rows.append({"description": "Notional Pay as on 01.01.1987", "value": notional})
+    rows.append({"description": "Notional Pay as on 01.01.1987 (Rounded to the next 10 Rupees)", "value": notional})
     rows.append({"description": "Basic pay as on 01.01.1987 (minimum basic)", "value": basic_1987})
     return basic_1987
 
@@ -247,7 +273,7 @@ def _block_1992(rows, row, basic_1987):
     basic_1992 = _fix_into_scale(row.get(SCALE_COLUMNS["1992"]), notional)
     rows.append({"description": "D.A as on 1.1.1992 at AICPI 1099", "value": da})
     rows.append({"description": "Fitment @ 20% on Basic pay", "value": fitment})
-    rows.append({"description": "Notional Pay as on 01.01.1992", "value": notional})
+    rows.append({"description": "Notional Pay as on 01.01.1992 (Rounded to the next 10 Rupees)", "value": notional})
     rows.append({"description": "Basic pay as on 01.01.1992 (minimum basic)", "value": basic_1992})
     return basic_1992
 
@@ -259,7 +285,7 @@ def _block_1997(rows, row, basic_1992):
     basic_1997 = _fix_into_scale(row.get(SCALE_COLUMNS["1997"]), notional)
     rows.append({"description": "D.A (As per Slab based lookup)", "value": da})
     rows.append({"description": "Fitment @ 20%", "value": fitment})
-    rows.append({"description": "Notional basic pay over 1708 CPI", "value": notional})
+    rows.append({"description": "Notional basic pay over 1708 CPI (Rounded to the next 10 Rupees)", "value": notional})
     rows.append({"description": "Basic pay as on 01.01.1997 (minimum basic)", "value": basic_1997})
     return basic_1997
 
@@ -270,7 +296,7 @@ def _block_2007(rows, basic_1997):
     basic_2007 = round_up_to_10(basic_1997 + da + fitment)
     rows.append({"description": "DA @ 78.2% on Basic", "value": da})
     rows.append({"description": "Fitment @ 30% on (Basic+DA)", "value": fitment})
-    rows.append({"description": "Basic Pay Over 126 CPI Points (01.01.2007)", "value": basic_2007})
+    rows.append({"description": "Basic Pay Over 126 CPI Points (01.01.2007) (Rounded to the next 10 Rupees)", "value": basic_2007})
     return basic_2007
 
 
@@ -280,11 +306,21 @@ def _block_2017(rows, basic_2007):
     basic_2017 = round_up_to_10(basic_2007 + da + fitment)
     rows.append({"description": "DA @ 119.8% on Basic", "value": da})
     rows.append({"description": "Fitment @ 15% on (Basic+DA)", "value": fitment})
-    rows.append({"description": "Basic Pay Over 277 CPI Points (01.01.2017)", "value": basic_2017})
+    rows.append({"description": "Basic Pay Over 277 CPI Points (01.01.2017) (Rounded to the next 10 Rupees)", "value": basic_2017})
+    # Final destination line — mirrors class 3/4 "Basic Pay as on 01.01.2022" (359 CPI).
+    rows.append({"description": "Basic Pay as on 01.01.2017", "value": basic_2017})
     return basic_2017
 
 
-def calculate_class12(separation_date, grade, last_pay):
+def calculate_class12(
+    separation_date,
+    grade,
+    last_pay,
+    *,
+    tqs_yr=None,
+    tqs_month=None,
+    tqs_days=None,
+):
     row = _get_scale_row(grade)
     if row is None:
         return {"error": f"Scale '{grade}' not found in class 1/2 pay scales"}
@@ -315,10 +351,31 @@ def calculate_class12(separation_date, grade, last_pay):
         basic = _block_2007(rows, basic)
     if start_idx <= REVISION_ORDER.index("2007"):
         basic = _block_2017(rows, basic)
+    elif start == "2017":
+        # Already on 2017 scale — still emit final 277 CPI destination block.
+        rows.append({"description": "Basic Pay as on 01.01.2017", "value": basic})
 
     basic_2017 = basic
-    pension = round2(basic_2017 / 2)
-    family_pension = round2(basic_2017 * 0.30)
+    from methodology2.services.proportionate_pension import (
+        apply_proportionate_pension,
+    )
+
+    pension_payload = apply_proportionate_pension(
+        {
+            "basic_pay_2017": basic_2017,
+            "basic_pay_2022": None,
+            "pension_277_cpi": round2(basic_2017 / 2),
+            "pension_359_cpi": None,
+            "family_pension_277_cpi": round2(basic_2017 * 0.30),
+            "family_pension_359_cpi": None,
+            "pension": round2(basic_2017 / 2),
+            "family_pension": round2(basic_2017 * 0.30),
+        },
+        retirement_date=separation_date,
+        tqs_yr=tqs_yr,
+        tqs_month=tqs_month,
+        tqs_days=tqs_days,
+    )
 
     start_scale = row.get(SCALE_COLUMNS[start])
     scale_at_separation = (
@@ -335,6 +392,7 @@ def calculate_class12(separation_date, grade, last_pay):
         "equivalent_scales": get_class12_equivalent_scales(grade),
         "rows": rows,
         "basic_pay_2017": basic_2017,
-        "pension": pension,
-        "family_pension": family_pension,
+        "pension": pension_payload.get("pension"),
+        "family_pension": pension_payload.get("family_pension"),
+        "proportionate": pension_payload.get("proportionate"),
     }

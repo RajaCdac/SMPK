@@ -24,16 +24,16 @@ round_gratuity_up_to_rupee = round_up_to_rupee
 
 # --- Normal pension (faithful port of Oracle FFUNC_NORMAL_PENSION) ---------
 
-# Pension constants. Rules verified empirically against
-# FINANCE.FI_PN_MH_PENSIONER (21,725 'G' + 155 'P' processed pensioners):
-#   * Government line  -> 50% of emoluments (flat). For pension start dates
-#     from 2016 onward this matched 2,449 / 2,454 cases (99.8%); the few
-#     outliers are penalty/compassionate/data-quirk cases. The pre-2006
-#     TQS/33 proportionate reduction is NOT applied to current retirees.
-#   * Port line        -> emoluments * min(TQS_years, 30) / 80.
+# Government (G):
+#   rounded TQS from FFunc_TQS_Round_2 (9–11 months → +1 year, so 32y9m → 33)
+#   TQS >= 33 → full 50% of emoluments
+#   TQS <  33 → proportionate: emoluments × 0.5 × (TQS / 33)
+# Port (P):
+#   emoluments × min(TQS_years, 30) / 80
 NORMAL_PENSION_FRACTION = 0.5
 PORT_LINE_DIVISOR = 80
 PORT_LINE_TQS_CAP = 30
+GOVT_FULL_PENSION_TQS = 33        # full 50% once rounded TQS reaches 33 (32y9m)
 MIN_PENSION_FLOOR = 1850          # FFUNC_NORMAL_PENSION hard-coded minimum
 MIN_QUALIFYING_YEARS = 10         # below this -> service gratuity, not pension
 
@@ -58,30 +58,46 @@ def calculate_normal_pension(
     pension_option="G",
     scale_min_basic=None,
     min_pension=MIN_PENSION_FLOOR,
+    tqs_months=0,
+    tqs_days=0,
 ):
     """
     Compute normal pension, mirroring Oracle FFUNC_NORMAL_PENSION.
 
     emoluments      : pension emoluments (last basic / 10-month average basic).
-    tqs_years       : Total Qualifying Service in whole years.
-    pension_option  : 'G' Government line (×0.5) | 'P' Port line (×TQS/80).
-    scale_min_basic : scale minimum; only used for the TQS>=33 floor.
+    tqs_years/months/days : Total Qualifying Service (Y/M/D). For option G,
+                    months are Oracle-rounded (FFunc_TQS_Round_2) so that
+                    32y9m counts as 33 → full pension; below that applies
+                    proportionate × (TQS/33).
+    pension_option  : 'G' Government | 'P' Port line (×TQS/80).
+    scale_min_basic : scale minimum; only used for the TQS>=33 floor on G.
     Returns a whole-rupee amount (highest-side rounded), or 0.0 when
     qualifying service is below the 10-year pension threshold.
     """
+    from .services.gratuity_emoluments_service import round_tqs_years_oracle
+
     emoluments = float(emoluments or 0)
     option = (pension_option or "G").strip().upper()
+    years = int(tqs_years or 0)
+    months = int(tqs_months or 0)
+    days = int(tqs_days or 0)
 
-    if tqs_years < MIN_QUALIFYING_YEARS:
+    if years < MIN_QUALIFYING_YEARS:
         return 0.0
 
     if option == "P":
-        capped_tqs = min(tqs_years, PORT_LINE_TQS_CAP)
+        capped_tqs = min(years, PORT_LINE_TQS_CAP)
         pension = emoluments * capped_tqs / PORT_LINE_DIVISOR
     else:
-        pension = emoluments * NORMAL_PENSION_FRACTION
+        # Government: FFunc_TQS_Round_2 then ×0.5×min(TQS,33)/33
+        rounded_tqs = round_tqs_years_oracle(years, months, days)
+        if rounded_tqs >= GOVT_FULL_PENSION_TQS:
+            n_factor = 1.0
+        else:
+            n_factor = float(rounded_tqs) / float(GOVT_FULL_PENSION_TQS)
+        pension = emoluments * NORMAL_PENSION_FRACTION * n_factor
         # Average must not fall below 50% of scale minimum once TQS >= 33.
-        if scale_min_basic and tqs_years >= 33:
+        if scale_min_basic and rounded_tqs >= GOVT_FULL_PENSION_TQS:
             floor_amt = float(scale_min_basic) * 0.5
             if pension < floor_amt:
                 pension = floor_amt
@@ -513,6 +529,8 @@ def calculate_pension_financials(
     pension_amount = calculate_normal_pension(
         emoluments=basic,
         tqs_years=tqs_years,
+        tqs_months=tqs_months,
+        tqs_days=tqs_days,
         pension_option=pension_option,
     )
 

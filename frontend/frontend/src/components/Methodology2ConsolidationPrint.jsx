@@ -1,21 +1,101 @@
 import "../styles/Methodology2ConsolidationPrint.css";
-import { formatCardValue } from "../utils/methodology2RevisionCards";
+import {
+  ensureClass12OpeningBasic,
+  formatCardValue,
+} from "../utils/methodology2RevisionCards";
 
 const PRINT_TITLE =
   "Consolidation of Pension as per Methodology-2 and comparison between M-1 & M-2 for 2017 & 2022";
+const PRINT_TITLE_CLASS12 =
+  "Consolidation of Pension as per Methodology-2 and comparison between M-1 & M-2 for 2017";
 
 function money(value) {
   if (value === null || value === undefined || value === "") return "—";
   return `₹ ${formatCardValue(value)}`;
 }
 
+/** Class 1/2 LIC bunching. Absent when the employee has no bunch basic. */
+function bunchingParts(snapshot) {
+  const bunch = snapshot?.m1_bunching;
+  if (!bunch || typeof bunch !== "object") return null;
+  const basic = Number(bunch.basic_pension);
+  const extra = Number(bunch.bunch_basic);
+  const total = Number(
+    bunch.m1_bunched != null ? bunch.m1_bunched : basic + extra
+  );
+  if (Number.isNaN(basic) || Number.isNaN(extra) || extra === 0) return null;
+  if (Number.isNaN(total)) return null;
+  return { basic, extra, total };
+}
+
+function employee277Column(col, snapshot) {
+  const kind = String(col?.kind || "").trim().toLowerCase();
+  if (kind === "family" || kind === "enhanced") return false;
+  if (!kind && !snapshot?.is_employee_pension) return false;
+  const cpi = Number(col?.cpi);
+  if (cpi === 359) return false;
+  const key = String(col?.key || "");
+  if (key.startsWith("359")) return false;
+  return true;
+}
+
 const REVISION_YEARS = [
   1979, 1984, 1988, 1993, 1997, 2007, 2012, 2017, 2022,
 ];
 
-/** e.g. 1997 block → "As per 2007 Wage Revision Order". */
-function blockTitleWithWageOrder(block) {
-  const title = block?.title || "";
+/** Class 1/2 stages only — last revision is 2017 (no 2022). */
+const CLASS12_REVISION_YEARS = [1984, 1987, 1992, 1997, 2007, 2017];
+
+/** Strip mistaken "As per 2022…" from class 1/2 titles (2017 is last). */
+function stripClass12AsPer2022(title) {
+  return String(title || "")
+    .replace(/\s*[—\-]\s*As per\s+2022\s+(?:Wage|Pay)\s+Revision Order/gi, "")
+    .trim();
+}
+
+/** Class 1/2 uses "Pay Revision Order" (not Wage). */
+function class12PayRevisionTitle(title) {
+  return String(title || "").replace(/Wage Revision Order/gi, "Pay Revision Order");
+}
+
+/** Class 1/2 last row: Basic Pay… → Notional Pay… (except final 01.01.2017). */
+function class12NotionalizeLastDescription(desc) {
+  const text = String(desc || "").trim();
+  if (!text) return text;
+  if (/^Basic\s+Pay\s+as\s+on\s+01\.01\.2017$/i.test(text)) return text;
+  if (/Notional/i.test(text)) return text;
+  if (/^Basic\s+[Pp]ay\b/.test(text)) {
+    return text.replace(/^Basic\s+[Pp]ay/, "Notional Pay");
+  }
+  return text;
+}
+
+/** Same note class 3/4 prints on its Notional Pay line. */
+function class12RoundNote(desc) {
+  const text = String(desc || "").trim();
+  if (!text || /Rounded to the next 10/i.test(text)) return text;
+  if (/minimum basic/i.test(text)) return text;
+  if (/^Basic\s+Pay\s+as\s+on\s+01\.01\.2017$/i.test(text)) return text;
+  if (/Notional/i.test(text) || /Basic Pay Over/i.test(text)) {
+    return `${text} (Rounded to the next 10 Rupees)`;
+  }
+  return text;
+}
+
+/** e.g. 1997 block → "As per 2007 Wage Revision Order" (class 3/4)
+ *  class 1/2 → "As per 2007 Pay Revision Order" (no As per 2022 on 2017).
+ */
+function blockTitleWithWageOrder(block, { class12 = false } = {}) {
+  let title = block?.title || "";
+  if (class12) {
+    title = class12PayRevisionTitle(stripClass12AsPer2022(title));
+    if (/As per\s+\d{4}\s+Pay Revision Order/i.test(title)) return title;
+    const m = String(block?.revision_key || title).match(/(\d{4})/);
+    if (!m) return title;
+    const idx = CLASS12_REVISION_YEARS.indexOf(Number(m[1]));
+    if (idx < 0 || idx >= CLASS12_REVISION_YEARS.length - 1) return title;
+    return `${title} — As per ${CLASS12_REVISION_YEARS[idx + 1]} Pay Revision Order`;
+  }
   if (/As per\s+\d{4}\s+Wage Revision Order/i.test(title)) return title;
   const m = String(block?.revision_key || title).match(/(\d{4})/);
   if (!m) return title;
@@ -39,6 +119,38 @@ function lastPayWithStagnation(lastPay, stagnationAmount) {
     return base;
   }
   return `${base} (Stagnation amount ${formatCardValue(stag)})`;
+}
+
+/** Doctor last pay is pay + NPA. Label the NPA the way stagnation is labelled. */
+function lastPayWithNpa(display, npaAmount) {
+  if (display === "—") return display;
+  const npa = Number(npaAmount);
+  if (
+    npaAmount === null ||
+    npaAmount === undefined ||
+    npaAmount === "" ||
+    Number.isNaN(npa) ||
+    npa === 0
+  ) {
+    return display;
+  }
+  return `${display} (npa ${formatCardValue(npa)})`;
+}
+
+/** "MACP 16400-40500" → "16400-40500". Empty when this is not a MACP case. */
+function macpTrackScale(scale) {
+  const match = String(scale || "").match(/^MACP\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
+/** Later CPI cards: "(23600-56300)" → "(MACP Scale 23600-56300)". */
+function withMacpBeforeScale(title) {
+  const text = String(title || "");
+  if (/MACP\s+Scale/i.test(text)) return text;
+  return text.replace(
+    /\((\d[\d\s,]*-\s*\d[\d\s,]*)\)/,
+    "(MACP Scale $1)"
+  );
 }
 
 function formatDateEnIn(raw) {
@@ -155,7 +267,9 @@ function buildFallbackColumns(snapshot) {
   const m1_359 = snapshot.m1_family_pension_359;
   const diff = (m2, m1) =>
     m2 != null && m1 != null ? Number(m2) - Number(m1) : null;
-  return [
+  const cat = String(snapshot.category || "").trim();
+  const class12 = cat === "1" || cat === "2";
+  const cols = [
     {
       key: "277",
       header_lines: ["In 2017 (277 CPI)"],
@@ -163,14 +277,43 @@ function buildFallbackColumns(snapshot) {
       m1: m1_277,
       diff: diff(m2_277, m1_277),
     },
-    {
+  ];
+  // Class 1/2 last CPI is 277 — do not invent a blank 359 column.
+  if (!class12) {
+    cols.push({
       key: "359",
       header_lines: ["In 2022 (359 CPI)"],
       m2: m2_359,
       m1: m1_359,
       diff: diff(m2_359, m1_359),
-    },
-  ];
+    });
+  }
+  return cols;
+}
+
+/** Drop leftover 359/2022 columns for class 1/2 (old snapshots / blank cols). */
+function columnsForSnapshot(snapshot, comparison) {
+  const raw =
+    Array.isArray(comparison.columns) && comparison.columns.length
+      ? comparison.columns
+      : buildFallbackColumns(snapshot);
+  const cat = String(snapshot.category || "").trim();
+  const class12 =
+    cat === "1" ||
+    cat === "2" ||
+    comparison.class12_omit_359 === true ||
+    comparison.class12_continuous_277 === true;
+  if (!class12) return raw;
+  return raw.filter((col) => {
+    if (!col || typeof col !== "object") return false;
+    const cpi = Number(col.cpi);
+    if (cpi === 359) return false;
+    const key = String(col.key || "");
+    if (key.startsWith("359")) return false;
+    const hdr = `${(col.header_lines || []).join(" ")} ${col.header || ""}`;
+    if (/359\s*CPI|In\s+2022/i.test(hdr) && !/277/.test(hdr)) return false;
+    return true;
+  });
 }
 
 /**
@@ -188,22 +331,40 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
   const hasDob = !!(snapshot.date_of_birth || snapshot.dob);
   const tqs = tqsDisplay(snapshot);
 
-  const blocks = snapshot.revision_blocks || [];
+  const rawBlocks = snapshot.revision_blocks || [];
   const comparison = snapshot.pension_comparison || {};
-  const columns =
-    Array.isArray(comparison.columns) && comparison.columns.length
-      ? comparison.columns
-      : buildFallbackColumns(snapshot);
+  const columns = columnsForSnapshot(snapshot, comparison);
+  const cat = String(snapshot.category || "").trim();
+  const isClass12 =
+    cat === "1" ||
+    cat === "2" ||
+    comparison.class12_omit_359 === true ||
+    comparison.class12_continuous_277 === true;
+  const blocks = isClass12
+    ? ensureClass12OpeningBasic(rawBlocks)
+    : rawBlocks;
 
-  const lastPayDisplay = lastPayWithStagnation(
-    snapshot.last_pay ?? snapshot.average_pay,
-    snapshot.stagnation_amount ?? comparison.stagnation_amount
+  const macpTrack = macpTrackScale(snapshot.scale);
+  let lastPayDisplay = lastPayWithNpa(
+    lastPayWithStagnation(
+      snapshot.last_pay ?? snapshot.average_pay,
+      snapshot.stagnation_amount ?? comparison.stagnation_amount
+    ),
+    snapshot.npa_amount ?? comparison.npa_amount
   );
+  if (macpTrack && lastPayDisplay !== "—") {
+    lastPayDisplay = `${lastPayDisplay} (MACP Scale ${macpTrack})`;
+  }
   const averagePayDisplay = money(
     snapshot.average_pay ?? snapshot.last_pay
   );
 
   const isEmployeePension = !!snapshot.is_employee_pension;
+  const bunching =
+    isClass12 && isEmployeePension ? bunchingParts(snapshot) : null;
+  const m1Particulars = bunching
+    ? "Pension fixed as per Methodology-1 with bunching"
+    : "Pension fixed as per Methodology-1";
   const hasDeathSplit = !!(
     comparison.has_death_split ||
     snapshot.date_of_death ||
@@ -217,6 +378,15 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
   const dodDisplay =
     comparison.date_of_death_display ||
     (snapshot.date_of_death ? formatDateEnIn(snapshot.date_of_death) : "");
+  const familyPensionerDobDisplay =
+    comparison.family_pensioner_dob_display ||
+    formatDateEnIn(
+      comparison.family_pensioner_dob ||
+        snapshot.family_pensioner_dob ||
+        null
+    );
+  const showFamilyPensionerDob =
+    (!isEmployeePension || showFamilyName) && !!familyPensionerDobDisplay;
   const doubleFpUptoDisplay =
     comparison.double_fpension_upto_display ||
     (comparison.double_fpension_upto
@@ -226,10 +396,29 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
     comparison.section_title ||
     (isEmployeePension ? "EMPLOYEE PENSION" : "FAMILY PENSION");
   const showOldAgeCalcTable =
-    !!isEmployeePension &&
-    (comparison.has_oldage_calc_table ||
-      comparison.has_oldage_split ||
-      columns.some((c) => Number(c.oldage_percent || 0) > 0));
+    comparison.has_oldage_calc_table ||
+    comparison.has_oldage_split ||
+    columns.some((c) => Number(c.oldage_percent || 0) > 0);
+
+  const familyExtraCells = [];
+  if (dodDisplay) {
+    familyExtraCells.push({
+      label: "Date of Death (D.O.D.)",
+      value: dodDisplay,
+    });
+  }
+  if (showFamilyPensionerDob) {
+    familyExtraCells.push({
+      label: "DOB of Family Pensioner",
+      value: familyPensionerDobDisplay,
+    });
+  }
+  if (doubleFpUptoDisplay) {
+    familyExtraCells.push({
+      label: "Enhanced FP upto",
+      value: doubleFpUptoDisplay,
+    });
+  }
 
   return (
     <div
@@ -237,7 +426,9 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
       className="m2-consol-print-wrap"
     >
       <div className="m2-consol-print">
-        <h3 className="m2-consol-print__title">{PRINT_TITLE}</h3>
+        <h3 className="m2-consol-print__title">
+          {isClass12 ? PRINT_TITLE_CLASS12 : PRINT_TITLE}
+        </h3>
         <h4 className="m2-consol-print__subtitle">
           Pension Calculation Report (Generated on: {generatedOn})
         </h4>
@@ -310,28 +501,35 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
                 </tr>
               </>
             )}
-            {dodDisplay || doubleFpUptoDisplay ? (
+            {familyExtraCells.length ? (
               <tr>
-                {dodDisplay ? (
-                  <EmpCell
-                    label="Date of Death"
-                    value={dodDisplay}
-                    colSpan={doubleFpUptoDisplay ? 1 : 3}
-                  />
-                ) : null}
-                {doubleFpUptoDisplay ? (
-                  <EmpCell
-                    label="Enhanced FP upto"
-                    value={doubleFpUptoDisplay}
-                    colSpan={dodDisplay ? 2 : 3}
-                  />
-                ) : null}
+                {familyExtraCells.map((cell, idx) => {
+                  const remaining = familyExtraCells.length - idx;
+                  const colSpan =
+                    remaining === 1 ? 4 - familyExtraCells.length : 1;
+                  return (
+                    <EmpCell
+                      key={cell.label}
+                      label={cell.label}
+                      value={cell.value}
+                      colSpan={colSpan}
+                    />
+                  );
+                })}
               </tr>
             ) : null}
           </tbody>
         </table>
 
-        {blocks.map((block) => (
+        {blocks.map((block, blockIdx) => {
+          const blockTitle = blockTitleWithWageOrder(block, {
+            class12: isClass12,
+          });
+          const titled =
+            macpTrack && blockIdx > 0
+              ? withMacpBeforeScale(blockTitle)
+              : blockTitle;
+          return (
           <table
             key={block.revision_key || block.title}
             className="m2-consol-print__cpi-wrap"
@@ -347,24 +545,40 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
                     </colgroup>
                     <tbody>
                       <tr className="m2-consol-print__block-title-row">
-                        <td colSpan={3}>{blockTitleWithWageOrder(block)}</td>
+                        <td colSpan={3}>{titled}</td>
                       </tr>
-                      {(block.rows || []).map((row) => (
-                        <tr key={row.row || row.description}>
-                          <td className="code">{row.code || ""}</td>
-                          <td>{row.description}</td>
+                      {(block.rows || []).map((row, idx) => {
+                        const rows = block.rows || [];
+                        let desc = row.description;
+                        if (isClass12) {
+                          if (idx === rows.length - 1) {
+                            desc = class12NotionalizeLastDescription(desc);
+                          }
+                          desc = class12RoundNote(desc);
+                        }
+                        return (
+                        <tr key={row.row || row.description || idx}>
+                          <td className="code">
+                            {String(row.code || "").trim() ||
+                              (idx < 26
+                                ? String.fromCharCode(65 + idx)
+                                : String(idx + 1))}
+                          </td>
+                          <td>{desc}</td>
                           <td className="amt">
                             {money(row.value)}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </td>
               </tr>
             </tbody>
           </table>
-        ))}
+          );
+        })}
 
         <div className="m2-consol-print__fp-title">{sectionTitle}</div>
         <table className="m2-consol-print__fp-wrap">
@@ -412,28 +626,42 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
                       ))}
                     </tr>
                     <tr>
-                      <td className="part">
-                        Pension fixed as per Methodology-1
-                      </td>
-                      {columns.map((col) => (
-                        <td
-                          key={`m1-${col.key || col.header}`}
-                          className="amt"
-                        >
-                          {money(col.m1)}
-                        </td>
-                      ))}
+                      <td className="part">{m1Particulars}</td>
+                      {columns.map((col) => {
+                        const useBunch =
+                          bunching && employee277Column(col, snapshot);
+                        return (
+                          <td
+                            key={`m1-${col.key || col.header}`}
+                            className="amt"
+                          >
+                            {useBunch
+                              ? `₹ ${formatCardValue(bunching.total)} (${formatCardValue(bunching.basic)} + ${formatCardValue(bunching.extra)})`
+                              : money(col.m1)}
+                          </td>
+                        );
+                      })}
                     </tr>
                     <tr>
                       <td className="part">Difference</td>
-                      {columns.map((col) => (
-                        <td
-                          key={`diff-${col.key || col.header}`}
-                          className="amt"
-                        >
-                          {money(columnAmounts(col).baseDiff)}
-                        </td>
-                      ))}
+                      {columns.map((col) => {
+                        const useBunch =
+                          bunching && employee277Column(col, snapshot);
+                        const m2 = columnAmounts(col).m2Base;
+                        const diff = useBunch
+                          ? m2 != null
+                            ? m2 - bunching.total
+                            : null
+                          : columnAmounts(col).baseDiff;
+                        return (
+                          <td
+                            key={`diff-${col.key || col.header}`}
+                            className="amt"
+                          >
+                            {money(diff)}
+                          </td>
+                        );
+                      })}
                     </tr>
                     {showOldAgeCalcTable ? (
                       <>

@@ -5,7 +5,7 @@ import {
 } from "../utils/authRoles";
 
 /**
- * @param {{ allow: "admin"|"first_pension"|"family_pension"|string[] }} props
+ * @param {{ allow: "admin"|"first_pension"|"family_pension"|"m2"|string[] }} props
  */
 export default function RoleProtectedRoute({ allow = "first_pension" }) {
   const token = localStorage.getItem("access");

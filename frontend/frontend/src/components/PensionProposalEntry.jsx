@@ -16,6 +16,7 @@ import {
 import {
   HELD_UP_FLAG_OPTIONS,
   heldFlagIsActive,
+  heldFlagAmountEnabled,
   heldFlagRequiresAmount,
   normalizeHeldUpFlag,
 } from "../constants/heldUpFlagOptions";
@@ -256,7 +257,8 @@ export default function PensionProposalEntry({
   const pensionType = String(form.pension_type || "").toUpperCase();
   const legacyPrefill =
     !recordExists && Boolean(employee?.proposal_defaults?.legacy);
-  const heldAmtEnabled = heldFlagRequiresAmount(form.held_up_flag);
+  const heldAmtEnabled = heldFlagAmountEnabled(form.held_up_flag);
+  const heldAmtRequired = heldFlagRequiresAmount(form.held_up_flag);
   const hasWithholdSetup =
     heldFlagIsActive(form.held_up_flag) ||
     withholdReasonIsActive(form.quarter_status);
@@ -291,7 +293,7 @@ export default function PensionProposalEntry({
       if (name === "held_up_flag") {
         const flag = normalizeHeldUpFlag(value);
         next.held_up_flag = flag;
-        if (!heldFlagRequiresAmount(flag)) {
+        if (!heldFlagAmountEnabled(flag)) {
           next.held_gratuity_amt = "";
         }
       }
@@ -1030,7 +1032,7 @@ export default function PensionProposalEntry({
               value={form.held_gratuity_amt}
               onChange={onChange}
               disabled={fieldDisabled || !heldAmtEnabled}
-              required={heldAmtEnabled}
+              required={heldAmtRequired}
             />
           </div>
           <div className="col-12 col-lg-6">

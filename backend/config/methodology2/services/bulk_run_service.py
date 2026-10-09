@@ -1,13 +1,16 @@
 """
 Methodology-2 bulk runner (class 1/2 and 3/4):
 
-Excel EMP_CD → lookup → calc → consolidation snapshot → Desktop/M2_YYYY-MM-DD/{case_no}.pdf
+Excel EMP_CD → lookup → calc → consolidation snapshot
+→ Desktop/M2_YYYY-MM-DD_HHMM/{case_no}.pdf
 """
 
 from __future__ import annotations
 
 import csv
-from datetime import date
+import math
+import re
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from django.conf import settings
@@ -27,10 +30,17 @@ from methodology2.services.oracle_employee_service import fetch_employee_for_met
 from methodology2.services.revision_resolver import get_revision_column
 from methodology2.services.scale_service import get_equivalent_scales_by_scale
 
+try:
+    from zoneinfo import ZoneInfo
+
+    _IST = ZoneInfo("Asia/Kolkata")
+except Exception:  # pragma: no cover
+    _IST = timezone(timedelta(hours=5, minutes=30), name="IST")
+
 
 # ---------------------------------------------------------------------------
 # TEMPORARY (remove when no longer needed):
-# Bulk PDFs are split by TQS into two subfolders under M2_YYYY-MM-DD:
+# Bulk PDFs are split by TQS into two subfolders under M2_YYYY-MM-DD_HHMM:
 #   TEMP_TQS_GE_32Y9M  → TQS >= 32 years 9 months
 #   TEMP_TQS_LT_32Y9M  → everyone else
 # ---------------------------------------------------------------------------
@@ -41,11 +51,16 @@ TEMP_TQS_FOLDER_GE = "TEMP_TQS_GE_32Y9M"
 TEMP_TQS_FOLDER_LT = "TEMP_TQS_LT_32Y9M"
 
 
-def default_run_output_dir(run_date: date | None = None) -> Path:
-    """Desktop/M2_YYYY-MM-DD (or BULK_OUTPUT_DIR parent)."""
+def default_run_output_dir(run_at: datetime | None = None) -> Path:
+    """Desktop/M2_YYYY-MM-DD_HHMM in IST (or BULK_OUTPUT_DIR parent)."""
     parent = Path(getattr(settings, "BULK_OUTPUT_DIR", Path.home() / "Desktop"))
-    d = run_date or date.today()
-    return parent / f"M2_{d.isoformat()}"
+    when = run_at or datetime.now(_IST)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=_IST)
+    else:
+        when = when.astimezone(_IST)
+    stamp = when.strftime("%Y-%m-%d_%H%M")
+    return parent / f"M2_{stamp}"
 
 
 def _tqs_months_total(tqs_yr, tqs_month) -> int:
@@ -88,7 +103,29 @@ def resolve_temp_tqs_output_dir(base_out_dir: Path, master: dict | None) -> tupl
 
 
 def _normalize_category(raw) -> str:
+    """
+    Map Excel/UI category to '1'|'2'|'3'|'4'.
+
+    Excel paste often yields float 3.0 or string '3.0' — coerce those to '3'.
+    """
+    if raw is None:
+        return ""
+    if isinstance(raw, float) and math.isnan(raw):
+        return ""
+    # Numeric cells from Excel (3.0 → 3)
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        try:
+            if float(raw) == int(raw):
+                raw = int(raw)
+        except (ValueError, OverflowError):
+            pass
+
     text = str(raw or "").strip().upper()
+    # Text that looks like a whole number float: "3.0", "3.00"
+    m = re.fullmatch(r"(\d+)\.0+", text)
+    if m:
+        text = m.group(1)
+
     mapping = {
         "1": "1",
         "I": "1",
@@ -157,6 +194,7 @@ def _master_payload_fields(
         "pensioner_name": master.get("pensioner_name") or "",
         "is_employee_pension": master.get("is_employee_pension") or False,
         "date_of_death": master.get("date_of_death"),
+        "family_pensioner_dob": master.get("family_pensioner_dob"),
         "double_fpension_upto": master.get("double_fpension_upto"),
         "enhanced_family_pension": bool(
             master.get("enhanced_family_pension")
@@ -180,6 +218,7 @@ def _process_class12(
     excel_case_no: str = "",
     excel_roll_no: str = "",
     master: dict | None = None,
+    generate_pdf: bool = True,
 ) -> dict:
     result = _base_result(emp)
     result["category"] = category
@@ -202,8 +241,18 @@ def _process_class12(
         )
         return result
 
+    if master is None:
+        master = fetch_print_master_fields(emp, category=category)
+
     try:
-        calc = calculate_class12(retirement_date, grade, last_pay)
+        calc = calculate_class12(
+            retirement_date,
+            grade,
+            last_pay,
+            tqs_yr=master.get("tqs_yr"),
+            tqs_month=master.get("tqs_month"),
+            tqs_days=master.get("tqs_days"),
+        )
     except Exception as exc:
         result["reason"] = f"calc error: {exc}"
         return result
@@ -212,14 +261,13 @@ def _process_class12(
         result["reason"] = str(calc.get("error"))
         return result
 
-    if master is None:
-        master = fetch_print_master_fields(emp, category=category)
     payload = {
         "emp_cd": emp,
         "retirement_date": retirement_date,
         "scale": calc.get("scale_display") or grade,
         "last_pay": last_pay,
         "average_pay": last_pay,
+        "npa_amount": data.get("npa_amount"),
         "calculation_rows": calc.get("rows") or [],
         "pension": {
             "basic_pay_2017": calc.get("basic_pay_2017"),
@@ -230,6 +278,7 @@ def _process_class12(
             "family_pension_359_cpi": None,
             "family_pension": calc.get("family_pension"),
             "pension": calc.get("pension"),
+            "proportionate": calc.get("proportionate"),
         },
         "start_revision": calc.get("start_revision") or "",
         "equivalent_scales": calc.get("equivalent_scales") or {},
@@ -238,7 +287,9 @@ def _process_class12(
         ),
     }
 
-    return _save_and_write(emp, payload, out_dir, result, excel_case_no)
+    return _save_and_write(
+        emp, payload, out_dir, result, excel_case_no, generate_pdf=generate_pdf
+    )
 
 
 def _process_class34(
@@ -249,6 +300,7 @@ def _process_class34(
     excel_case_no: str = "",
     excel_roll_no: str = "",
     master: dict | None = None,
+    generate_pdf: bool = True,
 ) -> dict:
     result = _base_result(emp)
     result["category"] = category
@@ -268,22 +320,33 @@ def _process_class34(
     except (TypeError, ValueError):
         sda = 0.0
 
+    if master is None:
+        master = fetch_print_master_fields(emp, category=category)
+
     try:
         scales = get_equivalent_scales_by_scale(retirement_date, scale)
         current_revision = get_revision_column(retirement_date)
-        calc = calculate_revision(scales, current_revision, last_pay, sda)
+        calc = calculate_revision(
+            scales,
+            current_revision,
+            last_pay,
+            sda,
+            retirement_date=retirement_date,
+            tqs_yr=master.get("tqs_yr"),
+            tqs_month=master.get("tqs_month"),
+            tqs_days=master.get("tqs_days"),
+        )
     except Exception as exc:
         result["reason"] = f"calc error: {exc}"
         return result
 
-    if master is None:
-        master = fetch_print_master_fields(emp, category=category)
     payload = {
         "emp_cd": emp,
         "retirement_date": retirement_date,
         "scale": scale,
         "last_pay": last_pay,
         "average_pay": last_pay,
+        "npa_amount": data.get("npa_amount"),
         "calculation_rows": calc.get("rows") or [],
         "pension": calc.get("pension") or {},
         "start_revision": current_revision,
@@ -292,7 +355,9 @@ def _process_class34(
             emp, category, master, data, excel_case_no, excel_roll_no
         ),
     }
-    return _save_and_write(emp, payload, out_dir, result, excel_case_no)
+    return _save_and_write(
+        emp, payload, out_dir, result, excel_case_no, generate_pdf=generate_pdf
+    )
 
 
 def _save_and_write(
@@ -301,6 +366,7 @@ def _save_and_write(
     out_dir: Path,
     result: dict,
     excel_case_no: str = "",
+    generate_pdf: bool = True,
 ) -> dict:
     try:
         snapshot = save_consolidation_snapshot(payload)
@@ -319,6 +385,12 @@ def _save_and_write(
     )
     result["case_no"] = case_no
     result["roll_no"] = snapshot.get("roll_no") or payload.get("roll_no") or ""
+
+    if not generate_pdf:
+        result["status"] = "ok"
+        result["html"] = ""
+        result["pdf"] = ""
+        return result
 
     try:
         files = write_consolidation_files(snapshot, out_dir, emp, case_no=case_no)
@@ -340,6 +412,7 @@ def process_one_emp(
     out_dir: Path,
     excel_case_no: str = "",
     excel_roll_no: str = "",
+    generate_pdf: bool = True,
 ) -> dict:
     """Process one EMP_CD for class 1/2 or 3/4."""
     emp = str(emp_cd or "").strip()
@@ -384,6 +457,7 @@ def process_one_emp(
             excel_case_no,
             excel_roll_no,
             master=master,
+            generate_pdf=generate_pdf,
         )
         out["tqs"] = result["tqs"]
         out["tqs_folder"] = tqs_folder
@@ -397,6 +471,7 @@ def process_one_emp(
             excel_case_no,
             excel_roll_no,
             master=master,
+            generate_pdf=generate_pdf,
         )
         out["tqs"] = result["tqs"]
         out["tqs_folder"] = tqs_folder

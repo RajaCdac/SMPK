@@ -21,9 +21,18 @@ class ProposalSanctionReportError(Exception):
     pass
 
 
-ID_CARD_HOLDUP_LINE = (
-    "Rs 0 is to be held up for non submission of ID Card"
-)
+# Oracle CF_GRAT_HELD_STRFORMULA reason suffixes (FI_PN_MH_PENSION_PROPOSAL).
+_HELD_REASON_TEXT = {
+    "QUARTER": "held up for Quater Clearence",
+    "ID_CARD": "held up for non submission of ID-Card",
+    "ELEC": "held up for Electricity Clearence",
+    "QTR_ELEC": "held up for Quter  & Elec Clearence",
+    "COURT": "held up for Court Attachement",
+    "QTR_ELEC_CRT": "held up for Quter Elec Crt Charges",
+    "QTR_CRT": "held up for Qtr clear & Crt Attachemnt",
+    "ELEC_CRT": "held up for Elec  & Crt Attachement",
+    "CREDIT_SOC": "held up for Co-Operative Credit Society",
+}
 
 
 def _clip(value, max_len, default=""):
@@ -33,6 +42,209 @@ def _clip(value, max_len, default=""):
     if not text:
         return default
     return text[:max_len]
+
+
+def _money_float(value) -> float:
+    if value is None or value == "":
+        return 0.0
+    try:
+        return round(float(value), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _normalize_held_grat_flg(raw) -> str:
+    """
+    Map proposal held_up_flag / HELD_GRAT_FLG to Oracle report codes.
+    Entry form: G=full, H=partial; report formula: F=full, P=partial, N=none.
+    """
+    text = str(raw or "").strip().upper()
+    if not text:
+        return "N"
+    if text == "GP":
+        return "P"
+    code = text[0]
+    if code == "G":
+        return "F"
+    if code == "H":
+        return "P"
+    if code in ("F", "P", "N"):
+        return code
+    # C / R / P (pension) / S — amount comes from HELD_GRAT_AMT
+    return code
+
+
+def _proposal_held_fields(proposal, emp_cd, ca_number):
+    """Read quarter / id-card / held flag+amt from SMPK proposal or Oracle mirror."""
+    qtr = ""
+    id_card = ""
+    flg = "N"
+    amt = 0.0
+
+    if proposal is not None:
+        qtr = str(
+            _proposal_value(proposal, "quarter_status") or ""
+        ).strip().upper()[:1]
+        if isinstance(proposal, PensionProposal):
+            id_card = "Y" if proposal.id_card_submitted else "N"
+            flg = _normalize_held_grat_flg(proposal.held_up_flag)
+            amt = _money_float(proposal.held_gratuity_amt)
+        else:
+            raw_id = str(
+                getattr(proposal, "id_card_submitted", "") or ""
+            ).strip().upper()
+            if raw_id in ("Y", "1", "TRUE"):
+                id_card = "Y"
+            elif raw_id in ("N", "0", "FALSE"):
+                id_card = "N"
+            flg = _normalize_held_grat_flg(
+                getattr(proposal, "held_grat_flg", None)
+                or getattr(proposal, "held_up_flag", None)
+            )
+            amt = _money_float(
+                getattr(proposal, "held_grat_amt", None)
+                or getattr(proposal, "held_gratuity_amt", None)
+            )
+
+    # Fill gaps from mirror / SMPK row by CA / emp
+    if not qtr or not id_card or flg == "N":
+        emp_key = _clip(emp_cd, 5)
+        ca_key = _clip(ca_number, 50) if ca_number else ""
+        mirror = None
+        if ca_key:
+            mirror = FiPnMhPensionProposal.objects.filter(ca_number=ca_key).first()
+        if not mirror and emp_key:
+            mirror = (
+                FiPnMhPensionProposal.objects.filter(emp_cd=emp_key)
+                .order_by("-pension_proposal_dt")
+                .first()
+            )
+        if mirror:
+            if not qtr:
+                qtr = str(mirror.quarter_status or "").strip().upper()[:1]
+            if not id_card:
+                tag = str(mirror.id_card_submitted or "").strip().upper()
+                id_card = "Y" if tag in ("Y", "1", "TRUE") else "N"
+            if flg == "N" and mirror.held_grat_flg:
+                flg = _normalize_held_grat_flg(mirror.held_grat_flg)
+            if amt <= 0 and mirror.held_grat_amt is not None:
+                amt = _money_float(mirror.held_grat_amt)
+
+        smpk = None
+        if isinstance(proposal, PensionProposal):
+            smpk = proposal
+        else:
+            qs = PensionProposal.objects.filter(emp_cd=emp_key)
+            smpk = qs.filter(ca_number=ca_key).first() if ca_key else None
+            if not smpk:
+                smpk = qs.first()
+        if smpk:
+            if not qtr:
+                qtr = str(smpk.quarter_status or "").strip().upper()[:1]
+            if not id_card:
+                id_card = "Y" if smpk.id_card_submitted else "N"
+            if flg == "N" and smpk.held_up_flag:
+                flg = _normalize_held_grat_flg(smpk.held_up_flag)
+            if amt <= 0 and smpk.held_gratuity_amt is not None:
+                amt = _money_float(smpk.held_gratuity_amt)
+
+    if not id_card:
+        id_card = "Y" if _is_id_card_submitted(proposal, emp_cd, ca_number) else "N"
+
+    return qtr, id_card, flg, amt
+
+
+def _held_gratuity_reason_code(qtr: str, id_card: str) -> str:
+    """
+    Hold reason for sanction note.
+
+    Prefer form "Reasons to Withhold" (quarter_status).
+    Use ID-Card text only when ID card is NOT submitted.
+    (Legacy Oracle extract used id_card='Y' → ID-Card, which printed the
+    wrong sentence when ID was already submitted.)
+    """
+    qtr = (qtr or "").strip().upper()[:1]
+    id_card = (id_card or "").strip().upper()[:1]
+
+    withhold_map = {
+        "V": "QUARTER",
+        "O": "ELEC",
+        "Q": "QTR_ELEC",
+        "C": "COURT",
+        "A": "COURT",  # UI list uses A for Court Attachment
+        "S": "QTR_ELEC_CRT",
+        "T": "QTR_CRT",
+        "U": "ELEC_CRT",
+        "M": "CREDIT_SOC",
+    }
+    if qtr in withhold_map:
+        return withhold_map[qtr]
+
+    if id_card != "Y":
+        return "ID_CARD"
+    return ""
+
+
+def _resolve_held_gratuity_amount(
+    flg: str, held_amt: float, gratuity_amt: float, qtr: str, id_card: str
+) -> float:
+    """
+    Amount resolution:
+      F/G → full gratuity; H/P and other active flags → HELD_GRAT_AMT; N → 0
+    """
+    flg = (flg or "N").strip().upper()[:1] or "N"
+    held = _money_float(held_amt)
+    full = _money_float(gratuity_amt)
+
+    if flg == "F":
+        return full
+    if flg == "N" or not flg:
+        return 0.0
+    # H/P (partial) and C/R/S → entered held amount
+    return held
+
+
+def _held_gratuity_sanction_note(
+    proposal, *, emp_cd, ca_number, gratuity_amt=None
+) -> str | None:
+    """
+    Sanction held-up line (Oracle CF_GRAT_HELD_STRFORMULA shape):
+      *) Rs. {amt} as payment of gratuity amount is to be {reason}
+    """
+    qtr, id_card, flg, held_amt = _proposal_held_fields(
+        proposal, emp_cd, ca_number
+    )
+    grat = _money_float(gratuity_amt)
+    amt = _resolve_held_gratuity_amount(flg, held_amt, grat, qtr, id_card)
+    reason = _held_gratuity_reason_code(qtr, id_card)
+
+    active = flg not in ("N", "")
+    if not active and amt <= 0:
+        if id_card != "Y":
+            reason = "ID_CARD"
+            amt = 0.0
+        else:
+            return None
+
+    amt_text = _format_amount_int(amt)
+
+    if not reason:
+        if id_card != "Y":
+            reason = "ID_CARD"
+        elif active and amt > 0:
+            # Held flag + amount, but no withhold reason and ID is OK.
+            return (
+                f"*) Rs. {amt_text} as payment of gratuity amount is to be held up."
+            )
+        else:
+            return None
+
+    reason_text = _HELD_REASON_TEXT.get(
+        reason, "held up for non submission of ID-Card"
+    )
+    return (
+        f"*) Rs. {amt_text} as payment of gratuity amount is to be {reason_text}"
+    )
 
 
 def _format_dd_mm_yy(value):
@@ -340,7 +552,9 @@ def _proposal_deduction_notes(active_proposal, ca_number, *, emp_cd=None):
     return notes
 
 
-def _build_notes(proposal, pronoun, base_cpi, *, emp_cd, ca_number):
+def _build_notes(
+    proposal, pronoun, base_cpi, *, emp_cd, ca_number, gratuity_amt=None
+):
     notes = ["Submitted to the FA & CAO for sanction."]
     scheme = _pension_scheme_phrase(_proposal_value(proposal, "pension_option") or "G")
     regn_no = _proposal_value(proposal, "regn_no") or ""
@@ -357,8 +571,18 @@ def _build_notes(proposal, pronoun, base_cpi, *, emp_cd, ca_number):
         )
     if base_cpi:
         notes.append(f"Relief to be given over {int(float(base_cpi))} CPI.")
-    if not _is_id_card_submitted(proposal, emp_cd, ca_number):
-        notes.append(ID_CARD_HOLDUP_LINE)
+
+    # Oracle CF_GRAT_HELD_STRFORMULA (held-up flag + amount + reason).
+    held_note = _held_gratuity_sanction_note(
+        proposal,
+        emp_cd=emp_cd,
+        ca_number=ca_number,
+        gratuity_amt=gratuity_amt,
+    )
+    if held_note:
+        notes.append(held_note)
+
+    # Oracle CF_DEDN_STMTFORMULA — proposal deduction lines.
     notes.extend(
         _proposal_deduction_notes(proposal, ca_number, emp_cd=emp_cd)
     )
@@ -490,6 +714,7 @@ def _build_row(emp_cd):
             base_cpi,
             emp_cd=emp_cd,
             ca_number=ca_number,
+            gratuity_amt=summary.gratuity_amount,
         ),
         "pension_admissible_text": _build_pension_admissible_text(
             summary,

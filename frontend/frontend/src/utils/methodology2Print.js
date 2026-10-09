@@ -15,13 +15,32 @@ function ensurePrintPortal() {
   return portal;
 }
 
+/** Case no. used as the Save-as-PDF name (browser appends .pdf). */
+function pdfBaseName(name) {
+  let text = String(name || "").trim();
+  if (!text) return "";
+  text = text.replace(/[<>:"/\\|?*]+/g, "-");
+  text = text.replace(/\s+/g, "_").replace(/^\.+|\.+$/g, "");
+  return text.slice(0, 80);
+}
+
 /**
  * Clone the off-screen consolidation sheet to a direct child of <body>,
  * then print. Parent display:none cannot blank the clone.
+ * fileName is the suggested PDF name (case number, e.g. 35925 → 35925.pdf).
  */
-export function printMethodology2Consolidation() {
+export function printMethodology2Consolidation(fileName) {
+  const previousTitle = document.title;
+  const base = pdfBaseName(fileName);
+  if (base) document.title = base;
+
+  const restoreTitle = () => {
+    document.title = previousTitle;
+  };
+
   const source = document.getElementById(M2_PRINT_SOURCE_ID);
   if (!source) {
+    window.addEventListener("afterprint", restoreTitle, { once: true });
     window.print();
     return;
   }
@@ -37,6 +56,7 @@ export function printMethodology2Consolidation() {
   const cleanup = () => {
     document.documentElement.classList.remove(M2_PRINT_CLASS);
     portal.replaceChildren();
+    restoreTitle();
     window.removeEventListener("afterprint", cleanup);
   };
 

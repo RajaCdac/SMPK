@@ -1,4 +1,9 @@
-export default function MethodologyClass12Result({ category, class12Result }) {
+export default function MethodologyClass12Result({
+  category,
+  class12Result,
+  headerExtra = null,
+  notice = null,
+}) {
   if (!class12Result) return null;
 
   return (
@@ -11,6 +16,7 @@ export default function MethodologyClass12Result({ category, class12Result }) {
               {class12Result.scale_display || class12Result.grade} (start{" "}
               {class12Result.start_revision})
             </h5>
+            {headerExtra}
           </div>
           <div className="card-body">
             <table className="table table-striped table-bordered mb-3">
@@ -61,6 +67,7 @@ export default function MethodologyClass12Result({ category, class12Result }) {
                 </div>
               </div>
             </div>
+            {notice}
           </div>
         </div>
       </div>

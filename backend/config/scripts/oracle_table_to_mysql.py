@@ -338,13 +338,26 @@ def build_create_table_sql(
     columns,
     primary_key: KeyConstraint | None,
 ):
+    # Oracle primary keys are case-sensitive. utf8mb4_unicode_ci folds
+    # HDC/G/PENS/03403 and HDC/G/Pens/03403 into one key (FI_PN_LIC_MASTER).
+    pk_names = {c.upper() for c in (primary_key.columns if primary_key else [])}
     col_defs = []
     for name, data_type, data_length, precision, scale, nullable, _default in columns:
         mysql_type = mysql_type_for_oracle(
             data_type, data_length, precision, scale
         )
         null_sql = "NULL" if nullable == "Y" else "NOT NULL"
-        col_defs.append(f"{quote_ident(name)} {mysql_type} {null_sql}")
+        type_up = mysql_type.upper()
+        collate_sql = ""
+        if name.upper() in pk_names and (
+            type_up.startswith("VARCHAR")
+            or type_up.startswith("CHAR")
+            or type_up.startswith("TEXT")
+        ):
+            collate_sql = " COLLATE utf8mb4_0900_bin"
+        col_defs.append(
+            f"{quote_ident(name)} {mysql_type}{collate_sql} {null_sql}"
+        )
 
     if primary_key and primary_key.columns:
         pk_cols = ", ".join(quote_ident(c) for c in primary_key.columns)

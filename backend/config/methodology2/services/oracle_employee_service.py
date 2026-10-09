@@ -313,6 +313,85 @@ def _match_class12_grade_and_pay(
     return None, basic
 
 
+def _apply_doctor_npa(data):
+    """
+    Doctors (fi_xx_mh_emp_per.DOCTOR_FLG = 1): consolidation last pay is the
+    salary basic plus that month's NPA, not the scale basic.
+
+    Latest salary month on or before separation, earning 001 + earning 005.
+    44232: 14350 + 3588 = 17938. 44346: 121730 + 24346 = 146076.
+    """
+    if not data:
+        return data
+    emp = str(data.get("emp_id") or data.get("emp_cd") or "").strip()[:5]
+    if not emp:
+        return data
+
+    sep = data.get("separation_date") or data.get("retirement_date")
+    sep_year = sep_month = None
+    if sep:
+        text = str(sep)[:10]
+        parts = text.split("-")
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            sep_year = int(parts[0])
+            sep_month = int(parts[1])
+
+    from django.db import connection
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT DOCTOR_FLG
+                FROM fi_xx_mh_emp_per
+                WHERE EMP_CD = %s
+                LIMIT 1
+                """,
+                [emp],
+            )
+            row = cursor.fetchone()
+            if not row or row[0] != 1:
+                return data
+            cursor.execute(
+                """
+                SELECT b.ACT_EARNDEDN_AMT, n.ACT_EARNDEDN_AMT
+                FROM fi_pr_td_salout b
+                INNER JOIN fi_pr_td_salout n
+                  ON n.EMP_CD = b.EMP_CD
+                 AND n.SAL_YR = b.SAL_YR
+                 AND n.SAL_MTH = b.SAL_MTH
+                 AND TRIM(n.EARNDEDN_CD) = '005'
+                WHERE b.EMP_CD = %s
+                  AND TRIM(b.EARNDEDN_CD) = '001'
+                  AND b.ACT_EARNDEDN_AMT > 0
+                  AND n.ACT_EARNDEDN_AMT > 0
+                  AND (
+                    %s IS NULL
+                    OR b.SAL_YR < %s
+                    OR (b.SAL_YR = %s AND b.SAL_MTH <= %s)
+                  )
+                ORDER BY b.SAL_YR DESC, b.SAL_MTH DESC
+                LIMIT 1
+                """,
+                [emp, sep_year, sep_year, sep_year, sep_month],
+            )
+            hit = cursor.fetchone()
+    except Exception:
+        return data
+
+    if not hit or hit[0] is None or hit[1] is None:
+        return data
+
+    from decimal import Decimal, ROUND_HALF_UP
+
+    basic = Decimal(str(hit[0]))
+    npa = Decimal(str(hit[1]))
+    combined = (basic + npa).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    data["npa_amount"] = float(npa.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    data["last_pay"] = int(combined)
+    return data
+
+
 def fetch_employee_for_methodology2(emp_id):
     data = fetch_employee_for_methodology(
         emp_id,
@@ -327,7 +406,7 @@ def fetch_employee_for_methodology2(emp_id):
 
     category = str(data.get("category") or "")
     if category not in ("1", "2"):
-        return data
+        return _apply_doctor_npa(data)
 
     # Class 1/2 (dept): last pay without bunching/stepping-up.
     from employee.services.methodology_employee_lookup import (
@@ -375,7 +454,7 @@ def fetch_employee_for_methodology2(emp_id):
         data["warning"] = (
             "Select executive grade (E-n) for Class 1/2 calculation."
         )
-    return data
+    return _apply_doctor_npa(data)
 
 
 def validate_like_grade(value):

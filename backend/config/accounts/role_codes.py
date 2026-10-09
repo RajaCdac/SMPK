@@ -17,6 +17,16 @@ def role_name_to_code(name):
     if normalized in {"lic section user", "lic section"}:
         return "LIC_SECTION_USER"
     if normalized in {
+        "m2 user",
+        "m2",
+        "methodology 2 user",
+        "methodology2 user",
+        "methodology ii user",
+        "methodology ii",
+        "m2 oa user",
+    }:
+        return "M2_USER"
+    if normalized in {
         "pension user",
         "pension",
         "user",
@@ -28,6 +38,14 @@ def role_name_to_code(name):
     slug = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_").upper()
     if slug in ADMIN_ROLE_CODES:
         return "ADMIN"
+    # Existing roles created as "Methodology II User" before explicit mapping
+    if slug in {
+        "METHODOLOGY_II_USER",
+        "METHODOLOGY_2_USER",
+        "METHODOLOGYII_USER",
+        "M2USER",
+    }:
+        return "M2_USER"
     if slug:
         return slug
     return "PENSION_USER"
@@ -37,6 +55,14 @@ def normalize_role_code(code, role_name=None):
     raw = (code or "").strip().upper()
     if raw in ADMIN_ROLE_CODES:
         return "ADMIN"
+    if raw in {
+        "M2_USER",
+        "METHODOLOGY_II_USER",
+        "METHODOLOGY_2_USER",
+        "METHODOLOGYII_USER",
+        "M2USER",
+    }:
+        return "M2_USER"
     if raw:
         return raw
     return role_name_to_code(role_name)

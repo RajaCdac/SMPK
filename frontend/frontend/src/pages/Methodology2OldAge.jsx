@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import API from "../services/Api";
 import RevisionCalculationCards from "../components/RevisionCalculationCards";
-import MethodologyClass12Result from "../components/MethodologyClass12Result";
 import Methodology2PensionSummary from "../components/Methodology2OldAgePensionSummary";
-import OldAgeBenefitPanel from "../components/OldAgeBenefitPanel";
+import HeaderFieldPrompt, {
+  useConsolidationHeaderPrompt,
+} from "../components/HeaderFieldPrompt";
 import SmpkDataTable from "../components/DataTable/SmpkDataTable";
 
 export default function Methodology2OldAge() {
@@ -16,15 +17,23 @@ export default function Methodology2OldAge() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkSummary, setBulkSummary] = useState(null);
   const [bulkError, setBulkError] = useState("");
+  const [bulkProgress, setBulkProgress] = useState(null);
+  const [generatePdf, setGeneratePdf] = useState(true);
   const [reportBusy, setReportBusy] = useState(false);
   const [reportError, setReportError] = useState("");
   const [reportFrom, setReportFrom] = useState("");
   const [reportTo, setReportTo] = useState("");
+  const [batches, setBatches] = useState([]);
+  const [batchId, setBatchId] = useState("");
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchError, setBatchError] = useState("");
 
   const [retirementDate, setRetirementDate] = useState("");
   const [scale, setScale] = useState("");
   const [lastPay, setLastPay] = useState("");
   const [stagnationAmount, setStagnationAmount] = useState("");
+  const [npaAmount, setNpaAmount] = useState("");
+  const [doctorPay, setDoctorPay] = useState("");
   const [sda, setSda] = useState("");
   const [sdaOptions, setSdaOptions] = useState([]);
   const [category, setCategory] = useState("3");
@@ -39,7 +48,6 @@ export default function Methodology2OldAge() {
   const [printMaster, setPrintMaster] = useState(null);
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [oldageBenefit, setOldageBenefit] = useState(null);
-  const [oldageLoading, setOldageLoading] = useState(false);
 
   const isClass12 = category === "1" || category === "2";
   const isCategory34 = category === "3" || category === "4";
@@ -74,6 +82,9 @@ export default function Methodology2OldAge() {
           last_pay: pay,
           sda: sdaValue || 0,
           category: categoryValue,
+          tqs_yr: printMaster?.tqs_yr,
+          tqs_month: printMaster?.tqs_month,
+          tqs_days: printMaster?.tqs_days,
         });
         setCalculationRows(res.data.rows || []);
         setPensionSummary(res.data.pension || null);
@@ -87,7 +98,7 @@ export default function Methodology2OldAge() {
         );
       }
     },
-    []
+    [printMaster]
   );
 
   const runClass12Calculation = useCallback(async (date, grade, pay) => {
@@ -98,31 +109,42 @@ export default function Methodology2OldAge() {
         separation_date: date,
         scale: grade,
         last_pay: pay,
+        tqs_yr: printMaster?.tqs_yr,
+        tqs_month: printMaster?.tqs_month,
+        tqs_days: printMaster?.tqs_days,
       });
       setClass12Result(res.data);
     } catch (err) {
       console.error(err);
       alert(err.response?.data?.error || "Calculation failed. Check inputs.");
     }
-  }, []);
+  }, [printMaster]);
 
   const recalculateOldAge = useCallback(async () => {
-    if (!dateOfBirth) {
+    const isFamily = printMaster?.is_employee_pension === false;
+    if (!isFamily && !dateOfBirth) {
+      setOldageBenefit(null);
+      return;
+    }
+    if (isFamily && !printMaster?.family_pensioner_dob && !empId) {
       setOldageBenefit(null);
       return;
     }
     const pen = pensionSummary || class12Result?.pension || class12Result || {};
     const isEmp = printMaster?.is_employee_pension !== false;
-    const m2_359 = isEmp
-      ? pen.pension_359_cpi ?? null
-      : pen.family_pension_359_cpi ?? null;
-    const m2_277 = isEmp
-      ? pen.pension_277_cpi ?? (class12Result ? class12Result.pension : null) ?? null
-      : pen.family_pension_277_cpi ?? (class12Result ? class12Result.family_pension : null) ?? null;
+    const m2_emp_359 = pen.pension_359_cpi ?? null;
+    const m2_emp_277 =
+      pen.pension_277_cpi ?? (class12Result ? class12Result.pension : null) ?? null;
+    const m2_fam_359 = pen.family_pension_359_cpi ?? null;
+    const m2_fam_277 =
+      pen.family_pension_277_cpi ??
+      (class12Result ? class12Result.family_pension : null) ??
+      null;
+    const m2_359 = isEmp ? m2_emp_359 : m2_fam_359;
+    const m2_277 = isEmp ? m2_emp_277 : m2_fam_277;
     // M1 amounts come from wage / print master (same fields Met2 consolidation uses).
     const m1_359 = printMaster?.m1_family_pension_359 ?? null;
     const m1_277 = printMaster?.m1_family_pension_277 ?? null;
-    setOldageLoading(true);
     try {
       const res = await API.post("m2-oldage-arrear/oldage/calculate/", {
         emp_id: empId || undefined,
@@ -130,8 +152,14 @@ export default function Methodology2OldAge() {
         date_of_birth: dateOfBirth,
         category: category || undefined,
         is_employee_pension: isEmp,
-        m2_pension_359: m2_359,
-        m2_pension_277: m2_277,
+        date_of_death: printMaster?.date_of_death || null,
+        double_fpension_upto: printMaster?.double_fpension_upto || null,
+        pensioner_name: printMaster?.pensioner_name || null,
+        family_pensioner_dob: printMaster?.family_pensioner_dob || null,
+        m2_pension_359: m2_emp_359,
+        m2_pension_277: m2_emp_277,
+        m2_family_pension_359: m2_fam_359,
+        m2_family_pension_277: m2_fam_277,
         pension_359: m2_359,
         pension_277: m2_277,
         m1_pension_359: m1_359,
@@ -144,16 +172,18 @@ export default function Methodology2OldAge() {
         error: err.response?.data?.error || "Old-age calculation failed",
         milestones: [],
       });
-    } finally {
-      setOldageLoading(false);
     }
   }, [dateOfBirth, pensionSummary, class12Result, empId, printMaster, category]);
 
   useEffect(() => {
-    if (!dateOfBirth) return;
+    const isFamily = printMaster?.is_employee_pension === false;
+    if (!isFamily && !dateOfBirth) return;
+    if (isFamily && !printMaster?.family_pensioner_dob && !empId && !dateOfBirth) {
+      return;
+    }
     if (!pensionSummary && !class12Result) return;
     recalculateOldAge();
-  }, [dateOfBirth, pensionSummary, class12Result, printMaster, recalculateOldAge]);
+  }, [dateOfBirth, pensionSummary, class12Result, printMaster, empId, recalculateOldAge]);
 
   const loadPayStages = useCallback(async (scaleValue) => {
     if (!scaleValue) {
@@ -187,6 +217,8 @@ export default function Methodology2OldAge() {
     setClass12Result(null);
     setEquivalentScales(null);
     setStagnationAmount("");
+    setNpaAmount("");
+    setDoctorPay("");
 
     try {
       const res = await API.get(`m2-oldage-arrear/employee/${trimmed}/`);
@@ -219,6 +251,7 @@ export default function Methodology2OldAge() {
         retirement_date: data.separation_date || null,
         retirement_type: data.retirement_type || "",
         date_of_death: data.date_of_death || null,
+        family_pensioner_dob: data.family_pensioner_dob || null,
         double_fpension_upto: data.double_fpension_upto || null,
         enhanced_family_pension: !!data.enhanced_family_pension,
         category: empCategory,
@@ -226,6 +259,7 @@ export default function Methodology2OldAge() {
         is_employee_pension: data.is_employee_pension || false,
         m1_family_pension_277: data.m1_family_pension_277 ?? null,
         m1_family_pension_359: data.m1_family_pension_359 ?? null,
+        m1_bunching: data.m1_bunching || null,
         date_of_birth: data.date_of_birth || data.dob || null,
       });
 
@@ -239,6 +273,13 @@ export default function Methodology2OldAge() {
         data.last_pay != null && data.last_pay !== ""
           ? String(data.last_pay)
           : "";
+      if (data.npa_amount != null && data.npa_amount !== "") {
+        setNpaAmount(String(data.npa_amount));
+        setDoctorPay(pay);
+      } else {
+        setNpaAmount("");
+        setDoctorPay("");
+      }
 
       const isEmpClass12 = empCategory === "1" || empCategory === "2";
 
@@ -373,6 +414,8 @@ export default function Methodology2OldAge() {
     setScale("");
     setLastPay("");
     setStagnationAmount("");
+    setNpaAmount("");
+    setDoctorPay("");
     setClass12Result(null);
     setCalculationRows([]);
     setPensionSummary(null);
@@ -416,23 +459,121 @@ export default function Methodology2OldAge() {
     runClass12Calculation,
   ]);
 
+  const { prompt: headerPrompt, setPrompt: setHeaderPrompt, submitHeaderValue } =
+    useConsolidationHeaderPrompt({
+      active:
+        !loadingEmployee &&
+        !!printMaster?.emp_cd &&
+        !!scale &&
+        !!String(lastPay || "").trim(),
+      master: printMaster,
+      onFilled: (patch) => {
+        setPrintMaster((prev) => ({ ...(prev || {}), ...patch }));
+        if (patch.name) setEmployeeName(patch.name);
+        if (Object.prototype.hasOwnProperty.call(patch, "date_of_birth")) {
+          setDateOfBirth(patch.date_of_birth || "");
+        }
+      },
+    });
+
+  const bulkProgressPct = useMemo(() => {
+    if (!bulkProgress?.total) return 0;
+    return Math.min(
+      100,
+      Math.round((bulkProgress.current / bulkProgress.total) * 100)
+    );
+  }, [bulkProgress]);
+
+  const loadBatches = useCallback(async () => {
+    setBatchError("");
+    try {
+      const { data } = await API.get("m2-oldage-arrear/batches/", {
+        params: { source: "auto", limit: 50 },
+      });
+      const rows = data?.batches || [];
+      setBatches(rows);
+      setBatchId((prev) => prev || (rows[0]?.batch_id ?? ""));
+    } catch (err) {
+      setBatchError(
+        String(
+          err?.response?.data?.error || err?.message || "Failed to load batches"
+        )
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    loadBatches();
+  }, [loadBatches]);
+
   const runBulkUpload = async (e) => {
     e.preventDefault();
     setBulkError("");
     setBulkSummary(null);
+    setBulkProgress(null);
     if (!bulkFile) {
       setBulkError("Choose an Excel file with column EMP_CD.");
       return;
     }
     const form = new FormData();
     form.append("file", bulkFile);
+    form.append("generate_pdf", generatePdf ? "1" : "0");
     setBulkBusy(true);
     try {
-      const { data } = await API.post("m2-oldage-arrear/bulk/", form, {
-        headers: { "Content-Type": "multipart/form-data" },
-        timeout: 0,
+      const { data: prep } = await API.post(
+        "m2-oldage-arrear/bulk/prepare/",
+        form,
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 120000,
+        }
+      );
+
+      const { session_id: sessionId, total, output_dir: outputDir } = prep;
+      if (!sessionId || !total) {
+        throw new Error("Prepare step did not return session_id / total.");
+      }
+
+      setBulkProgress({ current: 0, total, emp_cd: "", status: "starting" });
+
+      for (let index = 0; index < total; index += 1) {
+        const { data: rowEvt } = await API.post(
+          "m2-oldage-arrear/bulk/row/",
+          {
+            session_id: sessionId,
+            index,
+            output_dir: outputDir,
+          },
+          { timeout: 0 }
+        );
+        setBulkProgress({
+          current: rowEvt.current ?? index + 1,
+          total: rowEvt.total ?? total,
+          emp_cd: rowEvt.emp_cd ?? "",
+          status: rowEvt.status ?? "",
+        });
+      }
+
+      const { data: doneSummary } = await API.post(
+        "m2-oldage-arrear/bulk/finish/",
+        {
+          session_id: sessionId,
+          output_dir: outputDir,
+        },
+        { timeout: 120000 }
+      );
+
+      setBulkSummary(doneSummary);
+      setBulkProgress({
+        current: total,
+        total,
+        emp_cd: "",
+        status: "complete",
       });
-      setBulkSummary(data);
+      if (doneSummary?.batch_id) {
+        setBatchId(doneSummary.batch_id);
+      }
+      await loadBatches();
     } catch (err) {
       setBulkError(
         String(
@@ -441,6 +582,54 @@ export default function Methodology2OldAge() {
       );
     } finally {
       setBulkBusy(false);
+    }
+  };
+
+  const downloadBatchExcel = async () => {
+    setBatchError("");
+    if (!batchId) {
+      setBatchError("Select a batch first.");
+      return;
+    }
+    setBatchBusy(true);
+    try {
+      const res = await API.get(
+        `m2-oldage-arrear/batches/${encodeURIComponent(batchId)}/report/`,
+        { responseType: "blob", timeout: 0 }
+      );
+      const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const cd = res.headers["content-disposition"] || "";
+      const match = cd.match(/filename="?([^"]+)"?/);
+      link.download = match ? match[1] : `Report_${batchId}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      if (err?.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const json = JSON.parse(text);
+          setBatchError(json.error || "Batch Excel download failed");
+        } catch {
+          setBatchError("Batch Excel download failed");
+        }
+      } else {
+        setBatchError(
+          String(
+            err?.response?.data?.error ||
+              err?.message ||
+              "Batch Excel download failed"
+          )
+        );
+      }
+    } finally {
+      setBatchBusy(false);
     }
   };
 
@@ -547,36 +736,148 @@ export default function Methodology2OldAge() {
             <div className="card-body">
               <p className="text-muted small mb-3">
                 Upload Excel with column <code>EMP_CD</code> (optional{" "}
-                <code>name</code>, <code>roll_no</code>). Each employee is
-                calculated with <strong>Old Age</strong> print columns,
-                consolidation saved to the old-age table, and PDF written to
-                Desktop <code>M2_OldAge_YYYY-MM-DD</code> as{" "}
-                <code>case_no.pdf</code>.
-                Click <strong>Report (Excel)</strong> with an{" "}
-                <strong>Updated from / to</strong> range to export only rows
-                whose <code>updated_at</code> falls in that period (not the full
-                table).
+                <code>name</code>, <code>roll_no</code>). Each run creates a{" "}
+                <strong>batch</strong> (IST stamp + case count). Consolidation
+                is saved to DB. With <strong>Generate PDF</strong> on: PDFs only
+                to Desktop <code>M2_OldAge_YYYY-MM-DD_HHMM</code>. With PDF off:
+                folder gets <code>Report.xlsx</code>. Prefer{" "}
+                <strong>Excel by batch</strong> below (from DB, no re-calc) —
+                or date-range <strong>Report (Excel)</strong> in the header.
               </p>
               <form onSubmit={runBulkUpload} className="row g-2 align-items-end">
-                <div className="col-12 col-md-8">
+                <div className="col-12 col-md-6">
                   <label className="form-label">Excel file</label>
                   <input
                     type="file"
                     accept=".xlsx,.xls"
                     className="form-control"
                     onChange={(ev) => setBulkFile(ev.target.files?.[0] || null)}
+                    disabled={bulkBusy}
                   />
                 </div>
-                <div className="col-12 col-md-4">
+                <div className="col-12 col-md-3">
+                  <div className="form-check mt-4">
+                    <input
+                      className="form-check-input"
+                      type="checkbox"
+                      id="oaBulkGeneratePdf"
+                      checked={generatePdf}
+                      onChange={(e) => setGeneratePdf(e.target.checked)}
+                      disabled={bulkBusy}
+                    />
+                    <label
+                      className="form-check-label"
+                      htmlFor="oaBulkGeneratePdf"
+                    >
+                      Generate PDF
+                    </label>
+                  </div>
+                </div>
+                <div className="col-12 col-md-3">
                   <button
                     type="submit"
                     className="btn btn-primary w-100"
                     disabled={bulkBusy}
                   >
-                    {bulkBusy ? "Running…" : "Run bulk"}
+                    {bulkBusy ? "Processing…" : "Run bulk"}
                   </button>
                 </div>
               </form>
+
+              <div className="border rounded p-3 mt-3 bg-light">
+                <div className="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                  <strong className="small mb-0">Excel by batch (from DB)</strong>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-secondary"
+                    onClick={loadBatches}
+                    disabled={batchBusy || bulkBusy}
+                  >
+                    Refresh
+                  </button>
+                </div>
+                <div className="row g-2 align-items-end">
+                  <div className="col-12 col-md-8">
+                    <label className="form-label small mb-1">Batch</label>
+                    <select
+                      className="form-select form-select-sm"
+                      value={batchId}
+                      onChange={(e) => setBatchId(e.target.value)}
+                      disabled={batchBusy || bulkBusy || !batches.length}
+                    >
+                      {!batches.length ? (
+                        <option value="">No batches yet</option>
+                      ) : (
+                        batches.map((b) => (
+                          <option key={b.batch_id} value={b.batch_id}>
+                            {b.label || b.batch_id}
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+                  <div className="col-12 col-md-4">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-success w-100"
+                      onClick={downloadBatchExcel}
+                      disabled={batchBusy || bulkBusy || !batchId}
+                    >
+                      {batchBusy ? "Preparing…" : "Download Excel"}
+                    </button>
+                  </div>
+                </div>
+                {batchError ? (
+                  <div className="alert alert-warning mt-2 mb-0 py-2 small">
+                    {batchError}
+                  </div>
+                ) : null}
+              </div>
+
+              {bulkBusy && bulkProgress?.total ? (
+                <div className="mt-3">
+                  <div className="d-flex justify-content-between small mb-1">
+                    <span>
+                      Processing employee{" "}
+                      <strong>{bulkProgress.current}</strong> of{" "}
+                      <strong>{bulkProgress.total}</strong>
+                      {bulkProgress.emp_cd ? (
+                        <>
+                          {" "}
+                          — <code>{bulkProgress.emp_cd}</code>
+                          {bulkProgress.status
+                            ? ` (${bulkProgress.status})`
+                            : ""}
+                        </>
+                      ) : bulkProgress.status === "starting" ? (
+                        " — preparing…"
+                      ) : null}
+                    </span>
+                    <span>{bulkProgressPct}%</span>
+                  </div>
+                  <div
+                    className="progress"
+                    role="progressbar"
+                    aria-valuenow={bulkProgressPct}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  >
+                    <div
+                      className="progress-bar progress-bar-striped progress-bar-animated"
+                      style={{ width: `${Math.max(bulkProgressPct, 2)}%` }}
+                    />
+                  </div>
+                  <p className="text-muted small mb-0 mt-2">
+                    {generatePdf
+                      ? "PDFs only (no Report.xlsx in folder). Large files may take several minutes."
+                      : "PDF off — consolidating to DB; Report.xlsx written to folder."}{" "}
+                    Batch stamp is set at prepare; Excel-by-batch uses DB after finish.
+                  </p>
+                </div>
+              ) : bulkBusy ? (
+                <div className="mt-3 text-muted small">Starting bulk run…</div>
+              ) : null}
+
               {bulkError ? (
                 <div className="alert alert-danger mt-3 mb-0">{bulkError}</div>
               ) : null}
@@ -588,6 +889,21 @@ export default function Methodology2OldAge() {
                   <p className="mb-1">
                     <strong>Folder:</strong> {bulkSummary.output_dir}
                   </p>
+                  {bulkSummary.batch_id ? (
+                    <p className="mb-1 small">
+                      <strong>Batch:</strong>{" "}
+                      <code>{bulkSummary.batch_id}</code>
+                      {bulkSummary.stamp ? ` · stamp ${bulkSummary.stamp}` : ""}
+                      {bulkSummary.case_count != null
+                        ? ` · ${bulkSummary.case_count} cases`
+                        : ""}
+                    </p>
+                  ) : null}
+                  {bulkSummary.report_path ? (
+                    <p className="mb-1 small">
+                      <strong>Report:</strong> {bulkSummary.report_path}
+                    </p>
+                  ) : null}
                   <p className="mb-2 small">
                     total {bulkSummary.total} · ok {bulkSummary.ok} · skipped{" "}
                     {bulkSummary.skipped} · failed {bulkSummary.failed}
@@ -640,7 +956,7 @@ export default function Methodology2OldAge() {
         <div className="col-12 col-xl-10">
           <div className="card shadow">
             <div className="card-header bg-primary text-white">
-              <h4 className="mb-0">Methodology 2 — Old Age Arrear</h4>
+              <h4 className="mb-0">Methodology 2 Consolidation</h4>
             </div>
             <div className="card-body smpk-form">
               <div className="row g-3 mb-3">
@@ -670,6 +986,11 @@ export default function Methodology2OldAge() {
                       {employeeName}
                     </small>
                   )}
+                  <small className="text-muted d-block mt-1">
+                    After employee, scale and last pay are entered, any header
+                    value still missing from the database is asked one field at
+                    a time. Stagnation stays optional.
+                  </small>
                 </div>
               </div>
 
@@ -712,6 +1033,8 @@ export default function Methodology2OldAge() {
                       setScale(e.target.value);
                       setLastPay("");
                       setStagnationAmount("");
+                      setNpaAmount("");
+                      setDoctorPay("");
                       setCalculationRows([]);
                       setPensionSummary(null);
                       setClass12Result(null);
@@ -737,13 +1060,26 @@ export default function Methodology2OldAge() {
                   <select
                     className="form-select"
                     value={lastPay}
-                    onChange={(e) => setLastPay(e.target.value)}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setLastPay(next);
+                      if (String(next) !== String(doctorPay)) {
+                        setNpaAmount("");
+                      }
+                    }}
                     disabled={!scale}
                   >
                     <option value="">Select Last Pay</option>
-                    {payStages.map((item, index) => (
-                      <option key={index} value={item}>
-                        {item}
+                    {(payStages.some((item) => String(item) === String(lastPay))
+                      ? payStages
+                      : lastPay
+                        ? [...payStages, lastPay]
+                        : payStages
+                    ).map((item, index) => (
+                      <option key={`${item}-${index}`} value={item}>
+                        {String(item) === String(doctorPay) && npaAmount
+                          ? `${item} (npa ${npaAmount})`
+                          : item}
                       </option>
                     ))}
                   </select>
@@ -836,13 +1172,6 @@ export default function Methodology2OldAge() {
         </div>
       )}
 
-      {isClass12 && (
-        <MethodologyClass12Result
-          category={category}
-          class12Result={class12Result}
-        />
-      )}
-
       {isClass12 && class12Result && (
         <Methodology2PensionSummary
           class12Result={class12Result}
@@ -850,6 +1179,7 @@ export default function Methodology2OldAge() {
           scale={scale}
           lastPay={lastPay}
           stagnationAmount={stagnationAmount}
+          npaAmount={npaAmount}
           effectivePay={effectivePay || lastPay}
           empId={empId}
           employeeName={employeeName}
@@ -868,6 +1198,7 @@ export default function Methodology2OldAge() {
           scale={scale}
           lastPay={lastPay}
           stagnationAmount={stagnationAmount}
+          npaAmount={npaAmount}
           effectivePay={effectivePay || lastPay}
           empId={empId}
           employeeName={employeeName}
@@ -881,15 +1212,12 @@ export default function Methodology2OldAge() {
         />
       )}
 
-      <OldAgeBenefitPanel
-        dob={dateOfBirth}
-        onDobChange={setDateOfBirth}
-        oldage={oldageBenefit}
-        loading={oldageLoading}
-        onRecalculate={recalculateOldAge}
-      />
-
-      {calculationRows.length > 0 && startRevision && (
+      {/*
+        BLOCKED (UI only) — Revision Calculation (year-wise)
+        Kept for later; consolidation print/snapshot still uses revision_blocks.
+        Flip the `false &&` below to restore the cards.
+      */}
+      {false && calculationRows.length > 0 && startRevision && (
         <div className="row justify-content-center mt-4">
           <div className="col-12">
             <div className="card shadow">
@@ -906,6 +1234,29 @@ export default function Methodology2OldAge() {
           </div>
         </div>
       )}
+      {calculationRows.length > 0 && startRevision && (
+        <div className="row justify-content-center mt-4 no-print">
+          <div className="col-12">
+            <div className="alert alert-secondary mb-0" role="status">
+              <strong>Revision Calculation (year-wise) — temporarily blocked.</strong>
+              <div className="small mt-1 mb-0">
+                Year-wise revision cards are hidden on this consolidation screen for
+                now. Calculation still runs in the background and is used for
+                consolidation / print / old-age. This section is not removed and can
+                be re-enabled later.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {headerPrompt ? (
+        <HeaderFieldPrompt
+          prompt={headerPrompt}
+          onChange={setHeaderPrompt}
+          onSave={() => submitHeaderValue(false)}
+          onNull={() => submitHeaderValue(true)}
+        />
+      ) : null}
     </div>
   );
 }

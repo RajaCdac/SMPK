@@ -65,7 +65,12 @@ class ConsolidationReportView(APIView):
             )
 
         try:
-            content, count = build_consolidation_report_bytes(from_d, to_d)
+            content, count = build_consolidation_report_bytes(
+                from_d,
+                to_d,
+                include_oldage=False,
+                include_enhanced=True,
+            )
         except Exception as exc:
             return Response(
                 {"error": str(exc)},

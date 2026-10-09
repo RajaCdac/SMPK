@@ -349,6 +349,59 @@ def _pension_from_state(state):
     }
 
 
+def calculate_revision(
+    scales,
+    current_revision,
+    last_pay,
+    sda_override=0,
+    *,
+    retirement_date=None,
+    tqs_yr=None,
+    tqs_month=None,
+    tqs_days=None,
+):
+    if not scales:
+        return {"rows": [], "pension": {}}
+
+    state = {}
+    handlers = {
+        "1979(REVISED PAY SCALE)": _compute_from_1979,
+        "1984(REVISED PAY SCALE)": _compute_from_1984,
+        "1988(607 CPI)": _compute_from_1988,
+        "1993(1030 CPI)": _compute_from_1993,
+        "1997(1708 CPI)": _compute_from_1997,
+        "2007(126 CPI)": _compute_from_2007,
+        "2012(198 CPI)": _compute_from_2012,
+        "2017(277 CPI)": _compute_from_2017,
+        "2022(359 CPI)": _compute_from_2022,
+    }
+
+    handler = handlers.get(current_revision)
+    if not handler:
+        return {"rows": [], "pension": {}}
+
+    handler(state, scales, last_pay, sda_override)
+    start_row = START_ROW[current_revision]
+
+    from methodology2.services.proportionate_pension import (
+        apply_proportionate_pension,
+    )
+
+    pension = apply_proportionate_pension(
+        _pension_from_state(state),
+        retirement_date=retirement_date,
+        tqs_yr=tqs_yr,
+        tqs_month=tqs_month,
+        tqs_days=tqs_days,
+    )
+
+    # Show only from retirement CPI onward (do not backfill earlier stages).
+    return {
+        "rows": _format_rows(state, start_row),
+        "pension": pension,
+    }
+
+
 def _backfill_1997_rows(state, scales, anchor_basic_2007):
     """1708 CPI block for card/print when calc starts at 2007 or later."""
     if state.get(48):
@@ -670,34 +723,3 @@ def expand_detailed_cpi_breakdown(rows):
         )
 
     return out
-
-
-def calculate_revision(scales, current_revision, last_pay, sda_override=0):
-    if not scales:
-        return {"rows": [], "pension": {}}
-
-    state = {}
-    handlers = {
-        "1979(REVISED PAY SCALE)": _compute_from_1979,
-        "1984(REVISED PAY SCALE)": _compute_from_1984,
-        "1988(607 CPI)": _compute_from_1988,
-        "1993(1030 CPI)": _compute_from_1993,
-        "1997(1708 CPI)": _compute_from_1997,
-        "2007(126 CPI)": _compute_from_2007,
-        "2012(198 CPI)": _compute_from_2012,
-        "2017(277 CPI)": _compute_from_2017,
-        "2022(359 CPI)": _compute_from_2022,
-    }
-
-    handler = handlers.get(current_revision)
-    if not handler:
-        return {"rows": [], "pension": {}}
-
-    handler(state, scales, last_pay, sda_override)
-    start_row = START_ROW[current_revision]
-
-    # Show only from retirement CPI onward (do not backfill earlier stages).
-    return {
-        "rows": _format_rows(state, start_row),
-        "pension": _pension_from_state(state),
-    }

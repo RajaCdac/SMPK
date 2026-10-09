@@ -11,9 +11,12 @@ from methodology2.services.class1_2_service import (
 )
 from methodology2.services.consolidation_service import (
     fetch_print_master_fields,
+    fill_employee_header_gaps,
     get_consolidation_snapshot,
     save_consolidation_snapshot,
+    use_consolidation_actor,
 )
+from methodology2.services.lic_bunching import fetch_class12_m1_bunching
 from methodology2.services.oracle_employee_service import (
     fetch_employee_for_methodology2,
 )
@@ -133,7 +136,14 @@ class CalculateClass12View(APIView):
             )
 
         try:
-            result = calculate_class12(separation_date, grade, last_pay)
+            result = calculate_class12(
+                separation_date,
+                grade,
+                last_pay,
+                tqs_yr=request.data.get("tqs_yr"),
+                tqs_month=request.data.get("tqs_month"),
+                tqs_days=request.data.get("tqs_days"),
+            )
         except Exception as exc:
             return Response(
                 {"error": str(exc)},
@@ -180,7 +190,14 @@ class CalculateRevisionView(APIView):
         )
 
         result = calculate_revision(
-            scales, current_revision, last_pay, sda_override
+            scales,
+            current_revision,
+            last_pay,
+            sda_override,
+            retirement_date=retirement_date,
+            tqs_yr=request.data.get("tqs_yr"),
+            tqs_month=request.data.get("tqs_month"),
+            tqs_days=request.data.get("tqs_days"),
         )
 
         return Response({
@@ -246,6 +263,11 @@ class EmployeeLookupView(APIView):
                         if hasattr(master.get("date_of_death"), "isoformat")
                         else master.get("date_of_death")
                     ),
+                    "family_pensioner_dob": (
+                        master.get("family_pensioner_dob").isoformat()
+                        if hasattr(master.get("family_pensioner_dob"), "isoformat")
+                        else master.get("family_pensioner_dob")
+                    ),
                     "double_fpension_upto": (
                         master.get("double_fpension_upto").isoformat()
                         if hasattr(master.get("double_fpension_upto"), "isoformat")
@@ -264,6 +286,10 @@ class EmployeeLookupView(APIView):
             )
             if master.get("name") and not data.get("name"):
                 data["name"] = master["name"]
+            data["m1_bunching"] = fetch_class12_m1_bunching(
+                emp_id, category=data.get("category")
+            )
+            fill_employee_header_gaps(emp_id, data)
             return Response(data)
         except Exception as exc:
             return Response(
@@ -294,7 +320,8 @@ class ConsolidationSnapshotView(APIView):
         ).strip()[:5]
         old_data = get_consolidation_snapshot(emp_key) if emp_key else None
 
-        result = save_consolidation_snapshot(payload)
+        with use_consolidation_actor(request):
+            result = save_consolidation_snapshot(payload)
         if result.get("error"):
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
 

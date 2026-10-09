@@ -12,6 +12,7 @@ from methodology2.services.bulk_run_service import (
     default_run_output_dir,
     run_bulk_from_excel,
 )
+from methodology2.services.consolidation_service import use_consolidation_actor
 
 
 class BulkUploadView(APIView):
@@ -36,7 +37,8 @@ class BulkUploadView(APIView):
         out = Path(output_dir) if output_dir else default_run_output_dir()
 
         try:
-            summary = run_bulk_from_excel(upload.read(), output_dir=out)
+            with use_consolidation_actor(request):
+                summary = run_bulk_from_excel(upload.read(), output_dir=out)
         except ValueError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:

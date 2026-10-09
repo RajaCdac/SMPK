@@ -165,6 +165,10 @@ def build_oldage_periods(
     as_on: date,
     horizon_end: date = DISPLAY_HORIZON_END,
     class_grp: int = 3,
+    m1_277: Decimal | None = None,
+    m1_359: Decimal | None = None,
+    m2_277: Decimal | None = None,
+    m2_359: Decimal | None = None,
 ) -> list[dict[str, Any]]:
     """
     Split [age-80 WEF … min(as_on, horizon_end)] at CPI, age-slab, and DA% changes.
@@ -217,6 +221,10 @@ def build_oldage_periods(
             continue
 
         benefit = _benefit_for_cpi(cpi, b277, b359)
+        if cpi == "277":
+            m1_amt, m2_amt = m1_277, m2_277
+        else:
+            m1_amt, m2_amt = m1_359, m2_359
         pct = percent_on_wef_date(dob, p_from)
         slab_age = slab_age_on_wef_date(dob, p_from)
         monthly = None
@@ -256,6 +264,8 @@ def build_oldage_periods(
                 "cpi_period": cpi,
                 "age_slab": slab_age,
                 "percent": float(pct),
+                "m1_pension": _money(m1_amt),
+                "m2_pension": _money(m2_amt),
                 "benefit_base": _money(benefit),
                 "da_pct": float(da_pct),
                 "monthly_additional": _money(monthly),
@@ -364,6 +374,10 @@ def compute_oldage_benefit(
         as_on=as_on,
         horizon_end=horizon,
         class_grp=grp,
+        m1_277=m1_277,
+        m1_359=m1_359,
+        m2_277=m2_277,
+        m2_359=m2_359,
     )
 
     milestones = []

@@ -96,6 +96,28 @@ export default function OldAgeBenefitPanel({
   const periods = oldage?.periods || [];
   const uptoLabel = lastMonthLabel(oldage);
 
+  const periodTotals = (() => {
+    if (!periods.length) return null;
+    let months = 0;
+    let arrear = 0;
+    for (const p of periods) {
+      if (p.months != null && !Number.isNaN(Number(p.months))) {
+        months += Number(p.months);
+      }
+      if (p.period_arrear != null && !Number.isNaN(Number(p.period_arrear))) {
+        arrear += Number(p.period_arrear);
+      }
+    }
+    const fromHeader =
+      oldage?.total_arrear != null && !Number.isNaN(Number(oldage.total_arrear))
+        ? Number(oldage.total_arrear)
+        : null;
+    return {
+      months,
+      arrear: fromHeader != null ? fromHeader : arrear,
+    };
+  })();
+
   return (
     <div className="row justify-content-center mt-4 no-print">
       <div className="col-12 col-xl-10">
@@ -112,95 +134,149 @@ export default function OldAgeBenefitPanel({
             </button>
           </div>
           <div className="card-body">
-            <div className="row g-3 mb-3">
-              <div className="col-6 col-md-3">
-                <label className="form-label">Date of Birth</label>
-                <input
-                  type="date"
-                  className="form-control"
-                  value={dob || ""}
-                  onChange={(e) => onDobChange?.(e.target.value)}
-                />
-              </div>
-              <div className="col-6 col-md-3">
-                <label className="form-label">Age / current %</label>
-                <input
-                  className="form-control"
-                  readOnly
-                  value={
-                    oldage?.age_completed != null
-                      ? `${oldage.age_completed} yrs · ${oldage.applicable_percent ?? 0}%`
-                      : ""
-                  }
-                />
-              </div>
-              <div className="col-6 col-md-3">
-                <label className="form-label">Current DA%</label>
-                <input
-                  className="form-control fw-semibold"
-                  readOnly
-                  value={
-                    oldage?.da_pct != null ? `${oldage.da_pct}%` : "—"
-                  }
-                />
-              </div>
-              <div className="col-6 col-md-3">
-                <label className="form-label">Monthly total (enh+DA)</label>
-                <input
-                  className="form-control fw-semibold text-primary"
-                  readOnly
-                  value={
-                    oldage?.monthly_total != null
-                      ? `Rs. ${fmt(oldage.monthly_total)}`
-                      : "—"
-                  }
-                />
-              </div>
-            </div>
+            {/*
+              BLOCKED (UI only) — Old Age Benefit summary text fields
+              (DOB / age / DA / M1 / M2 / benefit / monthly totals).
+              Kept below for later; screen now starts from the period-wise note + table.
+            */}
+            {false && (
+              <>
+                <div className="row g-3 mb-3">
+                  <div className="col-6 col-md-3">
+                    <label className="form-label">Date of Birth</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={dob || ""}
+                      onChange={(e) => onDobChange?.(e.target.value)}
+                    />
+                  </div>
+                  <div className="col-6 col-md-3">
+                    <label className="form-label">Age / current %</label>
+                    <input
+                      className="form-control"
+                      readOnly
+                      value={
+                        oldage?.age_completed != null
+                          ? `${oldage.age_completed} yrs · ${oldage.applicable_percent ?? 0}%`
+                          : ""
+                      }
+                    />
+                  </div>
+                  <div className="col-6 col-md-3">
+                    <label className="form-label">Current DA%</label>
+                    <input
+                      className="form-control fw-semibold"
+                      readOnly
+                      value={
+                        oldage?.da_pct != null ? `${oldage.da_pct}%` : "—"
+                      }
+                    />
+                  </div>
+                  <div className="col-6 col-md-3">
+                    <label className="form-label">Monthly total (enh+DA)</label>
+                    <input
+                      className="form-control fw-semibold text-primary"
+                      readOnly
+                      value={
+                        oldage?.monthly_total != null
+                          ? `Rs. ${fmt(oldage.monthly_total)}`
+                          : "—"
+                      }
+                    />
+                  </div>
+                </div>
 
-            <div className="row g-3 mb-3">
-              <div className="col-6 col-md-3">
-                <label className="form-label">Benefit @ 277</label>
-                <input
-                  className="form-control"
-                  readOnly
-                  value={fmt(oldage?.benefit_277)}
-                />
-              </div>
-              <div className="col-6 col-md-3">
-                <label className="form-label">Benefit @ 359</label>
-                <input
-                  className="form-control"
-                  readOnly
-                  value={fmt(oldage?.benefit_359)}
-                />
-              </div>
-              <div className="col-6 col-md-3">
-                <label className="form-label">Enhancement / DA (now)</label>
-                <input
-                  className="form-control"
-                  readOnly
-                  value={
-                    oldage?.additional_pension != null
-                      ? `${fmt(oldage.additional_pension)} + ${fmt(
-                          oldage.monthly_da
-                        )}`
-                      : "—"
-                  }
-                />
-              </div>
-              <div className="col-6 col-md-3">
-                <label className="form-label">Total arrear (enh+DA)</label>
-                <input
-                  className="form-control fw-semibold"
-                  readOnly
-                  value={
-                    oldage?.total_arrear != null
-                      ? `Rs. ${fmt(oldage.total_arrear)}`
-                      : "—"
-                  }
-                />
-              </div>
+                <div className="row g-3 mb-3">
+                  <div className="col-6 col-md-3">
+                    <label className="form-label">M-I pension @ 277</label>
+                    <input
+                      className="form-control"
+                      readOnly
+                      value={fmt(oldage?.m1_pension_277)}
+                    />
+                  </div>
+                  <div className="col-6 col-md-3">
+                    <label className="form-label">M-II pension @ 277</label>
+                    <input
+                      className="form-control"
+                      readOnly
+                      value={fmt(oldage?.m2_pension_277)}
+                    />
+                  </div>
+                  <div className="col-6 col-md-3">
+                    <label className="form-label">M-I pension @ 359</label>
+                    <input
+                      className="form-control"
+                      readOnly
+                      value={fmt(oldage?.m1_pension_359)}
+                    />
+                  </div>
+                  <div className="col-6 col-md-3">
+                    <label className="form-label">M-II pension @ 359</label>
+                    <input
+                      className="form-control"
+                      readOnly
+                      value={fmt(oldage?.m2_pension_359)}
+                    />
+                  </div>
+                </div>
+
+                <div className="row g-3 mb-3">
+                  <div className="col-6 col-md-3">
+                    <label className="form-label">
+                      Benefit @ 277 (M-II − M-I)
+                    </label>
+                    <input
+                      className="form-control"
+                      readOnly
+                      value={fmt(oldage?.benefit_277)}
+                    />
+                  </div>
+                  <div className="col-6 col-md-3">
+                    <label className="form-label">
+                      Benefit @ 359 (M-II − M-I)
+                    </label>
+                    <input
+                      className="form-control"
+                      readOnly
+                      value={fmt(oldage?.benefit_359)}
+                    />
+                  </div>
+                  <div className="col-6 col-md-3">
+                    <label className="form-label">Enhancement / DA (now)</label>
+                    <input
+                      className="form-control"
+                      readOnly
+                      value={
+                        oldage?.additional_pension != null
+                          ? `${fmt(oldage.additional_pension)} + ${fmt(
+                              oldage.monthly_da
+                            )}`
+                          : "—"
+                      }
+                    />
+                  </div>
+                  <div className="col-6 col-md-3">
+                    <label className="form-label">Total arrear (enh+DA)</label>
+                    <input
+                      className="form-control fw-semibold"
+                      readOnly
+                      value={
+                        oldage?.total_arrear != null
+                          ? `Rs. ${fmt(oldage.total_arrear)}`
+                          : "—"
+                      }
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="alert alert-secondary py-2 small mb-3" role="status">
+              <strong>Summary text fields — temporarily blocked.</strong> Only the
+              period-wise note and table are shown below. Blocked fields are not
+              removed and can be re-enabled later.
             </div>
 
             {oldage?.error && (
@@ -209,7 +285,7 @@ export default function OldAgeBenefitPanel({
 
             <p className="small text-muted mb-2">
               {oldage?.note ||
-                "Enhancement + DA on enhancement for each period (DA from fi_pr_mh_calc_da)."}
+                "Period-wise: age-% × (M2 − M1) at CPI in force, plus DA on that enhancement at fi_pr_mh_calc_da rate for the period. Splits also when DA% changes. Schedule stops at 31.12.2026."}
               {uptoLabel !== "—" && <> Schedule upto {uptoLabel}.</>}
               {oldage?.total_arrear_basic != null && (
                 <>
@@ -234,6 +310,8 @@ export default function OldAgeBenefitPanel({
                     <th>CPI</th>
                     <th>Age</th>
                     <th>%</th>
+                    <th className="text-end">M-I</th>
+                    <th className="text-end">M-II</th>
                     <th className="text-end">Benefit</th>
                     <th className="text-end">Enh/mo</th>
                     <th className="text-end">DA%</th>
@@ -251,6 +329,22 @@ export default function OldAgeBenefitPanel({
                       <td>{p.cpi_period || "—"}</td>
                       <td>{p.age_slab != null ? `${p.age_slab}+` : "—"}</td>
                       <td>{p.percent != null ? `${p.percent}%` : "—"}</td>
+                      <td className="text-end">
+                        {fmt(
+                          p.m1_pension ??
+                            (String(p.cpi_period) === "277"
+                              ? oldage?.m1_pension_277
+                              : oldage?.m1_pension_359)
+                        )}
+                      </td>
+                      <td className="text-end">
+                        {fmt(
+                          p.m2_pension ??
+                            (String(p.cpi_period) === "277"
+                              ? oldage?.m2_pension_277
+                              : oldage?.m2_pension_359)
+                        )}
+                      </td>
                       <td className="text-end">{fmt(p.benefit_base)}</td>
                       <td className="text-end">{fmt(p.monthly_additional)}</td>
                       <td className="text-end">
@@ -263,12 +357,22 @@ export default function OldAgeBenefitPanel({
                   ))}
                   {!periods.length && (
                     <tr>
-                      <td colSpan={12} className="text-muted text-center">
+                      <td colSpan={14} className="text-muted text-center">
                         No old-age periods in range.
                       </td>
                     </tr>
                   )}
                 </tbody>
+                {periodTotals ? (
+                  <tfoot className="table-light">
+                    <tr className="fw-semibold">
+                      <td colSpan={2}>Total</td>
+                      <td className="text-end">{periodTotals.months}</td>
+                      <td colSpan={10}></td>
+                      <td className="text-end">{fmt(periodTotals.arrear)}</td>
+                    </tr>
+                  </tfoot>
+                ) : null}
               </table>
             </div>
 

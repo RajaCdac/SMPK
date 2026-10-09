@@ -24,7 +24,12 @@ from M2_oldage_arrear.services.consolidation_bridge import (
 )
 from M2_oldage_arrear.services.employee_soft_lookup import fetch_employee_for_oldage
 from M2_oldage_arrear.services.oldage_service import compute_oldage_benefit
-from methodology2.services.consolidation_service import fetch_print_master_fields
+from methodology2.services.consolidation_service import (
+    fetch_print_master_fields,
+    fill_employee_header_gaps,
+    use_consolidation_actor,
+)
+from methodology2.services.lic_bunching import fetch_class12_m1_bunching
 
 MODULE = "M2_OLDAGE_ARREAR"
 
@@ -75,6 +80,11 @@ class EmployeeLookupView(APIView):
                         if hasattr(master.get("date_of_death"), "isoformat")
                         else master.get("date_of_death")
                     ),
+                    "family_pensioner_dob": (
+                        master.get("family_pensioner_dob").isoformat()
+                        if hasattr(master.get("family_pensioner_dob"), "isoformat")
+                        else master.get("family_pensioner_dob")
+                    ),
                     "double_fpension_upto": (
                         master.get("double_fpension_upto").isoformat()
                         if hasattr(master.get("double_fpension_upto"), "isoformat")
@@ -93,10 +103,14 @@ class EmployeeLookupView(APIView):
             )
             if master.get("name") and not data.get("name"):
                 data["name"] = master["name"]
+            data["m1_bunching"] = fetch_class12_m1_bunching(
+                emp_id, category=data.get("category")
+            )
             if not data.get("date_of_birth"):
                 dob = fetch_employee_dob(emp_id)
                 data["date_of_birth"] = dob.isoformat() if dob else None
                 data["dob"] = data["date_of_birth"]
+            fill_employee_header_gaps(emp_id, data)
             return Response(data)
         except Exception as exc:
             return Response(
@@ -132,7 +146,8 @@ class ConsolidationSnapshotView(APIView):
             if dob:
                 payload["date_of_birth"] = dob.isoformat()
 
-        result = save_consolidation_snapshot(payload)
+        with use_consolidation_actor(request):
+            result = save_consolidation_snapshot(payload)
         if result.get("error"):
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
 
@@ -167,6 +182,10 @@ class OldAgeBenefitView(APIView):
         from M2_oldage_arrear.services.oldage_print_columns import (
             build_oldage_pension_comparison,
         )
+        from methodology2.services.consolidation_service import (
+            build_pension_comparison,
+            fetch_methodology1_pension_from_wage,
+        )
 
         if "is_employee_pension" in data and data.get("is_employee_pension") is not None:
             raw = data.get("is_employee_pension")
@@ -176,27 +195,136 @@ class OldAgeBenefitView(APIView):
                 is_emp = str(raw).strip().lower() in ("1", "true", "yes", "y")
         else:
             is_emp = True
+
+        emp_id = str(data.get("emp_id") or data.get("emp_cd") or "").strip()[:5]
+        pen = data.get("pension") if isinstance(data.get("pension"), dict) else {}
+        m2_emp_277 = (
+            data.get("m2_pension_277")
+            or data.get("pension_277_emp")
+            or pen.get("pension_277_cpi")
+            or pen.get("pension")
+        )
+        m2_emp_359 = (
+            data.get("m2_pension_359")
+            or data.get("pension_359_emp")
+            or pen.get("pension_359_cpi")
+        )
+        m2_fam_277 = (
+            data.get("m2_family_pension_277")
+            or data.get("family_pension_277")
+            or pen.get("family_pension_277_cpi")
+            or pen.get("family_pension")
+        )
+        m2_fam_359 = (
+            data.get("m2_family_pension_359")
+            or data.get("family_pension_359")
+            or pen.get("family_pension_359_cpi")
+        )
+        # Live OA calc often sends only the active rate in pension_277/359.
+        if is_emp:
+            m2_emp_277 = m2_emp_277 or data.get("pension_277") or data.get("m2_pension_277")
+            m2_emp_359 = m2_emp_359 or data.get("pension_359") or data.get("m2_pension_359")
+        else:
+            m2_fam_277 = m2_fam_277 or data.get("pension_277") or data.get("m2_pension_277")
+            m2_fam_359 = m2_fam_359 or data.get("pension_359") or data.get("m2_pension_359")
+
+        m1_277 = data.get("m1_pension_277")
+        m1_359 = data.get("m1_pension_359")
+
+        death_cmp = None
+        wage = {}
+        if emp_id:
+            wage = fetch_methodology1_pension_from_wage(
+                emp_id, category=data.get("category")
+            )
+            death_cmp = build_pension_comparison(
+                date_of_death=wage.get("date_of_death") or data.get("date_of_death"),
+                wage_by_type=wage.get("wage_by_type") or {},
+                m2_emp_277=m2_emp_277,
+                m2_emp_359=m2_emp_359,
+                m2_fam_277=m2_fam_277,
+                m2_fam_359=m2_fam_359,
+                family_pensioner_name=wage.get("pensioner_name")
+                or data.get("pensioner_name")
+                or "",
+                double_fpension_upto=wage.get("double_fpension_upto")
+                or data.get("double_fpension_upto"),
+                enhanced_family_pension=wage.get("enhanced_family_pension"),
+                rate_cutover=wage.get("rate_cutover") or data.get("rate_cutover"),
+                die_in_harness=wage.get("die_in_harness"),
+                case_type=wage.get("case_type"),
+                category=data.get("category") or wage.get("category"),
+            )
+            if m1_277 is None:
+                m1_277 = death_cmp.get("m1_family_pension_277")
+            if m1_359 is None:
+                m1_359 = death_cmp.get("m1_family_pension_359")
+
+        if death_cmp and death_cmp.get("has_death_split") and death_cmp.get("columns"):
+            cmp = dict(death_cmp)
+            if not is_emp:
+                cmp["has_oldage_calc_table"] = False
+                cmp["has_oldage_split"] = False
+            fp_dob_raw = data.get("family_pensioner_dob") or wage.get(
+                "family_pensioner_dob"
+            )
+            if fp_dob_raw or emp_id:
+                from methodology2.services.consolidation_service import (
+                    _format_dod_display,
+                    _as_date,
+                    fetch_family_pensioner_dob,
+                )
+
+                fp_dob = _as_date(fp_dob_raw) or (
+                    fetch_family_pensioner_dob(emp_id) if emp_id else None
+                )
+                if fp_dob:
+                    cmp["family_pensioner_dob"] = fp_dob.isoformat()
+                    cmp["family_pensioner_dob_display"] = _format_dod_display(fp_dob)
+            result["pension_comparison"] = cmp
+            return result
+
         result["pension_comparison"] = build_oldage_pension_comparison(
-            dob=result.get("dob") or data.get("dob") or data.get("date_of_birth"),
-            m2_277=data.get("pension_277") or data.get("m2_pension_277"),
-            m1_277=data.get("m1_pension_277"),
-            m2_359=data.get("pension_359") or data.get("m2_pension_359"),
-            m1_359=data.get("m1_pension_359"),
+            dob=(
+                data.get("oldage_dob")
+                or result.get("dob")
+                or data.get("dob")
+                or data.get("date_of_birth")
+            ),
+            m2_277=(m2_emp_277 if is_emp else m2_fam_277) or data.get("pension_277"),
+            m1_277=m1_277,
+            m2_359=(m2_emp_359 if is_emp else m2_fam_359) or data.get("pension_359"),
+            m1_359=m1_359,
             is_employee_pension=is_emp,
             as_on_date=data.get("as_on_date"),
         )
         return result
 
     def post(self, request):
-        data = request.data or {}
+        data = dict(request.data or {})
         emp_id = str(data.get("emp_id") or data.get("emp_cd") or "").strip()
-        dob = data.get("dob") or data.get("date_of_birth")
-        if not dob and emp_id:
+        from M2_oldage_arrear.services.consolidation_bridge import (
+            _as_bool_employee,
+            resolve_oldage_dob,
+        )
+
+        is_emp = _as_bool_employee(
+            data.get("is_employee_pension") if "is_employee_pension" in data else None,
+            default=True,
+        )
+        emp_dob = data.get("dob") or data.get("date_of_birth")
+        if is_emp and not emp_dob and emp_id:
             found = fetch_employee_dob(emp_id)
-            dob = found.isoformat() if found else None
+            emp_dob = found.isoformat() if found else None
+        data["date_of_birth"] = emp_dob
+        data["dob"] = emp_dob
+        data.pop("oldage_dob", None)
+        oa_dob = resolve_oldage_dob(data, emp_id=emp_id)
+        oa_iso = oa_dob.isoformat() if oa_dob else None
+        data["oldage_dob"] = oa_iso
 
         result = compute_oldage_benefit(
-            dob=dob,
+            dob=oa_iso,
             basic_pension=data.get("basic_pension") or data.get("benefit_359"),
             as_on_date=data.get("as_on_date"),
             pension_277=data.get("pension_277") or data.get("m2_pension_277"),
@@ -210,7 +338,11 @@ class OldAgeBenefitView(APIView):
         )
         if result.get("error") and not result.get("dob"):
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
-        return Response(self._attach_print_comparison(result, {**data, "dob": dob}))
+        if emp_dob:
+            result["employee_date_of_birth"] = (
+                emp_dob.isoformat() if hasattr(emp_dob, "isoformat") else str(emp_dob)[:10]
+            )
+        return Response(self._attach_print_comparison(result, data))
 
     def get(self, request):
         data = {
@@ -232,13 +364,26 @@ class OldAgeBenefitView(APIView):
             "is_employee_pension": request.GET.get("is_employee_pension"),
         }
         emp_id = str(data.get("emp_id") or "").strip()
-        dob = data.get("dob")
-        if not dob and emp_id:
+        from M2_oldage_arrear.services.consolidation_bridge import (
+            _as_bool_employee,
+            resolve_oldage_dob,
+        )
+
+        is_emp = _as_bool_employee(
+            data.get("is_employee_pension") if "is_employee_pension" in data else None,
+            default=True,
+        )
+        emp_dob = data.get("dob")
+        if is_emp and not emp_dob and emp_id:
             found = fetch_employee_dob(emp_id)
-            dob = found.isoformat() if found else None
-            data["dob"] = dob
+            emp_dob = found.isoformat() if found else None
+        data["date_of_birth"] = emp_dob
+        data["dob"] = emp_dob
+        oa_dob = resolve_oldage_dob(data, emp_id=emp_id)
+        oa_iso = oa_dob.isoformat() if oa_dob else None
+        data["oldage_dob"] = oa_iso
         result = compute_oldage_benefit(
-            dob=dob,
+            dob=oa_iso,
             basic_pension=data.get("basic_pension"),
             as_on_date=data.get("as_on_date"),
             pension_277=data.get("pension_277"),

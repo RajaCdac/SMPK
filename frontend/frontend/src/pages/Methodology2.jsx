@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import API from "../services/Api";
 import RevisionCalculationCards from "../components/RevisionCalculationCards";
-import MethodologyClass12Result from "../components/MethodologyClass12Result";
 import Methodology2PensionSummary from "../components/Methodology2PensionSummary";
+import HeaderFieldPrompt, {
+  useConsolidationHeaderPrompt,
+} from "../components/HeaderFieldPrompt";
 import SmpkDataTable from "../components/DataTable/SmpkDataTable";
 
 export default function Methodology2() {
@@ -24,6 +26,8 @@ export default function Methodology2() {
   const [scale, setScale] = useState("");
   const [lastPay, setLastPay] = useState("");
   const [stagnationAmount, setStagnationAmount] = useState("");
+  const [npaAmount, setNpaAmount] = useState("");
+  const [doctorPay, setDoctorPay] = useState("");
   const [sda, setSda] = useState("");
   const [sdaOptions, setSdaOptions] = useState([]);
   const [category, setCategory] = useState("3");
@@ -70,6 +74,9 @@ export default function Methodology2() {
           last_pay: pay,
           sda: sdaValue || 0,
           category: categoryValue,
+          tqs_yr: printMaster?.tqs_yr,
+          tqs_month: printMaster?.tqs_month,
+          tqs_days: printMaster?.tqs_days,
         });
         setCalculationRows(res.data.rows || []);
         setPensionSummary(res.data.pension || null);
@@ -83,7 +90,7 @@ export default function Methodology2() {
         );
       }
     },
-    []
+    [printMaster]
   );
 
   const runClass12Calculation = useCallback(async (date, grade, pay) => {
@@ -94,13 +101,16 @@ export default function Methodology2() {
         separation_date: date,
         scale: grade,
         last_pay: pay,
+        tqs_yr: printMaster?.tqs_yr,
+        tqs_month: printMaster?.tqs_month,
+        tqs_days: printMaster?.tqs_days,
       });
       setClass12Result(res.data);
     } catch (err) {
       console.error(err);
       alert(err.response?.data?.error || "Calculation failed. Check inputs.");
     }
-  }, []);
+  }, [printMaster]);
 
   const loadPayStages = useCallback(async (scaleValue) => {
     if (!scaleValue) {
@@ -134,6 +144,8 @@ export default function Methodology2() {
     setClass12Result(null);
     setEquivalentScales(null);
     setStagnationAmount("");
+    setNpaAmount("");
+    setDoctorPay("");
 
     try {
       const res = await API.get(`methodology2/employee/${trimmed}/`);
@@ -163,7 +175,9 @@ export default function Methodology2() {
         tqs_days: data.tqs_days,
         retirement_date: data.separation_date || null,
         retirement_type: data.retirement_type || "",
+        date_of_birth: data.date_of_birth || data.dob || null,
         date_of_death: data.date_of_death || null,
+        family_pensioner_dob: data.family_pensioner_dob || null,
         double_fpension_upto: data.double_fpension_upto || null,
         enhanced_family_pension: !!data.enhanced_family_pension,
         category: empCategory,
@@ -171,11 +185,19 @@ export default function Methodology2() {
         is_employee_pension: data.is_employee_pension || false,
         m1_family_pension_277: data.m1_family_pension_277 ?? null,
         m1_family_pension_359: data.m1_family_pension_359 ?? null,
+        m1_bunching: data.m1_bunching || null,
       });
 
       const sepDate = data.separation_date;
       const scaleValue = data.scale;
       const pay = String(data.last_pay);
+      if (data.npa_amount != null && data.npa_amount !== "") {
+        setNpaAmount(String(data.npa_amount));
+        setDoctorPay(pay);
+      } else {
+        setNpaAmount("");
+        setDoctorPay("");
+      }
 
       const isEmpClass12 = empCategory === "1" || empCategory === "2";
 
@@ -297,6 +319,8 @@ export default function Methodology2() {
     setScale("");
     setLastPay("");
     setStagnationAmount("");
+    setNpaAmount("");
+    setDoctorPay("");
     setClass12Result(null);
     setCalculationRows([]);
     setPensionSummary(null);
@@ -339,6 +363,20 @@ export default function Methodology2() {
     runCalculation,
     runClass12Calculation,
   ]);
+
+  const { prompt: headerPrompt, setPrompt: setHeaderPrompt, submitHeaderValue } =
+    useConsolidationHeaderPrompt({
+      active:
+        !loadingEmployee &&
+        !!printMaster?.emp_cd &&
+        !!scale &&
+        !!String(lastPay || "").trim(),
+      master: printMaster,
+      onFilled: (patch) => {
+        setPrintMaster((prev) => ({ ...(prev || {}), ...patch }));
+        if (patch.name) setEmployeeName(patch.name);
+      },
+    });
 
   const runBulkUpload = async (e) => {
     e.preventDefault();
@@ -592,6 +630,11 @@ export default function Methodology2() {
                       {employeeName}
                     </small>
                   )}
+                  <small className="text-muted d-block mt-1">
+                    After employee, scale and last pay are entered, any header
+                    value still missing from the database is asked one field at
+                    a time. Stagnation stays optional.
+                  </small>
                 </div>
               </div>
 
@@ -634,6 +677,8 @@ export default function Methodology2() {
                       setScale(e.target.value);
                       setLastPay("");
                       setStagnationAmount("");
+                      setNpaAmount("");
+                      setDoctorPay("");
                       setCalculationRows([]);
                       setPensionSummary(null);
                       setClass12Result(null);
@@ -659,13 +704,26 @@ export default function Methodology2() {
                   <select
                     className="form-select"
                     value={lastPay}
-                    onChange={(e) => setLastPay(e.target.value)}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setLastPay(next);
+                      if (String(next) !== String(doctorPay)) {
+                        setNpaAmount("");
+                      }
+                    }}
                     disabled={!scale}
                   >
                     <option value="">Select Last Pay</option>
-                    {payStages.map((item, index) => (
-                      <option key={index} value={item}>
-                        {item}
+                    {(payStages.some((item) => String(item) === String(lastPay))
+                      ? payStages
+                      : lastPay
+                        ? [...payStages, lastPay]
+                        : payStages
+                    ).map((item, index) => (
+                      <option key={`${item}-${index}`} value={item}>
+                        {String(item) === String(doctorPay) && npaAmount
+                          ? `${item} (npa ${npaAmount})`
+                          : item}
                       </option>
                     ))}
                   </select>
@@ -758,13 +816,6 @@ export default function Methodology2() {
         </div>
       )}
 
-      {isClass12 && (
-        <MethodologyClass12Result
-          category={category}
-          class12Result={class12Result}
-        />
-      )}
-
       {isClass12 && class12Result && (
         <Methodology2PensionSummary
           class12Result={class12Result}
@@ -772,6 +823,7 @@ export default function Methodology2() {
           scale={scale}
           lastPay={lastPay}
           stagnationAmount={stagnationAmount}
+          npaAmount={npaAmount}
           effectivePay={effectivePay || lastPay}
           empId={empId}
           employeeName={employeeName}
@@ -788,6 +840,7 @@ export default function Methodology2() {
           scale={scale}
           lastPay={lastPay}
           stagnationAmount={stagnationAmount}
+          npaAmount={npaAmount}
           effectivePay={effectivePay || lastPay}
           empId={empId}
           employeeName={employeeName}
@@ -799,7 +852,12 @@ export default function Methodology2() {
         />
       )}
 
-      {calculationRows.length > 0 && startRevision && (
+      {/*
+        BLOCKED (UI only) — Revision Calculation (year-wise)
+        Kept for later; consolidation print/snapshot still uses revision_blocks.
+        Set SHOW_REVISION_YEARWISE_UI = true to restore the cards below.
+      */}
+      {false && calculationRows.length > 0 && startRevision && (
         <div className="row justify-content-center mt-4">
           <div className="col-12">
             <div className="card shadow">
@@ -816,6 +874,29 @@ export default function Methodology2() {
           </div>
         </div>
       )}
+      {calculationRows.length > 0 && startRevision && (
+        <div className="row justify-content-center mt-4 no-print">
+          <div className="col-12">
+            <div className="alert alert-secondary mb-0" role="status">
+              <strong>Revision Calculation (year-wise) — temporarily blocked.</strong>
+              <div className="small mt-1 mb-0">
+                Year-wise revision cards are hidden on this consolidation screen for
+                now. Calculation still runs in the background and is used for
+                consolidation / print. This section is not removed and can be
+                re-enabled later.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {headerPrompt ? (
+        <HeaderFieldPrompt
+          prompt={headerPrompt}
+          onChange={setHeaderPrompt}
+          onSave={() => submitHeaderValue(false)}
+          onNull={() => submitHeaderValue(true)}
+        />
+      ) : null}
     </div>
   );
 }

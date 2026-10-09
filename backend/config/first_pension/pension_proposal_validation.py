@@ -2,7 +2,7 @@ from datetime import date, datetime
 
 from .models import PensionProposal
 
-HELD_FLAGS_REQUIRING_AMT = frozenset({"P", "C", "R", "S"})
+HELD_FLAGS_REQUIRING_AMT = frozenset({"H", "P", "C", "R", "S"})
 
 
 def _normalize_withhold_reason(value):

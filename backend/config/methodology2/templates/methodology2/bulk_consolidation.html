@@ -5,24 +5,25 @@
   <title>M2 Consolidation {{ s.emp_cd }}</title>
   {# Layout/CSS matched to Methodology2ConsolidationPrint (single-emp print). #}
   <style>
+    /* Fit one A4; fonts slightly larger; space above FA/CAO for signature. */
     @page {
       size: A4 portrait;
-      margin: 4mm 16mm;
+      margin: 3mm 12mm;
     }
     body {
       font-family: "Times New Roman", Times, serif;
       color: #000;
       background: #fff;
-      font-size: 11px;
-      line-height: 1;
+      font-size: 10.5px;
+      line-height: 1.05;
       margin: 0;
       padding: 0;
     }
     img.rupee {
-      height: 10px;
+      height: 9px;
       width: auto;
       vertical-align: middle;
-      margin: 0 1px 1px 0;
+      margin: 0 1px 0 0;
     }
     .m2-consol-print {
       width: 100%;
@@ -33,47 +34,49 @@
       text-align: center;
       font-size: 11px;
       font-weight: 700;
-      margin: 0 0 2px;
+      margin: 0 0 1px;
     }
     .m2-consol-print__subtitle {
       text-align: center;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 300;
-      margin: 0 0 2px;
+      margin: 0 0 1px;
     }
     .m2-consol-print__generated {
       text-align: center;
-      font-size: 10px;
-      margin: 0 0 6px;
+      font-size: 9px;
+      margin: 0;
+      height: 0;
+      overflow: hidden;
     }
     .m2-consol-print__emp-grid {
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
       table-layout: fixed;
     }
     .m2-consol-print__emp-grid td {
       border: 1px solid #333;
-      padding: 3px 6px;
+      padding: 2px 4px;
       vertical-align: top;
       width: 33.33%;
     }
     .m2-consol-print__emp-grid .label {
       font-weight: 700;
-      margin-right: 4px;
+      margin-right: 3px;
     }
     .m2-consol-print__emp-cell--prominent {
       background: #f3f4f6;
     }
     .m2-consol-print__case-no {
       font-weight: 800;
-      font-size: 14px;
+      font-size: 13px;
       letter-spacing: 0.02em;
     }
     table.m2-consol-print__cpi-wrap {
       width: 100%;
       border-collapse: collapse;
-      margin: 0 0 3px 0;
+      margin: 0 0 1px 0;
     }
     table.m2-consol-print__cpi-wrap > tr > td,
     table.m2-consol-print__cpi-wrap td.wrap-cell {
@@ -94,15 +97,15 @@
     }
     table.m2-consol-print__cpi-card td {
       border: 1px solid #333;
-      padding: 2px 6px;
+      padding: 1px 4px;
       vertical-align: top;
     }
     .m2-consol-print__block-title-row td {
       font-weight: 700;
-      font-size: 11px;
+      font-size: 10.5px;
       text-align: center;
       background: #f3f3f3;
-      padding: 3px 6px;
+      padding: 2px 4px;
     }
     .m2-consol-print__cpi-card td.code {
       width: 28px;
@@ -119,13 +122,13 @@
     .m2-consol-print__fp-title {
       font-weight: 700;
       text-align: center;
-      margin: 4px 0 2px;
-      font-size: 12px;
+      margin: 2px 0 1px;
+      font-size: 11px;
     }
     table.m2-consol-print__fp-wrap {
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     }
     table.m2-consol-print__fp-wrap td.wrap-cell {
       border: none;
@@ -143,19 +146,19 @@
     .m2-consol-print__fp-table th,
     .m2-consol-print__fp-table td {
       border: 1px solid #333;
-      padding: 2px 4px;
+      padding: 1px 3px;
     }
     .m2-consol-print__fp-table th {
       background: #eee;
       text-align: center;
-      font-size: 10px;
+      font-size: 9.5px;
       vertical-align: middle;
     }
     .m2-consol-print__fp-table th .sub {
       display: block;
       font-weight: 600;
-      font-size: 9px;
-      margin-top: 2px;
+      font-size: 8.5px;
+      margin-top: 0;
     }
     .m2-consol-print__fp-table th:first-child,
     .m2-consol-print__fp-table td:first-child,
@@ -172,19 +175,23 @@
       background: #eee;
       font-weight: 700;
       text-align: center;
-      font-size: 10px;
+      font-size: 9.5px;
       white-space: normal;
+      padding: 1px 3px;
     }
+    /* Blank band above labels for handwritten signature */
     .m2-consol-print__footer {
       width: 100%;
-      margin-top: 14px;
+      margin-top: 28px;
       border-collapse: collapse;
+      page-break-inside: avoid;
     }
     .m2-consol-print__footer td {
       border: none;
       font-weight: 700;
       font-size: 12px;
-      padding: 0 24px;
+      padding: 22px 12px 0;
+      vertical-align: bottom;
     }
     .m2-consol-print__footer td.right {
       text-align: right;
@@ -194,7 +201,7 @@
 <body>
   <div class="m2-consol-print">
     <h3 class="m2-consol-print__title">
-      Consolidation of Pension as per Methodology-2 and comparison between M-1 &amp; M-2 for 2017 &amp; 2022
+      {{ print_title }}
     </h3>
     <h4 class="m2-consol-print__subtitle">Pension Calculation Report (Generated on: {{ generated_on }})</h4>
     <div class="m2-consol-print__generated"></div>
@@ -250,14 +257,11 @@
         </tr>
         {% endif %}
 
-        {% if date_of_death_display or double_fpension_upto_display %}
+        {% if family_extra_cells %}
         <tr>
-          {% if date_of_death_display %}
-          <td{% if not double_fpension_upto_display %} colspan="3"{% endif %}><span class="label">Date of Death:</span> {{ date_of_death_display }}</td>
-          {% endif %}
-          {% if double_fpension_upto_display %}
-          <td{% if date_of_death_display %} colspan="2"{% else %} colspan="3"{% endif %}><span class="label">Enhanced FP upto:</span> {{ double_fpension_upto_display }}</td>
-          {% endif %}
+          {% for cell in family_extra_cells %}
+          <td colspan="{{ cell.colspan }}"><span class="label">{{ cell.label }}:</span> {{ cell.value }}</td>
+          {% endfor %}
         </tr>
         {% endif %}
       </tbody>
@@ -321,7 +325,7 @@
               {% endfor %}
             </tr>
             <tr>
-              <td class="part">Pension fixed as per Methodology-1</td>
+              <td class="part">{{ m1_particulars|default:"Pension fixed as per Methodology-1" }}</td>
               {% for col in comparison_columns %}
               <td class="amt">{{ col.m1_display }}</td>
               {% endfor %}

@@ -1,4 +1,4 @@
-"""Consolidation Excel report from m2_oldage_arrear_consolidation only."""
+"""Consolidation Excel report from m2_oldage_arrear_consolidation (with OA columns)."""
 
 from datetime import datetime
 
@@ -7,8 +7,12 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-import methodology2.services.consolidation_report_service as m2_report
 from M2_oldage_arrear.models import M2OldageArrearConsolidation
+from methodology2.models import M2ConsolCase
+from methodology2.services.consolidation_report_service import (
+    build_consolidation_report_bytes,
+    report_filename,
+)
 
 
 def _parse_iso_date(value: str, field: str):
@@ -55,20 +59,21 @@ class ConsolidationReportView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        original = m2_report.Methodology2Consolidation
-        m2_report.Methodology2Consolidation = M2OldageArrearConsolidation
         try:
-            content, count = m2_report.build_consolidation_report_bytes(from_d, to_d)
-            filename = m2_report.report_filename(from_d, to_d).replace(
-                "M2_", "M2_OldAge_"
+            content, count = build_consolidation_report_bytes(
+                from_d,
+                to_d,
+                include_oldage=True,
+                include_enhanced=True,
+                model=M2OldageArrearConsolidation,
+                source_app=M2ConsolCase.SOURCE_OA,
             )
+            filename = report_filename(from_d, to_d, include_oldage=True)
         except Exception as exc:
             return Response(
                 {"error": str(exc)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-        finally:
-            m2_report.Methodology2Consolidation = original
 
         if count == 0:
             return Response(

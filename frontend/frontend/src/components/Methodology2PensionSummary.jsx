@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import API from "../services/Api";
 import Methodology2ConsolidationPrint from "./Methodology2ConsolidationPrint";
+import MethodologyClass12Result from "./MethodologyClass12Result";
 import { buildRevisionCards } from "../utils/methodology2RevisionCards";
+import { ensureClass12OpeningBasic } from "../utils/methodology2RevisionCards";
 import { formatCardValue } from "../utils/methodology2RevisionCards";
 import { printMethodology2Consolidation } from "../utils/methodology2Print";
+import {
+  isProportionateReduced,
+  proportionateNoteFromPension,
+} from "../utils/methodology2ProportionatePension";
 
 function PensionBlock({ title, basic, pension, familyPension }) {
   return (
@@ -41,6 +47,9 @@ const REVISION_YEARS = [
   1979, 1984, 1988, 1993, 1997, 2007, 2012, 2017, 2022,
 ];
 
+/** Class 1/2 stages only (no 2012/2022). */
+const CLASS12_REVISION_YEARS = [1984, 1987, 1992, 1997, 2007, 2017];
+
 function nextWageRevisionYear(revisionKeyOrTitle) {
   const m = String(revisionKeyOrTitle || "").match(/(\d{4})/);
   if (!m) return null;
@@ -50,12 +59,57 @@ function nextWageRevisionYear(revisionKeyOrTitle) {
   return REVISION_YEARS[idx + 1];
 }
 
+function nextClass12WageRevisionYear(revisionKeyOrTitle) {
+  const m = String(revisionKeyOrTitle || "").match(/(\d{4})/);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const idx = CLASS12_REVISION_YEARS.indexOf(year);
+  if (idx < 0 || idx >= CLASS12_REVISION_YEARS.length - 1) return null;
+  return CLASS12_REVISION_YEARS[idx + 1];
+}
+
 function withWageRevisionOrder(title, revisionKey) {
   const text = String(title || "");
   if (/As per\s+\d{4}\s+Wage Revision Order/i.test(text)) return text;
   const next = nextWageRevisionYear(revisionKey || text);
   if (!next) return text;
   return `${text} — As per ${next} Wage Revision Order`;
+}
+
+/** Class 3/4 ends each CPI block on Notional Pay (final 2022 keeps Basic Pay).
+ *  Class 1/2: rename last-row Basic Pay… → Notional Pay…, except final 01.01.2017.
+ */
+function class12NotionalizeLastDescription(desc) {
+  const text = String(desc || "").trim();
+  if (!text) return text;
+  if (/^Basic\s+Pay\s+as\s+on\s+01\.01\.2017$/i.test(text)) return text;
+  if (/Notional/i.test(text)) return text;
+  if (/^Basic\s+[Pp]ay\b/.test(text)) {
+    return text.replace(/^Basic\s+[Pp]ay/, "Notional Pay");
+  }
+  return text;
+}
+
+function class12RoundNote(desc) {
+  const text = String(desc || "").trim();
+  if (!text || /Rounded to the next 10/i.test(text)) return text;
+  if (/minimum basic/i.test(text)) return text;
+  if (/^Basic\s+Pay\s+as\s+on\s+01\.01\.2017$/i.test(text)) return text;
+  if (/Notional/i.test(text) || /Basic Pay Over/i.test(text)) {
+    return `${text} (Rounded to the next 10 Rupees)`;
+  }
+  return text;
+}
+
+function withClass12WageRevisionOrder(title, revisionKey) {
+  let text = String(title || "")
+    .replace(/Wage Revision Order/gi, "Pay Revision Order")
+    .replace(/\s*[—\-]\s*As per\s+2022\s+Pay Revision Order/gi, "")
+    .trim();
+  if (/As per\s+\d{4}\s+Pay Revision Order/i.test(text)) return text;
+  const next = nextClass12WageRevisionYear(revisionKey || text);
+  if (!next) return text;
+  return `${text} — As per ${next} Pay Revision Order`;
 }
 
 function cardsToRevisionBlocks(cards, equivalentScales = null) {
@@ -97,19 +151,28 @@ function cardsToRevisionBlocks(cards, equivalentScales = null) {
   });
 }
 
+/**
+ * Source-year titles (class 3/4 style). Stage-ending lines name the
+ * destination basic; print labels the block as the source scale year.
+ * Final "Basic Pay as on 01.01.2017" is the 277 CPI destination block
+ * (mirrors class 3/4 last 359 CPI block).
+ */
 function class12BlockTitle(lastDescription, startRevision = "") {
   const desc = String(lastDescription || "");
-  if (/277\s*CPI|01\.01\.2017/i.test(desc)) {
+  if (/Basic Pay as on 01\.01\.2017/i.test(desc)) {
     return ["Detailed Calculation Breakdown Year 2017 - CPI 277", "2017"];
   }
-  if (/126\s*CPI|01\.01\.2007/i.test(desc)) {
+  if (/Basic Pay Over.*277|277\s*CPI Points/i.test(desc)) {
     return ["Detailed Calculation Breakdown Year 2007 - CPI 126", "2007"];
   }
-  if (/1708|01\.01\.1997/i.test(desc)) {
-    return ["Year 1997 (Revised Pay Scale)", "1997"];
+  if (/126\s*CPI|01\.01\.2007/i.test(desc)) {
+    return ["Detailed Calculation Breakdown Year 1997 - CPI 1708", "1997"];
   }
-  if (/01\.01\.1992/i.test(desc)) return ["Year 1992 (Revised Pay Scale)", "1992"];
-  if (/01\.01\.1987/i.test(desc)) return ["Year 1987 (Revised Pay Scale)", "1987"];
+  if (/1708|01\.01\.1997/i.test(desc)) {
+    return ["Year 1992 (Revised Pay Scale)", "1992"];
+  }
+  if (/01\.01\.1992/i.test(desc)) return ["Year 1987 (Revised Pay Scale)", "1987"];
+  if (/01\.01\.1987/i.test(desc)) return ["Year 1984 (Revised Pay Scale)", "1984"];
   if (/01\.01\.1984|1984/i.test(desc)) {
     return ["Year 1984 (Revised Pay Scale)", "1984"];
   }
@@ -151,23 +214,36 @@ export function buildClass12RevisionBlocks(
     if (!current.length) return;
     const lastDesc = current[current.length - 1].description || "";
     let [title, key] = class12BlockTitle(lastDesc, startRevision);
-    if (
-      current.length === 1 &&
-      /existing scale/i.test(lastDesc)
-    ) {
-      title = `Year ${startRevision || "start"} (opening basic)`;
+    if (current.length === 1 && /existing scale/i.test(lastDesc)) {
       key = String(startRevision || "start");
+      if (key === "1997") {
+        title = "Detailed Calculation Breakdown Year 1997 - CPI 1708";
+      } else if (key === "2007") {
+        title = "Detailed Calculation Breakdown Year 2007 - CPI 126";
+      } else if (key === "2017") {
+        title = "Detailed Calculation Breakdown Year 2017 - CPI 277";
+      } else {
+        title = `Year ${key} (Revised Pay Scale)`;
+      }
     }
     title = withScale(title, key);
-    title = withWageRevisionOrder(title, key);
+    title = withClass12WageRevisionOrder(title, key);
+    const lastIdx = current.length - 1;
     blocks.push({
       revision_key: key,
       title,
       scale_band: scaleFor(key),
       rows: current.map((r, idx) => ({
         row: r.row ?? idx + 1,
-        code: r.code || "",
-        description: r.description,
+        // Class 1/2 calc rows have no Excel codes — A, B, C… per year block.
+        code:
+          String(r.code || "").trim() ||
+          (idx < 26 ? String.fromCharCode(65 + idx) : String(idx + 1)),
+        description: class12RoundNote(
+          idx === lastIdx
+            ? class12NotionalizeLastDescription(r.description)
+            : r.description
+        ),
         value: r.value,
       })),
     });
@@ -184,7 +260,7 @@ export function buildClass12RevisionBlocks(
     if (endsStage) flush();
   });
   flush();
-  return blocks;
+  return ensureClass12OpeningBasic(blocks);
 }
 
 function normalizePensionSummary(pensionSummary, class12Result) {
@@ -197,6 +273,7 @@ function normalizePensionSummary(pensionSummary, class12Result) {
     pension_359_cpi: null,
     family_pension_277_cpi: class12Result.family_pension,
     family_pension_359_cpi: null,
+    proportionate: class12Result.proportionate || null,
   };
 }
 
@@ -207,6 +284,7 @@ export default function Methodology2PensionSummary({
   scale,
   lastPay,
   stagnationAmount = "",
+  npaAmount = "",
   effectivePay = null,
   empId = "",
   employeeName = "",
@@ -219,6 +297,7 @@ export default function Methodology2PensionSummary({
   const [snapshot, setSnapshot] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
+  const [saveOk, setSaveOk] = useState(false);
 
   const isClass12 = category === "1" || category === "2" || Boolean(class12Result);
   const effectivePension = useMemo(
@@ -264,8 +343,16 @@ export default function Methodology2PensionSummary({
     const master = printMaster || {};
     const m2_277 = effectivePension.family_pension_277_cpi;
     const m2_359 = effectivePension.family_pension_359_cpi;
+    // m1_* is Methodology-1 pension already in payment (employee or family).
     const m1_277 = master.m1_family_pension_277 ?? null;
     const m1_359 = master.m1_family_pension_359 ?? null;
+    const employeeCase = !!master.is_employee_pension;
+    const compared277 = employeeCase
+      ? effectivePension.pension_277_cpi
+      : m2_277;
+    const compared359 = employeeCase
+      ? effectivePension.pension_359_cpi
+      : m2_359;
     const stagNum = Number(stagnationAmount);
     const stagnation =
       stagnationAmount !== "" &&
@@ -280,8 +367,10 @@ export default function Methodology2PensionSummary({
       pensioner_name: master.pensioner_name || "",
       is_employee_pension: master.is_employee_pension || false,
       date_of_death: master.date_of_death || null,
+      family_pensioner_dob: master.family_pensioner_dob || null,
       double_fpension_upto: master.double_fpension_upto || null,
       enhanced_family_pension: !!master.enhanced_family_pension,
+      date_of_birth: master.date_of_birth || master.dob || null,
       case_no: master.case_no || "",
       roll_no: master.roll_no || "",
       retirement_type: master.retirement_type || "",
@@ -296,6 +385,10 @@ export default function Methodology2PensionSummary({
       average_pay: lastPay,
       last_pay: lastPay,
       stagnation_amount: stagnation,
+      npa_amount:
+        npaAmount !== "" && npaAmount != null && !Number.isNaN(Number(npaAmount))
+          ? Number(npaAmount)
+          : null,
       scale: effectiveScale,
       start_revision: effectiveStart,
       revision_blocks: liveBlocks,
@@ -308,13 +401,14 @@ export default function Methodology2PensionSummary({
       m2_family_pension_359: m2_359,
       m1_family_pension_277: m1_277,
       m1_family_pension_359: m1_359,
+      m1_bunching: master.m1_bunching || null,
       diff_family_pension_277:
-        m2_277 != null && m1_277 != null
-          ? Number(m2_277) - Number(m1_277)
+        compared277 != null && m1_277 != null
+          ? Number(compared277) - Number(m1_277)
           : null,
       diff_family_pension_359:
-        m2_359 != null && m1_359 != null
-          ? Number(m2_359) - Number(m1_359)
+        compared359 != null && m1_359 != null
+          ? Number(compared359) - Number(m1_359)
           : null,
     };
   }, [
@@ -326,6 +420,7 @@ export default function Methodology2PensionSummary({
     category,
     lastPay,
     stagnationAmount,
+    npaAmount,
     effectiveScale,
     effectiveStart,
     liveBlocks,
@@ -335,27 +430,35 @@ export default function Methodology2PensionSummary({
   useEffect(() => {
     setSnapshot(liveSnapshot);
     setSaveMsg("");
+    setSaveOk(false);
   }, [liveSnapshot]);
 
   if (!effectivePension) return null;
 
   const openPrintDialog = () => {
-    printMethodology2Consolidation();
+    printMethodology2Consolidation(liveSnapshot?.case_no);
   };
 
-  /** Persist one DB row only when user clicks Print (not on every calc). */
-  const handlePrint = async () => {
+  /** Print only. Does not write the consolidation row. */
+  const handlePrint = () => {
+    if (!liveSnapshot) return;
+    openPrintDialog();
+  };
+
+  /** Persist one DB row only when the user clicks Save (not on print or calc). */
+  const handleSave = async () => {
     if (!liveSnapshot) return;
 
     const emp = String(empId || liveSnapshot.emp_cd || "").trim();
     if (!emp) {
+      setSaveOk(false);
       setSaveMsg("Employee id required to save");
-      openPrintDialog();
       return;
     }
 
     setSaving(true);
     setSaveMsg("");
+    setSaveOk(false);
     try {
       const payload = {
         ...liveSnapshot,
@@ -363,24 +466,74 @@ export default function Methodology2PensionSummary({
         equivalent_scales: effectiveEquivalentScales || {},
         pension: effectivePension,
       };
-      const res = await API.post(
-        `methodology2/consolidation/${emp}/`,
-        payload
-      );
-      setSnapshot(res.data);
-      setSaveMsg("Saved for reprint");
-      await new Promise((r) => setTimeout(r, 50));
-      openPrintDialog();
+      await API.post(`methodology2/consolidation/${emp}/`, payload);
+      setSaveOk(true);
+      setSaveMsg("Saved to database");
     } catch (err) {
       console.error(err);
+      setSaveOk(false);
       setSaveMsg(
         err.response?.data?.error || "Could not save consolidation"
       );
-      openPrintDialog();
     } finally {
       setSaving(false);
     }
   };
+
+  const actionButtons = (
+    <div className="d-flex align-items-center gap-2">
+      <button
+        type="button"
+        className="btn btn-outline-light btn-sm"
+        onClick={handleSave}
+        disabled={!liveSnapshot || saving}
+      >
+        {saving ? "Saving…" : "Save"}
+      </button>
+      <button
+        type="button"
+        className="btn btn-light btn-sm"
+        onClick={handlePrint}
+        disabled={!liveSnapshot}
+      >
+        Print
+      </button>
+    </div>
+  );
+
+  const statusNotice = (
+    <>
+      {saveMsg ? (
+        <div
+          className={`alert py-2 px-3 mt-2 mb-0 small ${
+            saveOk ? "alert-success" : "alert-danger"
+          }`}
+          role="status"
+        >
+          {saveMsg}
+        </div>
+      ) : null}
+      {isProportionateReduced(effectivePension) ? (
+        <div className="alert alert-warning py-2 px-3 mt-2 mb-0 small">
+          {proportionateNoteFromPension(effectivePension)}
+        </div>
+      ) : null}
+    </>
+  );
+
+  if (isClass12 && class12Result) {
+    return (
+      <>
+        <MethodologyClass12Result
+          category={category}
+          class12Result={class12Result}
+          headerExtra={actionButtons}
+          notice={statusNotice}
+        />
+        <Methodology2ConsolidationPrint snapshot={snapshot} />
+      </>
+    );
+  }
 
   return (
     <>
@@ -388,24 +541,8 @@ export default function Methodology2PensionSummary({
         <div className="col-md-10">
           <div className="card shadow border-primary">
             <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-              <h5 className="mb-0">
-                {isClass12
-                  ? "Pension / consolidation (Class 1/2)"
-                  : "Pension (from calculated basic)"}
-              </h5>
-              <div className="d-flex align-items-center gap-2">
-                {saveMsg && (
-                  <span className="small text-white-50">{saveMsg}</span>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-light btn-sm"
-                  onClick={handlePrint}
-                  disabled={!liveSnapshot || saving}
-                >
-                  {saving ? "Saving…" : "Print consolidation"}
-                </button>
-              </div>
+              <h5 className="mb-0">Pension (from calculated basic)</h5>
+              {actionButtons}
             </div>
             <div className="card-body">
               <div className="mb-3 small text-muted">
@@ -416,24 +553,21 @@ export default function Methodology2PensionSummary({
                   </div>
                 )}
                 <div>
-                  Click <strong>Print consolidation</strong> to save one DB row
-                  (employee + revision blocks + pension) then print.
-                  Header title &amp; FA/CAO footer are print-only.
-                  {isClass12 && (
-                    <> Class 1/2 chain ends at 2017 (277 CPI); 2022 column stays blank unless calculated.</>
-                  )}
+                  <strong>Save</strong> writes one database row (employee,
+                  revision blocks, and pension) and does not print.{" "}
+                  <strong>Print</strong> opens the print dialog and does not
+                  save. Header title &amp; FA/CAO footer are print-only.
                 </div>
+                {statusNotice}
               </div>
 
               <div className="row g-3">
-                {!isClass12 && (
-                  <PensionBlock
-                    title="2022 (359 CPI)"
-                    basic={effectivePension.basic_pay_2022}
-                    pension={effectivePension.pension_359_cpi}
-                    familyPension={effectivePension.family_pension_359_cpi}
-                  />
-                )}
+                <PensionBlock
+                  title="2022 (359 CPI)"
+                  basic={effectivePension.basic_pay_2022}
+                  pension={effectivePension.pension_359_cpi}
+                  familyPension={effectivePension.family_pension_359_cpi}
+                />
                 <PensionBlock
                   title="2017 (277 CPI)"
                   basic={effectivePension.basic_pay_2017}

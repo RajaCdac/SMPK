@@ -119,6 +119,28 @@ class EmployeeLookupView(APIView):
             )
 
 
+class EmployeeSearchView(APIView):
+    """Find EMP_CD by case no or roll no (?by=case|roll|emp&q=...)."""
+
+    def get(self, request):
+        from M2_oldage_arrear.services.employee_search import search_employee
+
+        by = request.query_params.get("by") or "emp"
+        q = request.query_params.get("q") or ""
+        if not q.strip():
+            return Response(
+                {"error": "Enter a value to search."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            return Response(search_employee(by, q))
+        except Exception as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 class ConsolidationSnapshotView(APIView):
     """Save / load consolidation into m2_oldage_arrear_consolidation only."""
 

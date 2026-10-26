@@ -147,7 +147,8 @@ export function isPensionOnlyUser(user = getStoredUser()) {
 }
 
 const ADMIN_NAV = [
-  { to: "/dashboard/admin", label: "Admin Home", end: false },
+  { to: "/dashboard/admin", label: "Admin Home", end: true },
+  { to: "/dashboard/admin/consolidation-by-user", label: "Consolidation by user" },
   { to: "/dashboard/users", label: "User Management" },
   { to: "/dashboard/roles", label: "Role Management" },
   { to: "/dashboard/logs", label: "Audit Logs" },
@@ -247,6 +248,11 @@ const M2_USER_NAV = [
         label: "Report",
       },
     ],
+  },
+  {
+    to: "/dashboard/methodology2-oldage-arrear/family",
+    label: "Family Pension Consolidation",
+    end: true,
   },
   { to: "/dashboard/methodology2-arrear", label: "Arrear Calculation", end: true },
 ];
@@ -359,6 +365,11 @@ const M2_OA_ONLY_NAV = [
         label: "Report",
       },
     ],
+  },
+  {
+    to: "/dashboard/methodology2-oldage-arrear/family",
+    label: "Family Pension Consolidation",
+    end: true,
   },
   { to: "/dashboard/methodology2-arrear", label: "Arrear Calculation", end: true },
 ];

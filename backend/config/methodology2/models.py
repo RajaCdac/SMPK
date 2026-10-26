@@ -94,6 +94,10 @@ class Methodology2Consolidation(models.Model):
     payment_done = models.BooleanField(default=False, db_index=True)
     payment_done_at = models.DateTimeField(null=True, blank=True)
     payment_done_by = models.CharField(max_length=80, blank=True, default="")
+    # Filled when a paid Excel marks this row. Blank until that upload matches.
+    payment_phase = models.CharField(max_length=40, blank=True, default="")
+    payment_abstract_no = models.CharField(max_length=40, blank=True, default="")
+    payment_ref_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

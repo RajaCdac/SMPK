@@ -116,7 +116,14 @@ def _last_pay_with_stagnation(last_pay, stagnation_amount):
     )
 
 
-def _last_pay_with_npa(display, npa_amount):
+def _plain_amount(value) -> str:
+    n = float(value)
+    if abs(n - round(n)) < 1e-9:
+        return str(int(round(n)))
+    return _format_card_value(n)
+
+
+def _last_pay_with_npa(display, npa_amount, last_pay=None):
     if display == "—":
         return display
     try:
@@ -127,7 +134,18 @@ def _last_pay_with_npa(display, npa_amount):
             return display
     except (TypeError, ValueError):
         return display
-    return mark_safe(f"{display} (npa {_format_card_value(npa)})")
+    npa_text = _format_card_value(npa)
+    basic_text = ""
+    if last_pay is not None and last_pay != "":
+        try:
+            basic = float(last_pay) - npa
+            if basic >= -0.005:
+                basic_text = _plain_amount(basic)
+        except (TypeError, ValueError):
+            basic_text = ""
+    if not basic_text:
+        return mark_safe(f"{display} (NPA {npa_text})")
+    return mark_safe(f"{display} ({basic_text}+NPA {npa_text})")
 
 
 def _macp_track_scale(scale) -> str:
@@ -298,9 +316,30 @@ def _build_print_context(snapshot: dict) -> dict:
     if class12_omit_359 and is_employee_pension:
         from methodology2.services.lic_bunching import fetch_class12_m1_bunching
 
-        bunch = s.get("m1_bunching") or fetch_class12_m1_bunching(
-            s.get("emp_cd"), category=cat
+        npa_for_bunch = (
+            s.get("npa_amount")
+            if s.get("npa_amount") is not None
+            else comparison.get("npa_amount")
         )
+        try:
+            doctor_case = (
+                npa_for_bunch is not None
+                and npa_for_bunch != ""
+                and float(npa_for_bunch) != 0
+            )
+        except (TypeError, ValueError):
+            doctor_case = False
+        stored_bunch = s.get("bunch_basic")
+        if stored_bunch is None:
+            stored_bunch = comparison.get("bunch_basic")
+        if s.get("m1_bunching"):
+            bunch = s.get("m1_bunching")
+        elif doctor_case and not stored_bunch:
+            bunch = None
+        else:
+            bunch = fetch_class12_m1_bunching(
+                s.get("emp_cd"), category=cat
+            )
         basic = bunch.get("basic_pension") if isinstance(bunch, dict) else None
         extra = bunch.get("bunch_basic") if isinstance(bunch, dict) else None
         total = bunch.get("m1_bunched") if isinstance(bunch, dict) else None
@@ -358,7 +397,7 @@ def _build_print_context(snapshot: dict) -> dict:
         if s.get("npa_amount") is not None
         else comparison.get("npa_amount")
     )
-    last_pay_display = _last_pay_with_npa(last_pay_display, npa)
+    last_pay_display = _last_pay_with_npa(last_pay_display, npa, avg)
     macp_track = _macp_track_scale(s.get("scale"))
     if macp_track and last_pay_display != "—":
         last_pay_display = mark_safe(

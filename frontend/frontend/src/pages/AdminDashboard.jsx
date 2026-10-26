@@ -10,6 +10,13 @@ export default function AdminDashboard() {
       </p>
 
       <div className="admin-quick-links">
+        <Link to="/dashboard/admin/consolidation-by-user" className="admin-quick-card">
+          <h3>Consolidation by user</h3>
+          <p>
+            See how many consolidations each user saved, date by date, and who
+            created a case.
+          </p>
+        </Link>
         <Link to="/dashboard/users" className="admin-quick-card">
           <h3>User Management</h3>
           <p>Create users and assign roles with employee profile details.</p>

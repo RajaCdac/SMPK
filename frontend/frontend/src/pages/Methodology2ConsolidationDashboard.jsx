@@ -113,6 +113,9 @@ export default function Methodology2ConsolidationDashboard() {
   const tableWrapRef = useRef(null);
   const selectedRef = useRef(new Set());
   const [selectedCount, setSelectedCount] = useState(0);
+  const [paidFile, setPaidFile] = useState(null);
+  const [paidBusy, setPaidBusy] = useState(false);
+  const [paidResult, setPaidResult] = useState(null);
   const loadRef = useRef(null);
   const loadingRef = useRef(false);
   const viewOpenRef = useRef(false);
@@ -191,6 +194,75 @@ export default function Methodology2ConsolidationDashboard() {
       window.removeEventListener("focus", refreshIfVisible);
     };
   }, []);
+
+  const uploadPaidExcel = async () => {
+    if (!paidFile) {
+      setError("Choose the paid Excel file.");
+      return;
+    }
+    const form = new FormData();
+    form.append("file", paidFile);
+    setPaidBusy(true);
+    setError("");
+    setPaidResult(null);
+    try {
+      const res = await API.post("m2-oldage-arrear/dashboard/paid-excel/", form, {
+        timeout: 180000,
+      });
+      setPaidResult(res.data || null);
+      await load();
+    } catch (err) {
+      setError(
+        err?.response?.data?.error ||
+          err?.message ||
+          "Could not mark paid from the Excel file."
+      );
+    } finally {
+      setPaidBusy(false);
+    }
+  };
+
+  const downloadUnmatchedLog = () => {
+    const lines = paidResult?.unmatched || [];
+    const header = [
+      "Excel row",
+      "Employee Code",
+      "Name",
+      "Source",
+      "Field",
+      "Excel amount",
+      "Saved amount",
+      "Reason",
+    ];
+    const escape = (value) => {
+      const text = String(value ?? "");
+      if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+      return text;
+    };
+    const body = lines.map((row) =>
+      [
+        row.excel_row,
+        row.emp_cd,
+        row.name,
+        row.source,
+        row.field,
+        row.excel_amount,
+        row.saved_amount,
+        row.reason,
+      ]
+        .map(escape)
+        .join(",")
+    );
+    const blob = new Blob([[header.join(","), ...body].join("\n")], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "paid-unmatched.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   const openFullReport = useCallback(async (row) => {
     const emp = String(row?.emp_cd || "").trim();
@@ -628,6 +700,102 @@ export default function Methodology2ConsolidationDashboard() {
         </div>
       </div>
 
+      <div className="card shadow-sm mb-3">
+        <div className="card-body">
+          <h6 className="mb-1">Mark paid from Excel</h6>
+          <p className="small text-muted mb-2">
+            Upload the paid sheet. An employee is marked paid when the employee
+            code, last pay, M1@277, and M2@277 match the saved consolidation.
+            M1@359 and M2@359 are checked when those columns are in the sheet.
+            Phase, abstract number, and date are stored when those columns are
+            present. Rows that do not match are written to a log.
+          </p>
+          <div className="d-flex flex-wrap align-items-center gap-2">
+            <input
+              type="file"
+              className="form-control form-control-sm"
+              style={{ maxWidth: 420 }}
+              accept=".xlsx,.xls"
+              onChange={(e) => {
+                setPaidFile(e.target.files?.[0] || null);
+                setPaidResult(null);
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn-success btn-sm"
+              disabled={!paidFile || paidBusy}
+              onClick={uploadPaidExcel}
+            >
+              {paidBusy ? "Checking…" : "Upload and mark paid"}
+            </button>
+          </div>
+          {paidResult ? (
+            <div className="mt-3">
+              <div className="small mb-2">
+                Marked paid: <strong>{paidResult.marked_count || 0}</strong>.
+                Unmatched employees:{" "}
+                <strong>{paidResult.unmatched_count || 0}</strong>.
+                {paidResult.log_path ? (
+                  <>
+                    {" "}
+                    Log file: <code>{paidResult.log_path}</code>
+                  </>
+                ) : null}
+              </div>
+              {(paidResult.unmatched || []).length ? (
+                <>
+                  <div className="d-flex justify-content-end mb-2">
+                    <button
+                      type="button"
+                      className="btn btn-outline-secondary btn-sm"
+                      onClick={downloadUnmatchedLog}
+                    >
+                      Download unmatched log
+                    </button>
+                  </div>
+                  <div className="table-responsive" style={{ maxHeight: 320 }}>
+                    <table className="table table-sm table-bordered mb-0">
+                      <thead className="table-light">
+                        <tr>
+                          <th>Excel row</th>
+                          <th>Employee</th>
+                          <th>Source</th>
+                          <th>Field</th>
+                          <th className="text-end">Excel</th>
+                          <th className="text-end">Saved</th>
+                          <th>Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paidResult.unmatched.map((row, index) => (
+                          <tr key={`${row.excel_row}-${row.emp_cd}-${row.field}-${index}`}>
+                            <td>{row.excel_row}</td>
+                            <td>
+                              {row.emp_cd || "—"}
+                              {row.name ? ` · ${row.name}` : ""}
+                            </td>
+                            <td>{row.source || "—"}</td>
+                            <td>{row.field || "—"}</td>
+                            <td className="text-end">{row.excel_amount || "—"}</td>
+                            <td className="text-end">{row.saved_amount || "—"}</td>
+                            <td>{row.reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div className="alert alert-success py-2 mb-0">
+                  Every employee in the sheet matched a saved consolidation.
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
+      </div>
+
       <div className="row g-3 mb-3">
         <StatCard
           label="Showing"
@@ -859,7 +1027,22 @@ export default function Methodology2ConsolidationDashboard() {
                   </td>
                   <td data-order={r.payment_done ? 1 : 0}>
                     {r.payment_done ? (
-                      <span className="badge text-bg-success">Paid</span>
+                      <span
+                        className="badge text-bg-success"
+                        title={
+                          [
+                            r.payment_phase ? `Phase ${r.payment_phase}` : "",
+                            r.payment_abstract_no
+                              ? `Abstract ${r.payment_abstract_no}`
+                              : "",
+                            r.payment_ref_date || "",
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")
+                        }
+                      >
+                        Paid{r.payment_phase ? ` · ${r.payment_phase}` : ""}
+                      </span>
                     ) : (
                       <span className="badge text-bg-secondary">Pending</span>
                     )}

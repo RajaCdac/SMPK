@@ -62,11 +62,13 @@
   padding: 2px 4px !important;
   vertical-align: top !important;
   width: 33.33% !important;
+  text-transform: uppercase;
 }
 
 .m2-consol-print__emp-grid .label {
   font-weight: 700;
   margin-right: 3px;
+  text-transform: none;
 }
 
 .m2-consol-print__emp-cell--prominent {

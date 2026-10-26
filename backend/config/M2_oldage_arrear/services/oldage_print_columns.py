@@ -202,14 +202,19 @@ def _benefit_only(amount: Decimal | None, pct: Decimal) -> Decimal:
 
 
 def _segment_breaks(dob: date, window_start: date, window_end: date | None) -> list[date]:
-    """Start dates of rate segments inside [window_start, window_end]."""
+    """Start dates of rate segments inside [window_start, window_end].
+
+    An open window stops at 31 Dec 2026. Old age that starts after that
+    year is not shown. A start during 2026, or already in force by then,
+    is included.
+    """
     end = window_end or DISPLAY_HORIZON_END
     breaks = {window_start}
     for lo, _hi, _pct in OLDAGE_SLABS:
         w = wef_for_age(dob, lo)
         if window_start < w <= end:
             breaks.add(w)
-    return sorted(b for b in breaks if b <= end)
+    return sorted(breaks)
 
 
 def _header_for_segment(
@@ -248,8 +253,7 @@ def _build_cpi_columns(
 
     m2f = _float_or_none(m2)
     m1f = _float_or_none(m1)
-    ends = window_end or DISPLAY_HORIZON_END
-    starts = _segment_breaks(dob, window_start, ends)
+    starts = _segment_breaks(dob, window_start, window_end)
     if not starts:
         return []
 

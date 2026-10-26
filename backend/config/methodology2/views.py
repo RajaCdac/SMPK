@@ -18,6 +18,7 @@ from methodology2.services.consolidation_service import (
 )
 from methodology2.services.lic_bunching import fetch_class12_m1_bunching
 from methodology2.services.oracle_employee_service import (
+    fetch_doctor_manual_header,
     fetch_employee_for_methodology2,
 )
 from methodology2.services.revision_resolver import get_revision_column
@@ -231,6 +232,8 @@ class EmployeeLookupView(APIView):
     def get(self, request, emp_id):
         try:
             data = fetch_employee_for_methodology2(emp_id)
+            if not data:
+                data = fetch_doctor_manual_header(emp_id)
             if not data:
                 return Response(
                     {"error": "Employee not found"},

@@ -1,13 +1,16 @@
 """
-Parse M2_BULK-style Excel for M2 manual entry (no DB lookup).
+Parse M2 manual-entry Excel.
 
-Expected columns (headers flexible / case-insensitive):
+Employee sheet:
   EMP_CD, PENSIONER_NAME, ROLL_NO, CASE_NO, Category,
   DATE_OF_BIRTH, DATE_OF_RETIREMENT, TQS, DESG, LAST PAY,
-  PAY_SCALE, M-I_277 / M-I_ 277, M-I_359
+  PAY_SCALE, M-I_277 / M1_277, M-I_359
 
-Family pensioner rows also read:
-  DATE_OF_DEATH, NAME_OF_FAMILY_PENSIONER, DOB_OF_FAMILY_PENSIONER
+Family pension sheet:
+  EMP_CD, PENSIONER_NAME, DATE_OF_RETIREMENT, DATE_OF_BIRTH,
+  DATE_OF_DEATH, FAMILY_PENSIONER_NAME, CASE_NO, ROLL_NO, Category,
+  DATE_OF_BIRTH_FAMILY_PENSIONER, TQS, DESIG, LAST PAY,
+  NPA (FOR DOCTORS), PAY_SCALE, M1_277
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from methodology2.services.bulk_excel_service import _clean_emp_cd, _clean_text, _normalize_header
+from methodology2.services.bulk_excel_service import _clean_emp_cd, _clean_text
 
 
 def normalize_manual_emp_cd(raw) -> str | None:
@@ -40,8 +43,16 @@ def normalize_manual_emp_cd(raw) -> str | None:
     return text[:5]
 
 
+def _manual_header(name) -> str:
+    """Lower-case header with punctuation and apostrophes removed."""
+    text = str(name or "").strip().lower()
+    text = text.replace("\u2019", "").replace("'", "").replace("`", "")
+    text = re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+    return text
+
+
 def _col_map(df: pd.DataFrame) -> dict[str, str]:
-    return {_normalize_header(c): c for c in df.columns}
+    return {_manual_header(c): c for c in df.columns}
 
 
 def _find_col(cmap: dict[str, str], *keys: str) -> str | None:
@@ -124,13 +135,18 @@ def _parse_tqs(text: str) -> tuple[int | None, int | None, int | None]:
     ym = re.search(r"(\d+)\s*Y", raw, re.I)
     mm = re.search(r"(\d+)\s*M", raw, re.I)
     dm = re.search(r"(\d+)\s*D", raw, re.I)
-    if ym:
-        y = int(ym.group(1))
-    if mm:
-        m = int(mm.group(1))
-    if dm:
-        d = int(dm.group(1))
-    return y, m, d
+    if ym or mm or dm:
+        if ym:
+            y = int(ym.group(1))
+        if mm:
+            m = int(mm.group(1))
+        if dm:
+            d = int(dm.group(1))
+        return y, m, d
+    parts = re.findall(r"\d+", raw)
+    if len(parts) == 3 and all(len(part) <= 5 for part in parts):
+        return int(parts[0]), int(parts[1]), int(parts[2])
+    return None, None, None
 
 
 def _normalize_category(raw) -> str:
@@ -229,7 +245,15 @@ def read_manual_rows_from_excel(source) -> list[dict]:
             f"(found: {', '.join(str(c) for c in df.columns)})"
         )
 
-    name_col = _find_col(cmap, "pensioner_name", "name", "emp_name")
+    name_col = _find_col(
+        cmap,
+        "employee_name",
+        "pensioner_name",
+        "name",
+        "emp_name",
+        "name_of_employee",
+        "name_of_pensioner",
+    )
     roll_col = _find_col(cmap, "roll_no", "pension_roll_no", "roll")
     case_col = _find_col(cmap, "case_no", "ca_number", "case", "caseno")
     cat_col = _find_col(cmap, "category", "class", "emp_class")
@@ -238,8 +262,16 @@ def read_manual_rows_from_excel(source) -> list[dict]:
         cmap, "date_of_retirement", "retirement_date", "dor", "separation_date"
     )
     tqs_col = _find_col(cmap, "tqs", "total_qualifying_service")
-    desg_col = _find_col(cmap, "desg", "designation", "desig")
-    pay_col = _find_col(cmap, "last_pay", "lastpay", "last_basic")
+    desg_col = _find_col(cmap, "desg", "desig", "designation", "designation_name")
+    pay_col = _find_col(cmap, "last_pay", "lastpay", "last_basic", "last_pay_drawn")
+    npa_col = _find_col(
+        cmap,
+        "npa_(for_doctors)",
+        "npa_for_doctors",
+        "npa",
+        "npa_amount",
+        "npa_for_doctor",
+    )
     scale_col = _find_col(cmap, "pay_scale", "scale", "payscale")
     m1_277_col = _find_col(
         cmap,
@@ -253,12 +285,37 @@ def read_manual_rows_from_excel(source) -> list[dict]:
     m1_359_col = _find_col(
         cmap, "m-i_359", "mi_359", "m1_359", "m_i_359", "methodology1_359"
     )
+    m2_277_col = _find_col(
+        cmap,
+        "m-ii_277",
+        "m-ii__277",
+        "mii_277",
+        "m2_277",
+        "m_ii_277",
+        "methodology2_277",
+    )
+    m2_359_col = _find_col(
+        cmap,
+        "m-ii_359",
+        "m-ii__359",
+        "mii_359",
+        "m2_359",
+        "m_ii_359",
+        "methodology2_359",
+    )
     dod_col = _find_col(
-        cmap, "date_of_death", "dod", "death_date", "date_of_death_of_employee"
+        cmap,
+        "date_of_death",
+        "dod",
+        "dod_of_employee",
+        "death_date",
+        "date_of_death_of_employee",
     )
     fp_name_col = _find_col(
         cmap,
         "family_pensioner_name",
+        "family_pensioners_name",
+        "family_pensioner_s_name",
         "name_of_family_pensioner",
         "family_pensioner",
         "fp_name",
@@ -266,6 +323,7 @@ def read_manual_rows_from_excel(source) -> list[dict]:
     fp_dob_col = _find_col(
         cmap,
         "family_pensioner_dob",
+        "date_of_birth_family_pensioner",
         "dob_of_family_pensioner",
         "date_of_birth_of_family_pensioner",
         "dob_family_pensioner",
@@ -275,6 +333,9 @@ def read_manual_rows_from_excel(source) -> list[dict]:
     pension_type_col = _find_col(
         cmap, "pension_type", "pensioner_type", "type_of_pension"
     )
+    # This header may mix normal pensioners and family pensioners.
+    # A row is family only when that row has a family value, not because
+    # the column exists for other employees.
 
     seen: set[str] = set()
     out: list[dict] = []
@@ -301,9 +362,12 @@ def read_manual_rows_from_excel(source) -> list[dict]:
             "tqs_days": tqs_dy,
             "designation": _clean_text(row.get(desg_col)) if desg_col else "",
             "last_pay": _as_float(row.get(pay_col) if pay_col else None),
+            "npa_amount": _as_float(row.get(npa_col) if npa_col else None),
             "scale": _clean_text(row.get(scale_col)) if scale_col else "",
             "m1_277": _as_float(row.get(m1_277_col) if m1_277_col else None),
             "m1_359": _as_float(row.get(m1_359_col) if m1_359_col else None),
+            "m2_277": _as_float(row.get(m2_277_col) if m2_277_col else None),
+            "m2_359": _as_float(row.get(m2_359_col) if m2_359_col else None),
             "date_of_death": _as_date(row.get(dod_col) if dod_col else None),
             "family_pensioner_name": (
                 _clean_text(row.get(fp_name_col)) if fp_name_col else ""
@@ -317,6 +381,10 @@ def read_manual_rows_from_excel(source) -> list[dict]:
         }
         if _excel_marks_family(parsed):
             parsed["is_employee_pension"] = False
+            if not str(parsed.get("pension_type") or "").strip():
+                parsed["pension_type"] = "F"
+        else:
+            parsed["is_employee_pension"] = True
         out.append(parsed)
 
     if not out:

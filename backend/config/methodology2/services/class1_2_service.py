@@ -96,17 +96,21 @@ def normalize_executive_grade(value):
     return str(value).strip()
 
 
+def _canon_pay_band(text) -> str:
+    """Compare pay bands ignoring spaces and a doubled hyphen (8600-250--14600)."""
+    want = re.sub(r"\s+", "", str(text or "").strip().upper())
+    want = want.replace("–", "-").replace("—", "-")
+    return re.sub(r"-{2,}", "-", want)
+
+
 def _grade_from_pay_band(pay_band, separation_date=None):
     """Map dept/Excel pay band (e.g. 20600-46500) to executive grade."""
-    want = re.sub(r"\s+", "", str(pay_band or "").strip().upper())
-    want = want.replace("–", "-").replace("—", "-")
+    want = _canon_pay_band(pay_band)
     if not want or want.startswith("E"):
         return None
     for item in get_class12_scales(separation_date) or []:
-        band = re.sub(r"\s+", "", str(item.get("pay_band") or "").upper())
-        label = re.sub(r"\s+", "", str(item.get("label") or "").upper())
-        band = band.replace("–", "-").replace("—", "-")
-        label = label.replace("–", "-").replace("—", "-")
+        band = _canon_pay_band(item.get("pay_band"))
+        label = _canon_pay_band(item.get("label"))
         if want in (band, label):
             return item.get("grade")
     return None

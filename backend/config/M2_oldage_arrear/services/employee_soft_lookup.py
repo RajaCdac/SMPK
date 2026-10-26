@@ -11,7 +11,9 @@ from employee.services.methodology_employee_lookup import (
     _emp_key,
 )
 from methodology2.services.oracle_employee_service import (
+    employee_is_doctor,
     fetch_employee_for_methodology2,
+    _wage_category,
 )
 
 from M2_oldage_arrear.services.consolidation_bridge import fetch_employee_dob
@@ -61,7 +63,8 @@ def fetch_employee_for_oldage(emp_id: str) -> dict | None:
             "separation_date": None,
             "scale": "",
             "last_pay": None,
-            "category": "3",
+            "doctor_flg": 1 if employee_is_doctor(emp_key) else 0,
+            "category": _wage_category(emp_key) or "3",
             "date_of_birth": dob.isoformat() if dob else None,
             "dob": dob.isoformat() if dob else None,
             "data_source": "soft_oldage",
@@ -78,7 +81,7 @@ def fetch_employee_for_oldage(emp_id: str) -> dict | None:
         sep = adm.separation_dt or adm.exp_ret_dt
     dob = fetch_employee_dob(emp_key)
     emp_class = _employee_class(fin, None)
-    category = category_from_emp_class(emp_class) or "3"
+    category = category_from_emp_class(emp_class) or _wage_category(emp_key) or "3"
     name = _full_name(per) or _pensioner_name(emp_key)
 
     return {
@@ -90,13 +93,16 @@ def fetch_employee_for_oldage(emp_id: str) -> dict | None:
         "oracle_scale_sl": str(getattr(fin, "scale_sl", "") or "").strip(),
         "emp_class": emp_class or "",
         "category": category,
+        "doctor_flg": 1 if employee_is_doctor(emp_key) else 0,
         "date_of_birth": dob.isoformat() if dob else None,
         "dob": dob.isoformat() if dob else None,
         "data_source": "soft_oldage",
         "warning": (
-            "Met2 auto-scale/pay not available for this employee "
-            "(missing class/scale/finscale). "
-            "DOB and separation loaded — enter scale and last pay to calculate, "
-            "or old-age periods still work once Met2 pension & M1 amounts are known."
+            "No pay scale is on file. Select the scale and last pay."
+            + (
+                " Enter NPA in Stagnation/NPA."
+                if employee_is_doctor(emp_key)
+                else ""
+            )
         ),
     }

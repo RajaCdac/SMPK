@@ -286,6 +286,8 @@ export default function Methodology2PensionSummary({
   lastPay,
   stagnationAmount = "",
   npaAmount = "",
+  includeBunching = false,
+  isDoctor = false,
   effectivePay = null,
   empId = "",
   employeeName = "",
@@ -344,12 +346,12 @@ export default function Methodology2PensionSummary({
   const liveSnapshot = useMemo(() => {
     if (!effectivePension) return null;
     const master = printMaster || {};
+    const employeeCase = !!master.is_employee_pension;
     const m2_277 = effectivePension.family_pension_277_cpi;
     const m2_359 = effectivePension.family_pension_359_cpi;
     // m1_* is Methodology-1 pension already in payment (employee or family).
     const m1_277 = master.m1_family_pension_277 ?? null;
     const m1_359 = master.m1_family_pension_359 ?? null;
-    const employeeCase = !!master.is_employee_pension;
     const compared277 = employeeCase
       ? effectivePension.pension_277_cpi
       : m2_277;
@@ -385,14 +387,19 @@ export default function Methodology2PensionSummary({
       tqs_yr: master.tqs_yr,
       tqs_month: master.tqs_month,
       tqs_days: master.tqs_days,
-      // Header: Average Pay and Last Pay both show actual last pay.
-      average_pay: lastPay,
+      // Average Pay entered on the family header form; else the last pay.
+      average_pay:
+        master.average_pay != null && String(master.average_pay).trim() !== ""
+          ? master.average_pay
+          : lastPay,
       last_pay: lastPay,
       stagnation_amount: stagnation,
       npa_amount:
         npaAmount !== "" && npaAmount != null && !Number.isNaN(Number(npaAmount))
           ? Number(npaAmount)
           : null,
+      doctor_flg: isDoctor ? 1 : 0,
+      apply_bunching: isDoctor ? !!includeBunching : true,
       scale: effectiveScale,
       start_revision: effectiveStart,
       revision_blocks: liveBlocks,
@@ -405,7 +412,8 @@ export default function Methodology2PensionSummary({
       m2_family_pension_359: m2_359,
       m1_family_pension_277: m1_277,
       m1_family_pension_359: m1_359,
-      m1_bunching: master.m1_bunching || null,
+      m1_bunching:
+        isDoctor && !includeBunching ? null : master.m1_bunching || null,
       diff_family_pension_277:
         compared277 != null && m1_277 != null
           ? Number(compared277) - Number(m1_277)
@@ -427,6 +435,8 @@ export default function Methodology2PensionSummary({
     lastPay,
     stagnationAmount,
     npaAmount,
+    includeBunching,
+    isDoctor,
     effectiveScale,
     effectiveStart,
     liveBlocks,

@@ -313,6 +313,102 @@ def _match_class12_grade_and_pay(
     return None, basic
 
 
+def _doctor_flag_on(value) -> bool:
+    if value is None or value == "":
+        return False
+    try:
+        return int(value) == 1
+    except (TypeError, ValueError):
+        return str(value).strip() == "1"
+
+
+def employee_is_doctor(emp_id) -> bool:
+    emp = str(emp_id or "").strip()[:5]
+    if not emp:
+        return False
+    from django.db import connection
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT DOCTOR_FLG
+                FROM fi_xx_mh_emp_per
+                WHERE EMP_CD = %s
+                LIMIT 1
+                """,
+                [emp],
+            )
+            row = cursor.fetchone()
+    except Exception:
+        return False
+    return bool(row) and _doctor_flag_on(row[0])
+
+
+def _wage_category(emp_id) -> str:
+    emp = str(emp_id or "").strip()[:5]
+    if not emp:
+        return ""
+    from django.db import connection
+
+    for table in (
+        "fi_pn_wage_2017_hdr_offi2",
+        "fi_pn_wage_2017_hdr_third",
+        "fi_pn_wage_2022_hdr_third",
+    ):
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT EMP_CLASS FROM {table} WHERE EMP_CD = %s LIMIT 1",
+                    [emp],
+                )
+                row = cursor.fetchone()
+        except Exception:
+            continue
+        text = str(row[0]).strip() if row and row[0] is not None else ""
+        if text in ("1", "2", "3", "4"):
+            return text
+    return ""
+
+
+def fetch_doctor_manual_header(emp_id):
+    """
+    Doctor whose class or pay scale is missing. The form stays open so NPA
+    can be typed in Stagnation/NPA and last pay stays the basic.
+    """
+    emp = str(emp_id or "").strip()[:5]
+    if not emp or not employee_is_doctor(emp):
+        return None
+
+    from employee.oracle_mirror import FiXxMhEmpAdm, FiXxMhEmpPer
+    from employee.services.methodology_employee_lookup import (
+        _format_date_for_input,
+        _full_name,
+    )
+
+    per = FiXxMhEmpPer.objects.filter(emp_cd=emp).first()
+    if not per:
+        return None
+    adm = FiXxMhEmpAdm.objects.filter(emp_cd=emp).first()
+    sep = None
+    if adm:
+        sep = adm.separation_dt or adm.exp_ret_dt
+    return {
+        "emp_id": emp,
+        "name": _full_name(per),
+        "separation_date": _format_date_for_input(sep),
+        "scale": "",
+        "last_pay": None,
+        "category": _wage_category(emp),
+        "doctor_flg": 1,
+        "data_source": "doctor_manual",
+        "warning": (
+            "No pay scale is on file for this doctor. "
+            "Select the scale and last pay, and enter NPA in Stagnation/NPA."
+        ),
+    }
+
+
 def _apply_doctor_npa(data):
     """
     Doctors (fi_xx_mh_emp_per.DOCTOR_FLG = 1): consolidation last pay is the
@@ -350,8 +446,10 @@ def _apply_doctor_npa(data):
                 [emp],
             )
             row = cursor.fetchone()
-            if not row or row[0] != 1:
+            if not row or not _doctor_flag_on(row[0]):
+                data["doctor_flg"] = 0
                 return data
+            data["doctor_flg"] = 1
             cursor.execute(
                 """
                 SELECT b.ACT_EARNDEDN_AMT, n.ACT_EARNDEDN_AMT

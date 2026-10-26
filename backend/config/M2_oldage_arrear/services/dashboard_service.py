@@ -297,6 +297,13 @@ def _serialize_row(obj, *, source: str, as_on: date) -> dict:
         "payment_done": bool(getattr(obj, "payment_done", False)),
         "payment_done_at": paid_at.isoformat() if paid_at else None,
         "payment_done_by": str(getattr(obj, "payment_done_by", "") or ""),
+        "payment_phase": str(getattr(obj, "payment_phase", "") or ""),
+        "payment_abstract_no": str(getattr(obj, "payment_abstract_no", "") or ""),
+        "payment_ref_date": (
+            obj.payment_ref_date.isoformat()
+            if getattr(obj, "payment_ref_date", None)
+            else None
+        ),
         "consolidated_by": str(getattr(obj, "consolidated_by", "") or ""),
         "updated_at": updated.isoformat() if updated else None,
         "updated_date": updated.date().isoformat() if updated else None,
@@ -502,11 +509,17 @@ def set_consolidation_payment(
     else:
         obj.payment_done_at = None
         obj.payment_done_by = ""
+        obj.payment_phase = ""
+        obj.payment_abstract_no = ""
+        obj.payment_ref_date = None
     obj.save(
         update_fields=[
             "payment_done",
             "payment_done_at",
             "payment_done_by",
+            "payment_phase",
+            "payment_abstract_no",
+            "payment_ref_date",
             "updated_at",
         ]
     )

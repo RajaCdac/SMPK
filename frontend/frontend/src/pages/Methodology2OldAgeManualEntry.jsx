@@ -332,13 +332,17 @@ export default function Methodology2OldAgeManualEntry() {
             </div>
             <div className="card-body">
               <p className="text-muted small mb-3">
-                Upload Excel with employee details (emp_cd, name, TQS, retirement
-                date, class, scale, last pay, DOB, M-I 277 / 359). For a family
-                pensioner also include date of death, name of family pensioner,
-                and DOB of family pensioner. If M1@277 is not in the Excel, it is
-                asked before that employee is calculated. Other header values
-                missing from the Excel and the database are asked one field at
-                a time. Enter the value, or Null when you do not have it. Each run
+                Upload one Excel that can contain both normal pensioners and
+                family pensioners. Columns: EMP_CD, EMPLOYEE_NAME,
+                DATE_OF_RETIREMENT, DOD of EMPLOYEE, FAMILY PENSIONER'S NAME,
+                CASE_NO, ROLL_NO, Category, DATE_OF_BIRTH Of FAMILY PENSIONER,
+                TQS, DESG, LAST PAY, NPA (FOR DOCTORS), PAY_SCALE and M-I_277.
+                A row is family pension only when that row has a date of death,
+                a family pensioner name, or a family date of birth. A normal
+                pensioner is not asked for those. M2 comes from the calculation.
+                A blank M1@277 is asked; class 3 and 4 also ask a blank M1@359.
+                Other blank header values are asked one field at a time. Enter
+                the value, or Null when you do not have it. Each run
                 creates a <strong>batch</strong> (IST stamp + case count). Output
                 folder: <code>m2-manual-YYYY-MM-DD_HHMM</code>. With{" "}
                 <strong>Generate PDF</strong> on: PDFs only; with PDF off:{" "}
@@ -549,6 +553,19 @@ export default function Methodology2OldAgeManualEntry() {
   );
 }
 
+function headerFieldHint(key) {
+  if (key === "m1_277" || key === "m1_359") {
+    return "This amount is not in the Excel. Enter it, or choose Null to leave the database figure.";
+  }
+  if (key === "family_pensioner_dob") {
+    return "This date is not in the Excel. Enter it, or choose Null to use the database date. If the database also has no date, this family case is skipped. Old-age benefit uses this date, not the employee's date of birth.";
+  }
+  if (key === "retirement_date" || key === "last_pay" || key === "scale") {
+    return "This value is not in the Excel. Enter it, or choose Null. Null on retirement date, last pay or pay scale skips this employee, because the calculation needs those three.";
+  }
+  return "This value is not in the Excel. Enter it, or choose Null.";
+}
+
 function HeaderPrompt({ prompt, onChange, onSave, onNull }) {
   const field = prompt.fields[prompt.step];
   if (!field) return null;
@@ -574,12 +591,7 @@ function HeaderPrompt({ prompt, onChange, onSave, onNull }) {
             <p className="small text-muted mb-2">
               Employee <strong>{prompt.empCd}</strong>
               {prompt.name ? ` — ${prompt.name}` : ""}.{" "}
-              {field.key === "m1_277"
-                ? "M1@277 is not in the Excel. Enter the amount, or choose Null to leave the database figure."
-                : "This header value is not in the Excel or the database. Enter it, or choose Null."}
-              {["retirement_date", "last_pay", "scale"].includes(field.key)
-                ? " Null on retirement date, last pay or pay scale skips this employee, because the calculation needs those three."
-                : ""}
+              {headerFieldHint(field.key)}
             </p>
             {field.type === "tqs" ? (
               <div className="row g-2">

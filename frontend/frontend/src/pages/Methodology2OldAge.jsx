@@ -5,10 +5,15 @@ import Methodology2PensionSummary from "../components/Methodology2OldAgePensionS
 import HeaderFieldPrompt, {
   useConsolidationHeaderPrompt,
 } from "../components/HeaderFieldPrompt";
+import FamilyHeaderForm from "../components/FamilyHeaderForm";
 import SmpkDataTable from "../components/DataTable/SmpkDataTable";
 
-export default function Methodology2OldAge() {
+export default function Methodology2OldAge({ familyMode = false }) {
   const [empId, setEmpId] = useState("");
+  const [searchBy, setSearchBy] = useState("emp");
+  const [searchText, setSearchText] = useState("");
+  const [searchMatches, setSearchMatches] = useState([]);
+  const [familyFormOpen, setFamilyFormOpen] = useState(false);
   const [employeeName, setEmployeeName] = useState("");
   const [loadingEmployee, setLoadingEmployee] = useState(false);
   const skipCategoryResetRef = useRef(false);
@@ -34,6 +39,8 @@ export default function Methodology2OldAge() {
   const [stagnationAmount, setStagnationAmount] = useState("");
   const [npaAmount, setNpaAmount] = useState("");
   const [doctorPay, setDoctorPay] = useState("");
+  const [isDoctor, setIsDoctor] = useState(false);
+  const [includeBunching, setIncludeBunching] = useState(false);
   const [sda, setSda] = useState("");
   const [sdaOptions, setSdaOptions] = useState([]);
   const [category, setCategory] = useState("3");
@@ -52,14 +59,30 @@ export default function Methodology2OldAge() {
   const isClass12 = category === "1" || category === "2";
   const isCategory34 = category === "3" || category === "4";
 
-  /** Pay used in calc = last pay + stagnation increment (basic unchanged). */
+  /** Doctor: Stagnation/NPA is NPA added to the basic, unless salary already included it.
+   *  Family Pension Consolidation does not use Stagnation/NPA. */
+  const npaFoldedIn =
+    !familyMode &&
+    isDoctor &&
+    doctorPay !== "" &&
+    String(lastPay) === String(doctorPay);
   const effectivePay = (() => {
     const base = Number(lastPay);
     if (!lastPay || Number.isNaN(base)) return "";
+    if (familyMode) return String(base);
+    if (isDoctor) {
+      if (npaFoldedIn) return String(base);
+      const npa = Number(npaAmount);
+      return String(base + (Number.isNaN(npa) ? 0 : npa));
+    }
     const stag = Number(stagnationAmount);
     const stagVal = Number.isNaN(stag) ? 0 : stag;
     return String(base + stagVal);
   })();
+  const headerLastPay =
+    !familyMode && isDoctor && !npaFoldedIn && effectivePay
+      ? effectivePay
+      : lastPay;
 
   const getScaleOptionValue = (item) =>
     item && typeof item === "object" ? item.grade : item;
@@ -69,6 +92,32 @@ export default function Methodology2OldAge() {
       return item.label || item.pay_band || item.scale || item.grade;
     }
     return item;
+  };
+
+  /** Map popup pay-band text back to dropdown grade (E-1) for class 1/2. */
+  const resolveClass12ScaleValue = (raw, scaleOptions) => {
+    const canon = (text) =>
+      String(text || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "")
+        .replace(/–|—/g, "-");
+    const want = canon(raw);
+    if (!want) return "";
+    const list = Array.isArray(scaleOptions) ? scaleOptions : [];
+    for (const item of list) {
+      if (!item || typeof item !== "object") {
+        if (canon(item) === want) return String(item);
+        continue;
+      }
+      const grade = String(item.grade || "").trim();
+      const label = String(
+        item.label || item.pay_band || item.scale || ""
+      ).trim();
+      if (grade && canon(grade) === want) return grade;
+      if (label && canon(label) === want) return grade || label;
+    }
+    return String(raw || "").trim();
   };
 
   const runCalculation = useCallback(
@@ -212,6 +261,7 @@ export default function Methodology2OldAge() {
     if (!trimmed) return;
 
     setLoadingEmployee(true);
+    setFamilyFormOpen(false);
     setCalculationRows([]);
     setPensionSummary(null);
     setClass12Result(null);
@@ -219,12 +269,19 @@ export default function Methodology2OldAge() {
     setStagnationAmount("");
     setNpaAmount("");
     setDoctorPay("");
+    setIsDoctor(false);
+    setIncludeBunching(false);
 
     try {
       const res = await API.get(`m2-oldage-arrear/employee/${trimmed}/`);
       const data = res.data;
 
-      const empCategory = data.category || category;
+      // Family confirm: do not invent class 3/4 — user confirms class after name.
+      const empCategory = data.category
+        ? String(data.category)
+        : familyMode
+          ? ""
+          : category;
       if (data.category && String(data.category) !== String(category)) {
         const nextIs12 = data.category === "1" || data.category === "2";
         const curIs12 = category === "1" || category === "2";
@@ -232,13 +289,71 @@ export default function Methodology2OldAge() {
           skipCategoryResetRef.current = true;
         }
         setCategory(String(data.category));
+      } else if (familyMode && !data.category) {
+        // Keep form default until header confirm sets class; master.category stays blank.
       }
 
       setEmployeeName(data.name || "");
       setEmpId(data.emp_id);
-      setDateOfBirth(data.date_of_birth || data.dob || "");
+      let empDob = data.date_of_birth || data.dob || "";
+      const fpDobLoaded = data.family_pensioner_dob || "";
+      // Family menu: do not treat FP DOB as employee DOB when both match.
+      if (
+        familyMode &&
+        empDob &&
+        fpDobLoaded &&
+        String(empDob).slice(0, 10) === String(fpDobLoaded).slice(0, 10)
+      ) {
+        empDob = "";
+      }
+      setDateOfBirth(empDob || "");
       setOldageBenefit(null);
-      setPrintMaster({
+      const sepDate = data.separation_date || "";
+      const scaleValue = data.scale || "";
+      const pay =
+        data.last_pay != null && data.last_pay !== ""
+          ? String(data.last_pay)
+          : "";
+      const asFamily =
+        familyMode ||
+        data.is_employee_pension === false ||
+        !!data.date_of_death;
+      if (familyMode && data.is_employee_pension && !data.date_of_death) {
+        alert(
+          "This employee looks like a normal pensioner in the database. " +
+            "This screen still treats the case as family pension. Confirm " +
+            "date of death and family pensioner details carefully."
+        );
+      }
+
+      if (data.warning) {
+        alert(data.warning);
+      }
+
+      const doctor =
+        Number(data.doctor_flg) === 1 ||
+        (data.npa_amount != null && data.npa_amount !== "");
+      if (familyMode) {
+        setIsDoctor(false);
+        setNpaAmount("");
+        setDoctorPay("");
+        setStagnationAmount("");
+        setIncludeBunching(false);
+        setSda("");
+      } else {
+        setIsDoctor(doctor);
+        if (data.npa_amount != null && data.npa_amount !== "") {
+          setNpaAmount(String(data.npa_amount));
+          setDoctorPay(pay);
+          setStagnationAmount("");
+        } else {
+          setNpaAmount("");
+          setDoctorPay("");
+        }
+      }
+
+      const isEmpClass12 = empCategory === "1" || empCategory === "2";
+      const masterBase = {
         emp_cd: data.emp_id,
         name: data.name || "",
         case_no: data.case_no || "",
@@ -248,40 +363,87 @@ export default function Methodology2OldAge() {
         tqs_yr: data.tqs_yr,
         tqs_month: data.tqs_month,
         tqs_days: data.tqs_days,
-        retirement_date: data.separation_date || null,
+        retirement_date: sepDate || null,
         retirement_type: data.retirement_type || "",
         date_of_death: data.date_of_death || null,
         family_pensioner_dob: data.family_pensioner_dob || null,
+        family_pensioner_name: data.pensioner_name || "",
         double_fpension_upto: data.double_fpension_upto || null,
         enhanced_family_pension: !!data.enhanced_family_pension,
         category: empCategory,
         pensioner_name: data.pensioner_name || "",
-        is_employee_pension: data.is_employee_pension || false,
+        is_employee_pension: familyMode
+          ? false
+          : asFamily
+            ? false
+            : !!data.is_employee_pension,
         m1_family_pension_277: data.m1_family_pension_277 ?? null,
         m1_family_pension_359: data.m1_family_pension_359 ?? null,
         m1_bunching: data.m1_bunching || null,
-        date_of_birth: data.date_of_birth || data.dob || null,
-      });
+        date_of_birth: empDob || null,
+        scale: scaleValue || "",
+        last_pay: pay || "",
+      };
 
-      if (data.warning) {
-        alert(data.warning);
+      // Family confirm menu: headers first (name → class → …); scales after class OK.
+      if (familyMode) {
+        setRetirementDate(sepDate || "");
+        setScale("");
+        setLastPay("");
+        setPayStages([]);
+        setStartRevision("");
+        setEquivalentScales(null);
+        let scaleOptions = [];
+        let scaleDisplay = scaleValue || "";
+        // Load scale list only when class is known from DB; otherwise wait for
+        // the class confirm step so class 1/2 is not given 3/4 scales / M1@359.
+        if (sepDate && empCategory) {
+          try {
+            if (isEmpClass12) {
+              const scalesRes = await API.get(
+                `m2-oldage-arrear/get-scales-class12/?separation_date=${sepDate}`
+              );
+              scaleOptions = scalesRes.data || [];
+              setScales(scaleOptions);
+              setIsStageBased(true);
+              const grade = String(scaleValue || "").trim();
+              const match = scaleOptions.find((item) => {
+                const g = item && typeof item === "object" ? item.grade : item;
+                return String(g || "").toLowerCase() === grade.toLowerCase();
+              });
+              if (match && typeof match === "object") {
+                scaleDisplay =
+                  match.label || match.pay_band || match.scale || grade;
+              }
+            } else {
+              const scalesRes = await API.get(
+                `m2-oldage-arrear/get-scales/?retirement_date=${sepDate}`
+              );
+              scaleOptions = scalesRes.data || [];
+              setScales(scaleOptions);
+              const typeRes = await API.get(
+                `m2-oldage-arrear/get-scale-type/?retirement_date=${sepDate}`
+              );
+              setIsStageBased(typeRes.data.is_stage_based);
+              setStartRevision(typeRes.data.revision || data.revision || "");
+            }
+          } catch (err) {
+            console.error(err);
+            setScales([]);
+          }
+        } else {
+          setScales([]);
+        }
+        setPrintMaster({
+          ...masterBase,
+          scale_display: scaleDisplay,
+          scale_options: scaleOptions,
+        });
+        setFamilyFormOpen(true);
+        return;
       }
 
-      const sepDate = data.separation_date || "";
-      const scaleValue = data.scale || "";
-      const pay =
-        data.last_pay != null && data.last_pay !== ""
-          ? String(data.last_pay)
-          : "";
-      if (data.npa_amount != null && data.npa_amount !== "") {
-        setNpaAmount(String(data.npa_amount));
-        setDoctorPay(pay);
-      } else {
-        setNpaAmount("");
-        setDoctorPay("");
-      }
-
-      const isEmpClass12 = empCategory === "1" || empCategory === "2";
+      setPrintMaster(masterBase);
 
       // Soft load: DOB/name only — user fills Met2 inputs manually.
       if (!sepDate) {
@@ -341,10 +503,64 @@ export default function Methodology2OldAge() {
     }
   };
 
+  const searchLabel = searchBy === "case" ? "case no" : "roll no";
+
+  const loadFromSearch = async () => {
+    setSearchMatches([]);
+    if (searchBy === "emp") {
+      loadEmployeeById(empId);
+      return;
+    }
+    const q = searchText.trim();
+    if (!q) return;
+    setLoadingEmployee(true);
+    let matches = [];
+    let unlinked = [];
+    try {
+      const { data } = await API.get("m2-oldage-arrear/employee-search/", {
+        params: { by: searchBy, q },
+      });
+      matches = data?.matches || [];
+      unlinked = data?.unlinked || [];
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.error || "Search failed.");
+      setLoadingEmployee(false);
+      return;
+    }
+    setLoadingEmployee(false);
+    if (matches.length === 1) {
+      setEmpId(matches[0].emp_cd);
+      loadEmployeeById(matches[0].emp_cd);
+      return;
+    }
+    if (matches.length > 1) {
+      setSearchMatches(matches);
+      return;
+    }
+    if (unlinked.length) {
+      const names = [
+        ...new Set(unlinked.map((r) => r.pen_name || r.emp_name).filter(Boolean)),
+      ].join(", ");
+      alert(
+        `This ${searchLabel} is in the wage table${names ? ` (${names})` : ""}, ` +
+          "but no employee code is linked to it anywhere in the database, so it cannot be loaded."
+      );
+      return;
+    }
+    alert(`No employee found for ${searchLabel} ${q}.`);
+  };
+
+  const pickSearchMatch = (emp) => {
+    setSearchMatches([]);
+    setEmpId(emp);
+    loadEmployeeById(emp);
+  };
+
   const handleEmpKeyDown = (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      loadEmployeeById(empId);
+      loadFromSearch();
     }
   };
 
@@ -444,7 +660,7 @@ export default function Methodology2OldAge() {
     }
 
     if (retirementDate && scale && effectivePay) {
-      const sdaValue = isCategory34 ? sda : 0;
+      const sdaValue = familyMode ? 0 : isCategory34 ? sda : 0;
       runCalculation(retirementDate, scale, effectivePay, sdaValue, category);
     }
   }, [
@@ -455,26 +671,177 @@ export default function Methodology2OldAge() {
     category,
     isCategory34,
     isClass12,
+    familyMode,
     runCalculation,
     runClass12Calculation,
   ]);
 
-  const { prompt: headerPrompt, setPrompt: setHeaderPrompt, submitHeaderValue } =
-    useConsolidationHeaderPrompt({
-      active:
-        !loadingEmployee &&
-        !!printMaster?.emp_cd &&
-        !!scale &&
-        !!String(lastPay || "").trim(),
-      master: printMaster,
-      onFilled: (patch) => {
-        setPrintMaster((prev) => ({ ...(prev || {}), ...patch }));
+  const headerAmounts = useMemo(() => {
+    if (isClass12) {
+      return {
+        ready: !!class12Result,
+        category,
+        m2_277: class12Result?.family_pension ?? null,
+        m2_359: null,
+      };
+    }
+    return {
+      ready: !!pensionSummary,
+      category,
+      m2_277: pensionSummary?.family_pension_277_cpi ?? null,
+      m2_359: pensionSummary?.family_pension_359_cpi ?? null,
+    };
+  }, [isClass12, class12Result, pensionSummary, category]);
+
+  const loadScaleOptionsForConfirm = useCallback(async (retirementDateValue, categoryValue) => {
+    const date = String(retirementDateValue || "").trim();
+    if (!date) return [];
+    const cat = String(categoryValue || category || "").trim();
+    const class12 = cat === "1" || cat === "2";
+    if (class12) {
+      const res = await API.get(
+        `m2-oldage-arrear/get-scales-class12/?separation_date=${date}`
+      );
+      return res.data || [];
+    }
+    const res = await API.get(
+      `m2-oldage-arrear/get-scales/?retirement_date=${date}`
+    );
+    return res.data || [];
+  }, [category]);
+
+  const loadPayStagesForConfirm = useCallback(
+    async (scaleValue, retirementDateValue, categoryValue) => {
+      const scaleVal = String(scaleValue || "").trim();
+      if (!scaleVal) return [];
+      const cat = String(categoryValue || category || "").trim();
+      const date = String(retirementDateValue || "").trim();
+      const class12 = cat === "1" || cat === "2";
+      if (class12) {
+        if (!date) return [];
+        const res = await API.get(
+          `m2-oldage-arrear/get-pay-stages-class12/?separation_date=${date}&scale=${encodeURIComponent(scaleVal)}`
+        );
+        return res.data || [];
+      }
+      const res = await API.get(
+        `m2-oldage-arrear/get-pay-stages/?scale=${encodeURIComponent(scaleVal)}`
+      );
+      return res.data || [];
+    },
+    [category]
+  );
+
+  const applyHeaderPatch = async (patch) => {
+        const nextMaster = {
+          ...(printMaster || {}),
+          ...patch,
+          is_employee_pension: familyMode
+            ? false
+            : printMaster?.is_employee_pension,
+        };
+        setPrintMaster(nextMaster);
         if (patch.name) setEmployeeName(patch.name);
         if (Object.prototype.hasOwnProperty.call(patch, "date_of_birth")) {
           setDateOfBirth(patch.date_of_birth || "");
         }
-      },
-    });
+        if (!familyMode) return;
+
+        const confirmedCategory = String(
+          patch.category || nextMaster.category || category || ""
+        ).trim();
+        if (confirmedCategory && confirmedCategory !== String(category)) {
+          const nextIs12 =
+            confirmedCategory === "1" || confirmedCategory === "2";
+          const curIs12 = category === "1" || category === "2";
+          if (nextIs12 !== curIs12) {
+            skipCategoryResetRef.current = true;
+          }
+          setCategory(confirmedCategory);
+        }
+
+        const sepDate = patch.retirement_date || nextMaster.retirement_date || "";
+        const scaleRaw = patch.scale != null ? String(patch.scale) : "";
+        const pay =
+          patch.last_pay != null && patch.last_pay !== ""
+            ? String(patch.last_pay)
+            : "";
+        setRetirementDate(sepDate || "");
+        setLastPay(pay);
+        if (!sepDate) {
+          setScale("");
+          setScales([]);
+          setPayStages([]);
+          setStartRevision("");
+          setEquivalentScales(null);
+          return;
+        }
+        const isEmpClass12 =
+          confirmedCategory === "1" || confirmedCategory === "2";
+        try {
+          if (isEmpClass12) {
+            const scalesRes = await API.get(
+              `m2-oldage-arrear/get-scales-class12/?separation_date=${sepDate}`
+            );
+            const scaleOptions = scalesRes.data || [];
+            setScales(scaleOptions);
+            setIsStageBased(true);
+            setStartRevision("");
+            const grade = resolveClass12ScaleValue(scaleRaw, scaleOptions);
+            setScale(grade);
+            setPrintMaster((prev) => ({
+              ...(prev || {}),
+              scale: grade,
+              scale_display: scaleRaw || grade,
+            }));
+          } else {
+            const scalesRes = await API.get(
+              `m2-oldage-arrear/get-scales/?retirement_date=${sepDate}`
+            );
+            setScales(scalesRes.data);
+            const typeRes = await API.get(
+              `m2-oldage-arrear/get-scale-type/?retirement_date=${sepDate}`
+            );
+            setIsStageBased(typeRes.data.is_stage_based);
+            setStartRevision(typeRes.data.revision || "");
+            setScale(scaleRaw);
+            if (scaleRaw) {
+              await loadPayStages(scaleRaw);
+              await loadEquivalentScales(sepDate, scaleRaw);
+            } else {
+              setPayStages([]);
+              setEquivalentScales(null);
+            }
+          }
+        } catch (err) {
+          console.error(err);
+          alert(err.response?.data?.error || "Could not load scales after header confirm.");
+        }
+  };
+
+  // Normal consolidation: ask only for header values missing from the database.
+  // Family consolidation uses FamilyHeaderForm (all fields on one page) instead.
+  const {
+    prompt: headerPrompt,
+    setPrompt: setHeaderPrompt,
+    submitHeaderValue,
+    goBackHeaderValue,
+  } = useConsolidationHeaderPrompt({
+    active:
+      !familyMode &&
+      !loadingEmployee &&
+      !!printMaster?.emp_cd &&
+      !!scale &&
+      !!String(lastPay || "").trim(),
+    master: printMaster,
+    amounts: headerAmounts,
+    onFilled: applyHeaderPatch,
+  });
+
+  const submitFamilyForm = async (patch) => {
+    await applyHeaderPatch(patch);
+    setFamilyFormOpen(false);
+  };
 
   const bulkProgressPct = useMemo(() => {
     if (!bulkProgress?.total) return 0;
@@ -692,6 +1059,23 @@ export default function Methodology2OldAge() {
 
   return (
     <div className="container-fluid mt-3 mt-md-4 px-2 px-md-3 methodology-page">
+      {familyMode ? (
+        <div className="row justify-content-center mb-3">
+          <div className="col-12 col-xl-10">
+            <div className="alert alert-info mb-0">
+              <strong>Family Pension Consolidation</strong>
+              <div className="small mt-1 mb-0">
+                Enter the employee code. Each header from the database is shown
+                one by one — press <strong>OK</strong> to keep it, or change it
+                first (name, then class). M1@277 always; M1@359 only for class
+                3/4. This is not
+                bulk upload.
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {!familyMode ? (
       <div className="row justify-content-center mb-3">
         <div className="col-12 col-xl-10">
           <div className="card shadow">
@@ -951,50 +1335,117 @@ export default function Methodology2OldAge() {
           </div>
         </div>
       </div>
+      ) : null}
 
       <div className="row justify-content-center">
         <div className="col-12 col-xl-10">
           <div className="card shadow">
             <div className="card-header bg-primary text-white">
-              <h4 className="mb-0">Methodology 2 Consolidation</h4>
+              <h4 className="mb-0">
+                {familyMode
+                  ? "Family Pension Consolidation"
+                  : "Methodology 2 Consolidation"}
+              </h4>
             </div>
             <div className="card-body smpk-form">
               <div className="row g-3 mb-3">
                 <div className="col-12 col-lg-6">
-                  <label className="form-label">Employee ID</label>
+                  <label className="form-label">
+                    {familyMode ? "Search employee" : "Employee ID"}
+                  </label>
                   <div className="input-group">
+                    {familyMode ? (
+                      <select
+                        className="form-select flex-grow-0 w-auto"
+                        value={searchBy}
+                        onChange={(e) => {
+                          setSearchBy(e.target.value);
+                          setSearchMatches([]);
+                        }}
+                        disabled={loadingEmployee}
+                      >
+                        <option value="emp">Emp code</option>
+                        <option value="case">Case No</option>
+                        <option value="roll">Roll No</option>
+                      </select>
+                    ) : null}
                     <input
                       type="text"
                       className="form-control"
-                      placeholder="Enter emp code and press Enter"
-                      value={empId}
-                      onChange={(e) => setEmpId(e.target.value)}
+                      placeholder={
+                        searchBy === "emp"
+                          ? "Enter emp code and press Enter"
+                          : `Enter ${searchLabel} and press Enter`
+                      }
+                      value={searchBy === "emp" ? empId : searchText}
+                      onChange={(e) =>
+                        searchBy === "emp"
+                          ? setEmpId(e.target.value)
+                          : setSearchText(e.target.value)
+                      }
                       onKeyDown={handleEmpKeyDown}
                       disabled={loadingEmployee}
                     />
                     <button
                       type="button"
                       className="btn btn-outline-primary"
-                      onClick={() => loadEmployeeById(empId)}
-                      disabled={loadingEmployee || !empId.trim()}
+                      onClick={loadFromSearch}
+                      disabled={
+                        loadingEmployee ||
+                        !(searchBy === "emp" ? empId : searchText).trim()
+                      }
                     >
                       {loadingEmployee ? "Loading..." : "Load"}
                     </button>
                   </div>
+                  {searchMatches.length ? (
+                    <div className="border rounded p-2 mt-2 bg-light">
+                      <div className="small fw-semibold mb-1">
+                        More than one employee has this {searchLabel}. Choose one:
+                      </div>
+                      <div className="d-flex flex-column gap-1">
+                        {searchMatches.map((m) => (
+                          <button
+                            key={m.emp_cd}
+                            type="button"
+                            className="btn btn-sm btn-outline-secondary text-start"
+                            onClick={() => pickSearchMatch(m.emp_cd)}
+                          >
+                            {m.emp_cd}
+                            {m.name ? ` — ${m.name}` : ""}
+                            {m.case_no ? ` | Case ${m.case_no}` : ""}
+                            {m.roll_no ? ` | Roll ${m.roll_no}` : ""}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                   {employeeName && (
                     <small className="text-muted d-block mt-1">
+                      {searchBy !== "emp" && empId ? `${empId} — ` : ""}
                       {employeeName}
                     </small>
                   )}
+                  {familyMode && printMaster?.emp_cd && !loadingEmployee ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary mt-2"
+                      onClick={() => setFamilyFormOpen(true)}
+                    >
+                      Edit header data
+                    </button>
+                  ) : null}
                   <small className="text-muted d-block mt-1">
-                    After employee, scale and last pay are entered, any header
-                    value still missing from the database is asked one field at
-                    a time. Stagnation stays optional.
+                    {familyMode
+                      ? "After Load, one form shows all family-pension header data from the database (employee, service, family, pay, M1 amounts). Check it against the physical file, change what differs, then Save and continue. Use Edit header data to open it again."
+                      : "After employee, scale and last pay are entered, any header value still missing from the database is asked one field at a time. Stagnation/NPA stays optional. For a doctor, that amount is NPA."}
                   </small>
                 </div>
               </div>
 
+              {familyMode ? null : (
               <div className="text-center text-muted small mb-3">— OR —</div>
+              )}
 
               <div className="row g-2 g-lg-3 align-items-end">
                 <div className="col-6 col-md-4 col-xl-2">
@@ -1063,7 +1514,7 @@ export default function Methodology2OldAge() {
                     onChange={(e) => {
                       const next = e.target.value;
                       setLastPay(next);
-                      if (String(next) !== String(doctorPay)) {
+                      if (!isDoctor && String(next) !== String(doctorPay)) {
                         setNpaAmount("");
                       }
                     }}
@@ -1077,7 +1528,7 @@ export default function Methodology2OldAge() {
                         : payStages
                     ).map((item, index) => (
                       <option key={`${item}-${index}`} value={item}>
-                        {String(item) === String(doctorPay) && npaAmount
+                        {isDoctor && npaAmount && String(item) === String(lastPay)
                           ? `${item} (npa ${npaAmount})`
                           : item}
                       </option>
@@ -1085,20 +1536,32 @@ export default function Methodology2OldAge() {
                   </select>
                 </div>
 
+                {familyMode ? null : (
                 <div className="col-6 col-md-4 col-xl-2">
-                  <label className="form-label">Stagnation Amount</label>
+                  <label className="form-label">Stagnation/NPA</label>
                   <input
                     type="number"
                     className="form-control"
                     min="0"
                     step="1"
-                    placeholder="0"
-                    value={stagnationAmount}
-                    onChange={(e) => setStagnationAmount(e.target.value)}
+                    placeholder={isDoctor ? "NPA" : "0"}
+                    value={isDoctor ? npaAmount : stagnationAmount}
+                    onChange={(e) => {
+                      if (isDoctor) {
+                        setNpaAmount(e.target.value);
+                        setStagnationAmount("");
+                      } else {
+                        setStagnationAmount(e.target.value);
+                        setNpaAmount("");
+                        setDoctorPay("");
+                      }
+                    }}
                     disabled={!scale}
                   />
                 </div>
+                )}
 
+                {familyMode ? null : (
                 <div className="col-6 col-md-4 col-xl-2">
                   <label className="form-label">S.D.A (Revision Order)</label>
                   <select
@@ -1118,6 +1581,7 @@ export default function Methodology2OldAge() {
                       ))}
                   </select>
                 </div>
+                )}
               </div>
 
               {!isClass12 && !isStageBased && (
@@ -1125,6 +1589,24 @@ export default function Methodology2OldAge() {
                   Scale type for this date is not stage-based.
                 </p>
               )}
+              {!familyMode && isDoctor && printMaster?.m1_bunching?.bunch_basic ? (
+                <div className="form-check mt-3">
+                  <input
+                    id="oa-include-bunching"
+                    className="form-check-input"
+                    type="checkbox"
+                    checked={includeBunching}
+                    onChange={(e) => setIncludeBunching(e.target.checked)}
+                  />
+                  <label className="form-check-label" htmlFor="oa-include-bunching">
+                    Include bunching ({printMaster.m1_bunching.bunch_basic})
+                  </label>
+                  <small className="text-muted d-block">
+                    Leave this off to keep M1@277 without the LIC bunch. Tick it
+                    to add the bunch for this doctor.
+                  </small>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -1177,9 +1659,11 @@ export default function Methodology2OldAge() {
           class12Result={class12Result}
           retirementDate={retirementDate}
           scale={scale}
-          lastPay={lastPay}
-          stagnationAmount={stagnationAmount}
-          npaAmount={npaAmount}
+          lastPay={headerLastPay}
+          stagnationAmount={familyMode || isDoctor ? "" : stagnationAmount}
+          npaAmount={familyMode ? "" : npaAmount}
+          includeBunching={familyMode ? false : includeBunching}
+          isDoctor={familyMode ? false : isDoctor}
           effectivePay={effectivePay || lastPay}
           empId={empId}
           employeeName={employeeName}
@@ -1196,9 +1680,11 @@ export default function Methodology2OldAge() {
           pensionSummary={pensionSummary}
           retirementDate={retirementDate}
           scale={scale}
-          lastPay={lastPay}
-          stagnationAmount={stagnationAmount}
-          npaAmount={npaAmount}
+          lastPay={headerLastPay}
+          stagnationAmount={familyMode || isDoctor ? "" : stagnationAmount}
+          npaAmount={familyMode ? "" : npaAmount}
+          includeBunching={familyMode ? false : includeBunching}
+          isDoctor={familyMode ? false : isDoctor}
           effectivePay={effectivePay || lastPay}
           empId={empId}
           employeeName={employeeName}
@@ -1255,6 +1741,16 @@ export default function Methodology2OldAge() {
           onChange={setHeaderPrompt}
           onSave={() => submitHeaderValue(false)}
           onNull={() => submitHeaderValue(true)}
+          onBack={() => goBackHeaderValue()}
+        />
+      ) : null}
+      {familyMode && familyFormOpen && printMaster?.emp_cd ? (
+        <FamilyHeaderForm
+          master={printMaster}
+          loadScaleOptions={loadScaleOptionsForConfirm}
+          loadPayStages={loadPayStagesForConfirm}
+          onSubmit={submitFamilyForm}
+          onClose={() => setFamilyFormOpen(false)}
         />
       ) : null}
     </div>

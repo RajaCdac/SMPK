@@ -13,6 +13,7 @@ from .views import (
     GetSpecialDaOptionsView,
     ScaleTypeView,
 )
+from .views_admin_report import AdminConsolidationByUserView
 from .views_bulk import BulkUploadView
 from .views_report import ConsolidationReportView
 
@@ -32,4 +33,8 @@ urlpatterns = [
     path("consolidation/<str:emp_id>/", ConsolidationSnapshotView.as_view()),
     path("bulk/", BulkUploadView.as_view()),
     path("report/", ConsolidationReportView.as_view()),
+    path(
+        "admin/consolidation-by-user/",
+        AdminConsolidationByUserView.as_view(),
+    ),
 ]

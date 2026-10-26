@@ -52,42 +52,48 @@ def resolve_oldage_dob(payload: dict | None = None, result: dict | None = None, 
     Age for old-age benefit.
 
     A family-pension case uses the family pensioner's date of birth.
-    The employee date of birth is not used for that age.
+    The employee date of birth is not used for that age, even when a
+    caller passed it as oldage_dob.
     """
     payload = payload or {}
     result = result or {}
     explicit = _as_date(payload.get("oldage_dob"))
-    if explicit is not None:
-        return explicit
-
+    emp_dob = _as_date(
+        payload.get("date_of_birth")
+        or payload.get("dob")
+        or result.get("date_of_birth")
+    )
     is_emp = _as_bool_employee(
         payload.get("is_employee_pension")
         if "is_employee_pension" in payload
         else result.get("is_employee_pension"),
         default=True,
     )
-    if not is_emp:
-        comparison = result.get("pension_comparison") or {}
-        if not isinstance(comparison, dict):
-            comparison = {}
-        family_dob = _as_date(
-            payload.get("family_pensioner_dob")
-            or comparison.get("family_pensioner_dob")
-            or result.get("family_pensioner_dob")
-        )
-        if family_dob is None and emp_id:
-            from methodology2.services.consolidation_service import (
-                fetch_family_pensioner_dob,
-            )
+    if is_emp:
+        if explicit is not None:
+            return explicit
+        return emp_dob
 
-            family_dob = fetch_family_pensioner_dob(emp_id)
-        return family_dob
-
-    return _as_date(
-        payload.get("date_of_birth")
-        or payload.get("dob")
-        or result.get("date_of_birth")
+    comparison = result.get("pension_comparison") or {}
+    if not isinstance(comparison, dict):
+        comparison = {}
+    family_dob = _as_date(
+        payload.get("family_pensioner_dob")
+        or comparison.get("family_pensioner_dob")
+        or result.get("family_pensioner_dob")
     )
+    if family_dob is None and emp_id:
+        from methodology2.services.consolidation_service import (
+            fetch_family_pensioner_dob,
+        )
+
+        family_dob = fetch_family_pensioner_dob(emp_id)
+    if family_dob is not None:
+        return family_dob
+    # A typed family date that is not the employee date still counts.
+    if explicit is not None and explicit != emp_dob:
+        return explicit
+    return None
 
 
 def _apply_oldage_print_columns(result: dict, payload: dict | None = None) -> dict:
@@ -122,6 +128,21 @@ def _apply_oldage_print_columns(result: dict, payload: dict | None = None) -> di
             merged["has_oldage_split"] = False
             merged["section_title"] = existing.get("section_title") or "FAMILY PENSION"
             merged["is_employee_pension"] = False
+            dob = resolve_oldage_dob(
+                payload,
+                result,
+                str(result.get("emp_cd") or "").strip()[:5],
+            )
+            if dob:
+                from M2_oldage_arrear.services.oldage_print_columns import (
+                    _month_label,
+                )
+                from M2_oldage_arrear.services.oldage_service import wef_for_age
+
+                wef80 = wef_for_age(dob, 80)
+                merged["family_pensioner_dob"] = dob.isoformat()
+                merged["oldage_wef_80"] = wef80.isoformat()
+                merged["oldage_wef_80_display"] = _month_label(wef80)
         result["pension_comparison"] = merged
         emp = str(result.get("emp_cd") or "").strip()[:5]
         if emp:

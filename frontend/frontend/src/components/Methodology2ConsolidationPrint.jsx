@@ -121,8 +121,8 @@ function lastPayWithStagnation(lastPay, stagnationAmount) {
   return `${base} (Stagnation amount ${formatCardValue(stag)})`;
 }
 
-/** Doctor last pay is pay + NPA. Label the NPA the way stagnation is labelled. */
-function lastPayWithNpa(display, npaAmount) {
+/** Doctor last pay is basic + NPA. Total stays in front: ₹ 18,825 (15200+NPA 3,625). */
+function lastPayWithNpa(display, npaAmount, lastPay) {
   if (display === "—") return display;
   const npa = Number(npaAmount);
   if (
@@ -134,7 +134,13 @@ function lastPayWithNpa(display, npaAmount) {
   ) {
     return display;
   }
-  return `${display} (npa ${formatCardValue(npa)})`;
+  const total = Number(String(lastPay ?? "").replace(/,/g, ""));
+  const basic = total - npa;
+  const npaText = formatCardValue(npa);
+  if (!Number.isFinite(basic) || basic < 0) {
+    return `${display} (NPA ${npaText})`;
+  }
+  return `${display} (${Math.round(basic)}+NPA ${npaText})`;
 }
 
 /** "MACP 16400-40500" → "16400-40500". Empty when this is not a MACP case. */
@@ -167,7 +173,14 @@ function tqsDisplay(snapshot) {
   return `${yr || 0} Y / ${mo || 0} M / ${days || 0} D`;
 }
 
+function headerCaps(value) {
+  if (value == null || value === "") return value;
+  return String(value).toUpperCase();
+}
+
 function EmpCell({ label, value, colSpan, prominent }) {
+  const display =
+    value == null || value === "" ? "—" : headerCaps(value);
   return (
     <td
       colSpan={colSpan}
@@ -175,7 +188,7 @@ function EmpCell({ label, value, colSpan, prominent }) {
     >
       <span className="label">{label}:</span>
       <span className={prominent ? "m2-consol-print__case-no" : undefined}>
-        {value || "—"}
+        {display}
       </span>
     </td>
   );
@@ -345,12 +358,14 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
     : rawBlocks;
 
   const macpTrack = macpTrackScale(snapshot.scale);
+  const payForNpa = snapshot.last_pay ?? snapshot.average_pay;
   let lastPayDisplay = lastPayWithNpa(
     lastPayWithStagnation(
-      snapshot.last_pay ?? snapshot.average_pay,
+      payForNpa,
       snapshot.stagnation_amount ?? comparison.stagnation_amount
     ),
-    snapshot.npa_amount ?? comparison.npa_amount
+    snapshot.npa_amount ?? comparison.npa_amount,
+    payForNpa
   );
   if (macpTrack && lastPayDisplay !== "—") {
     lastPayDisplay = `${lastPayDisplay} (MACP Scale ${macpTrack})`;

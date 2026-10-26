@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import RoleManagement from "./pages/RoleManagement";
 import UserManagement from "./pages/UserManagement";
 import AdminDashboard from "./pages/AdminDashboard";
+import AdminConsolidationByUser from "./pages/AdminConsolidationByUser";
 import WorkflowPage from "./pages/WorkflowPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import RoleProtectedRoute from "./components/RoleProtectedRoute";
@@ -19,6 +20,7 @@ import Methodology2 from "./pages/Methodology2";
 import Methodology2OldAge from "./pages/Methodology2OldAge";
 import Methodology2OldAgeBenefit from "./pages/Methodology2OldAgeBenefit";
 import Methodology2OldAgeManualEntry from "./pages/Methodology2OldAgeManualEntry";
+import Methodology2FamilyPensionConsolidation from "./pages/Methodology2FamilyPensionConsolidation";
 import Methodology2ConsolidationReport from "./pages/Methodology2ConsolidationReport";
 import Methodology2Macp from "./pages/Methodology2Macp";
 import Methodology2Arrear from "./pages/Methodology2Arrear";
@@ -107,6 +109,10 @@ function App() {
                 element={<Methodology2OldAgeManualEntry />}
               />
               <Route
+                path="methodology2-oldage-arrear/family"
+                element={<Methodology2FamilyPensionConsolidation />}
+              />
+              <Route
                 path="methodology2-oldage-arrear/report"
                 element={<Methodology2ConsolidationReport />}
               />
@@ -126,6 +132,10 @@ function App() {
 
               <Route element={<RoleProtectedRoute allow="admin" />}>
                 <Route path="admin" element={<AdminDashboard />} />
+                <Route
+                  path="admin/consolidation-by-user"
+                  element={<AdminConsolidationByUser />}
+                />
                 <Route
                   path="users"
                   element={
@@ -203,6 +213,10 @@ function App() {
                 <Route
                   path="methodology2-oldage-arrear/manual"
                   element={<Methodology2OldAgeManualEntry />}
+                />
+                <Route
+                  path="methodology2-oldage-arrear/family"
+                  element={<Methodology2FamilyPensionConsolidation />}
                 />
                 <Route
                   path="methodology2-oldage-arrear/report"

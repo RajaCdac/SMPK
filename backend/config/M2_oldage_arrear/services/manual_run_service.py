@@ -1,6 +1,7 @@
 """
 M2 manual-entry bulk: Excel supplies header + calc inputs.
-Blank header cells are filled from the database, then asked one field at a time.
+Employee blank header cells are filled from the database, then asked.
+Family-pension blank Excel cells are asked and are not filled from the database.
 
 Output folder: Desktop/m2-manual-YYYY-MM-DD_HHMM (or BULK_OUTPUT_DIR parent).
 """
@@ -541,20 +542,19 @@ def _persist_manual_excel_fields(
         return
     obj.date_of_birth = emp_dob or None
     obj.pension_comparison = snapshot.get("pension_comparison") or {}
+    update_fields = [
+        "date_of_birth",
+        "pension_comparison",
+        "updated_at",
+    ]
     if not is_employee:
         if m1_277 is not None:
             obj.m1_family_pension_277 = m1_277
+            update_fields.append("m1_family_pension_277")
         if m1_359 is not None:
             obj.m1_family_pension_359 = m1_359
-    obj.save(
-        update_fields=[
-            "date_of_birth",
-            "pension_comparison",
-            "m1_family_pension_277",
-            "m1_family_pension_359",
-            "updated_at",
-        ]
-    )
+            update_fields.append("m1_family_pension_359")
+    obj.save(update_fields=update_fields)
 
 
 def process_one_manual_row(
@@ -574,7 +574,11 @@ def process_one_manual_row(
 
     retirement_date = row.get("retirement_date")
     scale = (row.get("scale") or "").strip()
-    last_pay = row.get("last_pay")
+    basic_pay = row.get("last_pay")
+    npa = row.get("npa_amount")
+    last_pay = basic_pay
+    if basic_pay is not None and npa not in (None, "") and float(npa) > 0:
+        last_pay = float(basic_pay) + float(npa)
     if not retirement_date or not scale or last_pay is None:
         result["status"] = "skipped"
         result["reason"] = (
@@ -591,6 +595,22 @@ def process_one_manual_row(
     is_employee = row.get("is_employee_pension")
     if is_employee is None:
         is_employee = not _excel_marks_family(row)
+    if not is_employee and not row.get("family_pensioner_dob"):
+        # Popup Null, or a blank Excel cell: use the family-pensioner
+        # table when it has a date. Never the employee's date of birth.
+        from methodology2.services.consolidation_service import (
+            fetch_family_pensioner_dob,
+        )
+
+        found = fetch_family_pensioner_dob(emp)
+        if found is not None:
+            row["family_pensioner_dob"] = found
+        else:
+            result["status"] = "skipped"
+            result["reason"] = (
+                "family pensioner date of birth is not in the Excel or the database"
+            )
+            return result
     master = {
         "case_no": row.get("case_no") or "",
         "roll_no": row.get("roll_no") or "",
@@ -618,6 +638,7 @@ def process_one_manual_row(
         "retirement_date": retirement_date,
         "scale": scale,
         "last_pay": last_pay,
+        "npa_amount": npa if npa not in (None, "") and float(npa) > 0 else None,
         "designation": row.get("designation") or "",
         "case_no": row.get("case_no") or "",
         "sda": 0,
@@ -654,15 +675,13 @@ def process_one_manual_row(
     if out.get("status") != "ok":
         return out
 
-    # Employee DATE_OF_BIRTH: Excel cell, else the database, else null.
-    # Old age for a family pensioner uses DATE_OF_BIRTH OF FAMILY PENSIONER.
+    # Employee DATE_OF_BIRTH stays the employee. Family old-age uses only
+    # the family pensioner's date (Excel, popup, or the database).
     emp_dob = row.get("date_of_birth")
     if not emp_dob:
         _, db_dob = _load_db_header(emp, category)
         emp_dob = db_dob
-    oa_dob = emp_dob
-    if not is_employee and row.get("family_pensioner_dob"):
-        oa_dob = row.get("family_pensioner_dob")
+    oa_dob = row.get("family_pensioner_dob") if not is_employee else emp_dob
 
     def _iso(value):
         if not value:
@@ -673,6 +692,8 @@ def process_one_manual_row(
         "date_of_birth": _iso(emp_dob),
         "dob": _iso(emp_dob),
         "oldage_dob": _iso(oa_dob),
+        "is_employee_pension": bool(is_employee),
+        "family_pensioner_dob": _iso(row.get("family_pensioner_dob")),
         "m1_pension_277": row.get("m1_277"),
         "m1_pension_359": row.get("m1_359"),
     }
@@ -709,6 +730,12 @@ def process_one_manual_row(
     )
     snapshot["category"] = category or snapshot.get("category") or ""
     snapshot["last_pay"] = last_pay
+    if npa not in (None, "") and float(npa) > 0:
+        snapshot["npa_amount"] = float(npa)
+        comparison = snapshot.get("pension_comparison") or {}
+        if isinstance(comparison, dict):
+            comparison["npa_amount"] = float(npa)
+            snapshot["pension_comparison"] = comparison
     snapshot["scale"] = scale
     snapshot["retirement_date"] = retirement_date
     snapshot["retirement_type"] = (
@@ -814,7 +841,9 @@ def _row_from_jsonable(row: dict) -> dict:
     return out
 
 
-# Header lines asked one at a time when Excel and the database are both blank.
+# Header lines asked one at a time when the Excel cell is blank.
+# Employee rows still take a database value before asking.
+# Family-pension rows do not: a blank Excel cell is asked.
 # A later answer of null is allowed. A value must match the field type.
 _HEADER_FIELDS = (
     {"key": "name", "label": "Pensioner name", "type": "text"},
@@ -842,6 +871,19 @@ _FAMILY_HEADER_FIELDS = (
         "type": "date",
     },
 )
+_CATEGORY_FIELD = {
+    "key": "category",
+    "label": "Category (1, 2, 3 or 4)",
+    "type": "text",
+}
+_FAMILY_M1_359 = {"key": "m1_359", "label": "M1@359", "type": "number"}
+_NUMBER_HEADER_KEYS = ("last_pay", "m1_277", "m1_359")
+_ALL_HEADER_SPECS = (
+    *_HEADER_FIELDS,
+    *_FAMILY_HEADER_FIELDS,
+    _CATEGORY_FIELD,
+    _FAMILY_M1_359,
+)
 
 
 def _text_blank(value) -> bool:
@@ -857,7 +899,7 @@ def _has_tqs(row: dict) -> bool:
 def _header_value_blank(row: dict, key: str) -> bool:
     if key == "tqs":
         return not _has_tqs(row)
-    if key in ("last_pay", "m1_277", "m1_359"):
+    if key in _NUMBER_HEADER_KEYS:
         return row.get(key) is None or row.get(key) == ""
     return _text_blank(row.get(key))
 
@@ -943,6 +985,19 @@ def _fill_header_from_db(row: dict, answered: set[str]) -> bool:
             return
         row[key] = value
 
+    excel_family = row.get("is_employee_pension") is False or _excel_marks_family(
+        row
+    )
+    if "is_employee_pension" not in answered:
+        # The Excel row decides. A normal pensioner is not turned into a
+        # family case because the database has a claim.
+        row["is_employee_pension"] = not excel_family
+    # Employee DATE_OF_BIRTH stays the employee date. Family old-age uses
+    # the family pensioner's date, which is asked when the Excel cell is blank.
+    take("date_of_birth", dob)
+    if excel_family:
+        return True
+
     take("name", master.get("name"))
     take("case_no", master.get("case_no"))
     take("roll_no", master.get("roll_no"))
@@ -954,25 +1009,7 @@ def _fill_header_from_db(row: dict, answered: set[str]) -> bool:
         row["tqs_month"] = master.get("tqs_month")
         row["tqs_days"] = master.get("tqs_days")
         row["tqs"] = master.get("tqs") or ""
-
-    excel_family = _excel_marks_family(row)
-    db_family = master.get("is_employee_pension") is False or bool(
-        master.get("date_of_death")
-    )
-    family = excel_family or db_family
-    if "is_employee_pension" not in answered:
-        # Excel family columns win over a database employee flag.
-        if excel_family:
-            row["is_employee_pension"] = False
-        else:
-            row["is_employee_pension"] = not db_family
-    if family:
-        take("date_of_death", master.get("date_of_death"))
-        take("family_pensioner_name", master.get("pensioner_name"))
-        take("family_pensioner_dob", master.get("family_pensioner_dob"))
-    # Employee DATE_OF_BIRTH: Excel cell, else the database, else null.
-    take("date_of_birth", dob)
-    return bool(family) or row.get("is_employee_pension") is False
+    return False
 
 
 def _parse_header_tqs(value) -> tuple[int, int, int]:
@@ -1003,11 +1040,11 @@ def _apply_header_overrides(row: dict, overrides, answered) -> None:
 
     overrides = overrides if isinstance(overrides, dict) else {}
     keys = [str(k) for k in (answered or [])]
-    known = {spec["key"] for spec in _HEADER_FIELDS + _FAMILY_HEADER_FIELDS}
+    known = {spec["key"] for spec in _ALL_HEADER_SPECS}
     for key in keys:
         if key not in known:
             continue
-        spec = next(item for item in (*_HEADER_FIELDS, *_FAMILY_HEADER_FIELDS) if item["key"] == key)
+        spec = next(item for item in _ALL_HEADER_SPECS if item["key"] == key)
         raw = overrides.get(key, None)
         if raw is None or raw == "":
             if key == "tqs":
@@ -1016,7 +1053,17 @@ def _apply_header_overrides(row: dict, overrides, answered) -> None:
                 row["tqs_month"] = None
                 row["tqs_days"] = None
             else:
-                row[key] = None if key in ("last_pay", "m1_277", "m1_359") else ""
+                row[key] = None if key in _NUMBER_HEADER_KEYS else ""
+            continue
+        if key == "category":
+            from M2_oldage_arrear.services.manual_excel_service import (
+                _normalize_category,
+            )
+
+            cat = _normalize_category(raw)
+            if cat not in ("1", "2", "3", "4"):
+                raise ValueError("Category must be 1, 2, 3 or 4.")
+            row["category"] = cat
             continue
         if spec["type"] == "tqs":
             years, months, days = _parse_header_tqs(raw)
@@ -1039,18 +1086,37 @@ def _apply_header_overrides(row: dict, overrides, answered) -> None:
 
 
 def missing_header_fields(row: dict, answered: set[str] | None = None) -> list[dict]:
-    """Header fields still blank after Excel and the database."""
+    """Header fields still blank. Family rows ask every blank Excel cell."""
     answered = answered or set()
     family = _fill_header_from_db(row, answered)
+    if (
+        family
+        and "category" not in answered
+        and _header_value_blank(row, "category")
+    ):
+        # Category decides whether 359 is asked. Class 1 and 2 have no 359.
+        return [dict(_CATEGORY_FIELD)]
     specs = list(_HEADER_FIELDS)
     if family:
+        from M2_oldage_arrear.services.manual_excel_service import (
+            _normalize_category,
+        )
+
+        cat = _normalize_category(row.get("category"))
+        if cat in ("1", "2", "3", "4"):
+            row["category"] = cat
         specs.extend(_FAMILY_HEADER_FIELDS)
+        # M2@CPI is calculated by consolidation. Only a missing M1 is asked.
+        if cat in ("3", "4"):
+            specs.append(dict(_FAMILY_M1_359))
     pending = []
     for spec in specs:
         if spec["key"] in answered:
             continue
-        # Family date of birth is DOB of family pensioner, not DATE_OF_BIRTH.
+        # Family old-age uses the family pensioner's date, not DATE_OF_BIRTH.
         if family and spec["key"] == "date_of_birth":
+            continue
+        if family and spec["key"] == "retirement_type":
             continue
         if _header_value_blank(row, spec["key"]):
             pending.append(dict(spec))

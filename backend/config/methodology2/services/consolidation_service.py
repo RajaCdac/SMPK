@@ -1521,8 +1521,8 @@ def build_pension_comparison(
         if kind in ("employee", "enhanced"):
             m2 = m2_emp_277 if cpi == 277 else m2_emp_359
             if kind == "enhanced":
-                # 50% period uses the employee pension, not the family basic.
-                # An explicit enhanced amount from the 2017 wage header still wins.
+                # Enhanced M1 from wage DB only (no ×50/30 invent). Prefer
+                # 2017 enhanced header, else P row, else F REV_BASIC / OLD_BASIC.
                 m1 = None
                 if cpi == 277:
                     m1 = (f_row or {}).get("m1_enhanced_277") or (
@@ -1562,10 +1562,7 @@ def build_pension_comparison(
                 return row.get("m1_277") if cpi == 277 else row.get("m1_359")
 
             m1 = _pick_family_m1(f_row)
-            if m1 is None and p_row and not f_row:
-                # No F row in fi_pn_wage_*. Family pension = employee pension × 0.6.
-                emp_m1 = p_row.get("m1_277") if cpi == 277 else p_row.get("m1_359")
-                m1 = family_m1_from_employee_pension(emp_m1)
+            # No invented M1 (no ×0.6 from P). Only amounts present on wage rows.
             if m1 is None and f_row and prefer_single:
                 # last resort: basic on F
                 m1 = f_row.get("m1_277") if cpi == 277 else f_row.get("m1_359")
@@ -1812,34 +1809,8 @@ def fetch_methodology1_pension_from_wage(emp_id, category=None):
     by_type = _wage_rows_by_type(rows, class12=class12)
     if not class12:
         by_type = _attach_2017_third_enhanced_m1(by_type, emp)
-    # Class 1/2 family row has the revised family pension only. The 50%
-    # period (employee, or enhanced family up to the cut-over) needs the
-    # employee pension brought forward by that same revision.
-    if class12 and by_type.get("F") and not (by_type.get("P") or {}).get("m1_277"):
-        family_row = by_type["F"]
-        scaled = _revised_employee_pension(
-            _fetch_original_employee_pension(emp),
-            family_row.get("m1_old_basic_pension"),
-            family_row.get("m1_rev_basic_pension"),
-        )
-        # No pre-2017 employee pension, and no separate SINGLE column:
-        # REV_BASIC is the 30% family pension. Enhanced (50%) is × 50/30.
-        if scaled is None and family_row.get("m1_single_277") is None:
-            scaled = employee_pension_from_family_m1(family_row.get("m1_277"))
-        if scaled is not None:
-            by_type["P"] = {
-                "wage_emp_name": "",
-                "pensioner_name": "",
-                "pensioner_type": "P",
-                "m1_old_basic_pension": None,
-                "m1_rev_basic_pension": scaled,
-                "m1_old_single_basic_pension": None,
-                "m1_rev_single_basic_pension": None,
-                "m1_277": scaled,
-                "m1_359": None,
-                "m1_single_277": None,
-                "m1_single_359": None,
-            }
+    # M1@277 / M1@359: use wage-header amounts only. Do not invent enhanced
+    # (50%) from family (30%) via ×50/30 or revision scaling.
     result["wage_by_type"] = by_type
     result["has_p_and_f"] = "P" in by_type and "F" in by_type
     fp_ctx = fetch_family_pension_rate_context(emp, category=category)
@@ -2051,7 +2022,11 @@ def fetch_print_master_fields(emp_id, category=None):
 def fill_employee_header_gaps(emp_id, data: dict) -> dict:
     """
     Fill header values the pensioner master left blank, from the wage header
-    and the pensioner date of birth. Existing values are left as they are.
+    and the employee date of birth. Existing values are left as they are.
+
+    DOB_PENSIONER on the wage header is the pensioner on that claim. For a
+    family case that is the family pensioner, not the employee — never copy
+    it into date_of_birth for family cases.
     """
     from datetime import datetime
 
@@ -2061,6 +2036,10 @@ def fill_employee_header_gaps(emp_id, data: dict) -> dict:
 
     def blank(value):
         return value is None or (isinstance(value, str) and not str(value).strip())
+
+    is_family = data.get("is_employee_pension") is False or not blank(
+        data.get("date_of_death")
+    )
 
     try:
         from django.db import connection
@@ -2088,7 +2067,12 @@ def fill_employee_header_gaps(emp_id, data: dict) -> dict:
                     data["roll_no"] = str(wage[1]).strip()
                 if blank(data.get("designation")) and wage[2]:
                     data["designation"] = str(wage[2]).strip()
-                if blank(data.get("date_of_birth")) and wage[3]:
+                # Living employee pension only — DOB_PENSIONER is the employee.
+                if (
+                    blank(data.get("date_of_birth"))
+                    and wage[3]
+                    and not is_family
+                ):
                     dob = wage[3].date() if isinstance(wage[3], datetime) else wage[3]
                     data["date_of_birth"] = (
                         dob.isoformat() if hasattr(dob, "isoformat") else str(dob)[:10]
@@ -2111,6 +2095,15 @@ def fill_employee_header_gaps(emp_id, data: dict) -> dict:
                 data["dob"] = data["date_of_birth"]
         except Exception:
             pass
+
+    # Family case: if employee DOB was wrongly set to the FP DOB, clear it
+    # so the confirm screen asks for the employee date separately.
+    if is_family and not blank(data.get("date_of_birth")):
+        emp_dob = str(data.get("date_of_birth") or "")[:10]
+        fp_dob = str(data.get("family_pensioner_dob") or "")[:10]
+        if emp_dob and fp_dob and emp_dob == fp_dob:
+            data["date_of_birth"] = None
+            data["dob"] = None
     return data
 
 
@@ -2204,9 +2197,17 @@ def snapshot_to_dict(obj):
     }
     from methodology2.services.lic_bunching import fetch_class12_m1_bunching
 
-    data["m1_bunching"] = fetch_class12_m1_bunching(
-        obj.emp_cd, category=obj.category
-    )
+    bunch = fetch_class12_m1_bunching(obj.emp_cd, category=obj.category)
+    comparison = obj.pension_comparison or {}
+    npa = comparison.get("npa_amount")
+    try:
+        is_doctor = npa is not None and npa != "" and float(npa) != 0
+    except (TypeError, ValueError):
+        is_doctor = False
+    if is_doctor and getattr(obj, "bunch_basic", None) is None:
+        data["m1_bunching"] = None
+    else:
+        data["m1_bunching"] = bunch
     return data
 
 
@@ -2223,19 +2224,22 @@ def save_consolidation_snapshot(payload):
 
     master = fetch_print_master_fields(emp, category=payload.get("category"))
 
-    name = (payload.get("name") or master["name"] or "").strip()
-    case_no = (payload.get("case_no") or master["case_no"] or "").strip()
-    roll_no = (
+    def _header_caps(value):
+        return str(value or "").strip().upper()
+
+    name = _header_caps(payload.get("name") or master["name"] or "")
+    case_no = _header_caps(payload.get("case_no") or master["case_no"] or "")
+    roll_no = _header_caps(
         str(payload.get("roll_no") or "").strip()
         or str(master.get("roll_no") or "").strip()
     )
-    retirement_type = (
+    retirement_type = _header_caps(
         str(payload.get("retirement_type") or "").strip()
         or str(master.get("retirement_type") or "").strip()
     )
-    designation = (
+    designation = _header_caps(
         payload.get("designation") or master["designation"] or ""
-    ).strip()
+    )
     retirement_date = _as_date(
         payload.get("retirement_date") or master["retirement_date"]
     )
@@ -2303,16 +2307,16 @@ def save_consolidation_snapshot(payload):
         payload.get("case_type")
         or wage_m1.get("case_type")
     )
-    pensioner_name = str(
+    pensioner_name = _header_caps(
         payload.get("pensioner_name", wage_m1.get("pensioner_name", ""))
         or master.get("pensioner_name", "")
         or ""
-    ).strip()
-    wage_emp_name = str(
+    )
+    wage_emp_name = _header_caps(
         payload.get("wage_emp_name", wage_m1.get("wage_emp_name", ""))
         or master.get("wage_emp_name", "")
         or ""
-    ).strip()
+    )
 
     comparison = build_pension_comparison(
         date_of_death=date_of_death,
@@ -2407,11 +2411,21 @@ def save_consolidation_snapshot(payload):
 
     # Class 1/2 employee: store M1@277 as basic + LIC bunch, and keep the
     # bunch itself on bunch_basic. Family columns stay on the wage figure.
+    # Doctors choose. Without the tick, M1@277 stays the wage figure.
     bunch_basic = None
     save_category = str(
         payload.get("category") or master.get("category") or ""
     ).strip()
-    if save_category in ("1", "2") and is_employee_pension:
+    npa_amount = _float_or_none(payload.get("npa_amount"))
+    doctor_flag = str(payload.get("doctor_flg") or "").strip().lower()
+    is_doctor = doctor_flag in ("1", "true", "yes") or (
+        npa_amount is not None and npa_amount > 0
+    )
+    apply_flag = payload.get("apply_bunching")
+    if isinstance(apply_flag, str):
+        apply_flag = apply_flag.strip().lower() not in ("0", "false", "no", "")
+    doctor_wants_bunch = bool(apply_flag) if is_doctor else True
+    if save_category in ("1", "2") and is_employee_pension and doctor_wants_bunch:
         from methodology2.services.lic_bunching import (
             apply_class12_bunch_to_comparison,
             fetch_class12_m1_bunching,
@@ -2424,7 +2438,6 @@ def save_consolidation_snapshot(payload):
     stagnation_amount = _float_or_none(payload.get("stagnation_amount"))
     if stagnation_amount is not None:
         comparison["stagnation_amount"] = stagnation_amount
-    npa_amount = _float_or_none(payload.get("npa_amount"))
     if npa_amount is not None:
         comparison["npa_amount"] = npa_amount
 

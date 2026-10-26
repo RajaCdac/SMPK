@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import API from "../services/Api";
 import RevisionCalculationCards from "../components/RevisionCalculationCards";
 import Methodology2PensionSummary from "../components/Methodology2PensionSummary";
@@ -28,6 +28,8 @@ export default function Methodology2() {
   const [stagnationAmount, setStagnationAmount] = useState("");
   const [npaAmount, setNpaAmount] = useState("");
   const [doctorPay, setDoctorPay] = useState("");
+  const [isDoctor, setIsDoctor] = useState(false);
+  const [includeBunching, setIncludeBunching] = useState(false);
   const [sda, setSda] = useState("");
   const [sdaOptions, setSdaOptions] = useState([]);
   const [category, setCategory] = useState("3");
@@ -44,14 +46,23 @@ export default function Methodology2() {
   const isClass12 = category === "1" || category === "2";
   const isCategory34 = category === "3" || category === "4";
 
-  /** Pay used in calc = last pay + stagnation increment (basic unchanged). */
+  /** Doctor: Stagnation/NPA is NPA added to the basic, unless salary already included it. */
+  const npaFoldedIn =
+    isDoctor && doctorPay !== "" && String(lastPay) === String(doctorPay);
   const effectivePay = (() => {
     const base = Number(lastPay);
     if (!lastPay || Number.isNaN(base)) return "";
+    if (isDoctor) {
+      if (npaFoldedIn) return String(base);
+      const npa = Number(npaAmount);
+      return String(base + (Number.isNaN(npa) ? 0 : npa));
+    }
     const stag = Number(stagnationAmount);
     const stagVal = Number.isNaN(stag) ? 0 : stag;
     return String(base + stagVal);
   })();
+  const headerLastPay =
+    isDoctor && !npaFoldedIn && effectivePay ? effectivePay : lastPay;
 
   const getScaleOptionValue = (item) =>
     item && typeof item === "object" ? item.grade : item;
@@ -146,6 +157,8 @@ export default function Methodology2() {
     setStagnationAmount("");
     setNpaAmount("");
     setDoctorPay("");
+    setIsDoctor(false);
+    setIncludeBunching(false);
 
     try {
       const res = await API.get(`methodology2/employee/${trimmed}/`);
@@ -189,14 +202,31 @@ export default function Methodology2() {
       });
 
       const sepDate = data.separation_date;
-      const scaleValue = data.scale;
-      const pay = String(data.last_pay);
+      const scaleValue = data.scale || "";
+      const pay =
+        data.last_pay != null && data.last_pay !== ""
+          ? String(data.last_pay)
+          : "";
+      const doctor =
+        Number(data.doctor_flg) === 1 ||
+        (data.npa_amount != null && data.npa_amount !== "");
+      setIsDoctor(doctor);
       if (data.npa_amount != null && data.npa_amount !== "") {
         setNpaAmount(String(data.npa_amount));
         setDoctorPay(pay);
+        setStagnationAmount("");
       } else {
         setNpaAmount("");
         setDoctorPay("");
+      }
+      if (data.warning) {
+        alert(data.warning);
+      }
+      if (!sepDate || !scaleValue) {
+        if (sepDate) setRetirementDate(sepDate);
+        setScale("");
+        setLastPay("");
+        return;
       }
 
       const isEmpClass12 = empCategory === "1" || empCategory === "2";
@@ -364,6 +394,23 @@ export default function Methodology2() {
     runClass12Calculation,
   ]);
 
+  const headerAmounts = useMemo(() => {
+    if (isClass12) {
+      return {
+        ready: !!class12Result,
+        category,
+        m2_277: class12Result?.family_pension ?? null,
+        m2_359: null,
+      };
+    }
+    return {
+      ready: !!pensionSummary,
+      category,
+      m2_277: pensionSummary?.family_pension_277_cpi ?? null,
+      m2_359: pensionSummary?.family_pension_359_cpi ?? null,
+    };
+  }, [isClass12, class12Result, pensionSummary, category]);
+
   const { prompt: headerPrompt, setPrompt: setHeaderPrompt, submitHeaderValue } =
     useConsolidationHeaderPrompt({
       active:
@@ -372,6 +419,7 @@ export default function Methodology2() {
         !!scale &&
         !!String(lastPay || "").trim(),
       master: printMaster,
+      amounts: headerAmounts,
       onFilled: (patch) => {
         setPrintMaster((prev) => ({ ...(prev || {}), ...patch }));
         if (patch.name) setEmployeeName(patch.name);
@@ -633,7 +681,8 @@ export default function Methodology2() {
                   <small className="text-muted d-block mt-1">
                     After employee, scale and last pay are entered, any header
                     value still missing from the database is asked one field at
-                    a time. Stagnation stays optional.
+                    a time. Stagnation/NPA stays optional. For a doctor, that
+                    amount is NPA.
                   </small>
                 </div>
               </div>
@@ -707,7 +756,7 @@ export default function Methodology2() {
                     onChange={(e) => {
                       const next = e.target.value;
                       setLastPay(next);
-                      if (String(next) !== String(doctorPay)) {
+                      if (!isDoctor && String(next) !== String(doctorPay)) {
                         setNpaAmount("");
                       }
                     }}
@@ -721,7 +770,7 @@ export default function Methodology2() {
                         : payStages
                     ).map((item, index) => (
                       <option key={`${item}-${index}`} value={item}>
-                        {String(item) === String(doctorPay) && npaAmount
+                        {isDoctor && npaAmount && String(item) === String(lastPay)
                           ? `${item} (npa ${npaAmount})`
                           : item}
                       </option>
@@ -730,15 +779,24 @@ export default function Methodology2() {
                 </div>
 
                 <div className="col-6 col-md-4 col-xl-2">
-                  <label className="form-label">Stagnation Amount</label>
+                  <label className="form-label">Stagnation/NPA</label>
                   <input
                     type="number"
                     className="form-control"
                     min="0"
                     step="1"
-                    placeholder="0"
-                    value={stagnationAmount}
-                    onChange={(e) => setStagnationAmount(e.target.value)}
+                    placeholder={isDoctor ? "NPA" : "0"}
+                    value={isDoctor ? npaAmount : stagnationAmount}
+                    onChange={(e) => {
+                      if (isDoctor) {
+                        setNpaAmount(e.target.value);
+                        setStagnationAmount("");
+                      } else {
+                        setStagnationAmount(e.target.value);
+                        setNpaAmount("");
+                        setDoctorPay("");
+                      }
+                    }}
                     disabled={!scale}
                   />
                 </div>
@@ -769,6 +827,24 @@ export default function Methodology2() {
                   Scale type for this date is not stage-based.
                 </p>
               )}
+              {isDoctor && printMaster?.m1_bunching?.bunch_basic ? (
+                <div className="form-check mt-3">
+                  <input
+                    id="m2-include-bunching"
+                    className="form-check-input"
+                    type="checkbox"
+                    checked={includeBunching}
+                    onChange={(e) => setIncludeBunching(e.target.checked)}
+                  />
+                  <label className="form-check-label" htmlFor="m2-include-bunching">
+                    Include bunching ({printMaster.m1_bunching.bunch_basic})
+                  </label>
+                  <small className="text-muted d-block">
+                    Leave this off to keep M1@277 without the LIC bunch. Tick it
+                    to add the bunch for this doctor.
+                  </small>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -821,9 +897,11 @@ export default function Methodology2() {
           class12Result={class12Result}
           retirementDate={retirementDate}
           scale={scale}
-          lastPay={lastPay}
-          stagnationAmount={stagnationAmount}
+          lastPay={headerLastPay}
+          stagnationAmount={isDoctor ? "" : stagnationAmount}
           npaAmount={npaAmount}
+          includeBunching={includeBunching}
+          isDoctor={isDoctor}
           effectivePay={effectivePay || lastPay}
           empId={empId}
           employeeName={employeeName}
@@ -838,9 +916,11 @@ export default function Methodology2() {
           pensionSummary={pensionSummary}
           retirementDate={retirementDate}
           scale={scale}
-          lastPay={lastPay}
-          stagnationAmount={stagnationAmount}
+          lastPay={headerLastPay}
+          stagnationAmount={isDoctor ? "" : stagnationAmount}
           npaAmount={npaAmount}
+          includeBunching={includeBunching}
+          isDoctor={isDoctor}
           effectivePay={effectivePay || lastPay}
           empId={empId}
           employeeName={employeeName}

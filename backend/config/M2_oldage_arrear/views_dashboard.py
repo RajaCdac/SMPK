@@ -12,6 +12,7 @@ from M2_oldage_arrear.services.dashboard_service import (
     set_consolidation_payment,
     set_consolidation_payment_many,
 )
+from M2_oldage_arrear.services.paid_excel_service import mark_paid_from_excel
 
 
 def _actor(request) -> str:
@@ -183,6 +184,36 @@ class ConsolidationPaymentManyView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
         return Response({"ok": result["error_count"] == 0, **result})
+
+
+class ConsolidationPaidExcelView(APIView):
+    """
+    POST /api/m2-oldage-arrear/dashboard/paid-excel/
+
+    Multipart file. Marks a saved consolidation paid when employee code,
+    last pay, M1@277, M2@277, and M1@359 / M2@359 match. Returns the
+    unmatched log.
+    """
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response(
+                {"error": "Choose an Excel file."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            result = mark_paid_from_excel(upload.read(), by_user=_actor(request))
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return Response(result)
 
 
 class ConsolidationDeleteManyView(APIView):

@@ -35,6 +35,7 @@ _FIXED_HEADERS = (
     "Designation",
     "Pay (Revised) at the time of retirement",
     "Pay Scale at the time of retirement",
+    "TQS",
     "Basic Pension as per M-I",
     "Basic Pension as per M-II",
     "CPI",
@@ -126,6 +127,7 @@ def _identity(emp: str) -> dict:
             "designation": "",
             "last_pay": None,
             "scale": "",
+            "tqs": "",
         }
     retired = getattr(obj, "retirement_date", None)
     return {
@@ -135,6 +137,7 @@ def _identity(emp: str) -> dict:
         "designation": str(getattr(obj, "designation", "") or ""),
         "last_pay": _num(getattr(obj, "last_pay", None)),
         "scale": _scale_text(getattr(obj, "scale", ""), retired),
+        "tqs": str(getattr(obj, "tqs_display", "") or ""),
     }
 
 
@@ -519,18 +522,21 @@ def _write_row(ws, excel_row: int, sl_no: int, row: dict, periods: list[dict], p
     scale_cell = ws.cell(excel_row, 8, row.get("scale") or "")
     scale_cell.alignment = _LEFT
     scale_cell.border = _THIN
-    _put_money(ws.cell(excel_row, 9), pair.get("m1"))
-    _put_money(ws.cell(excel_row, 10), pair.get("m2"))
-    ws.cell(excel_row, 9).border = _THIN
+    tqs_cell = ws.cell(excel_row, 9, row.get("tqs") or "")
+    tqs_cell.alignment = Alignment(vertical="center", horizontal="center")
+    tqs_cell.border = _THIN
+    _put_money(ws.cell(excel_row, 10), pair.get("m1"))
+    _put_money(ws.cell(excel_row, 11), pair.get("m2"))
     ws.cell(excel_row, 10).border = _THIN
-    cpi_cell = ws.cell(excel_row, 11, pair.get("cpi") or "")
-    ben_cell = ws.cell(excel_row, 12, pair.get("beneficial") or "")
+    ws.cell(excel_row, 11).border = _THIN
+    cpi_cell = ws.cell(excel_row, 12, pair.get("cpi") or "")
+    ben_cell = ws.cell(excel_row, 13, pair.get("beneficial") or "")
     cpi_cell.alignment = Alignment(vertical="center", horizontal="center")
     ben_cell.alignment = Alignment(vertical="center", horizontal="center")
     cpi_cell.border = _THIN
     ben_cell.border = _THIN
-    _put_money(ws.cell(excel_row, 13), pair.get("benefit"))
-    ws.cell(excel_row, 13).border = _THIN
+    _put_money(ws.cell(excel_row, 14), pair.get("benefit"))
+    ws.cell(excel_row, 14).border = _THIN
 
     oab_cell = ws.cell(
         excel_row,
@@ -593,7 +599,7 @@ def build_arrear_payment_excel_bytes(
 
     widths = {
         1: 8, 2: 28, 3: 14, 4: 16, 5: 10, 6: 22,
-        7: 18, 8: 28, 9: 16, 10: 16, 11: 10, 12: 16, 13: 16,
+        7: 18, 8: 28, 9: 16, 10: 16, 11: 16, 12: 10, 13: 16, 14: 16,
     }
     for col in range(1, ws.max_column + 1):
         letter = get_column_letter(col)

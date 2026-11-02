@@ -10,6 +10,8 @@ from django.db import connection
 WAGE_TABLES = (
     "fi_pn_wage_2017_hdr_offi2",
     "fi_pn_wage_2017_hdr_third",
+    "fi_pn_wage_2017_hdr_sec",
+    "fi_pn_wage_2017_hdr_third_126",
     "fi_pn_wage_2022_hdr_third",
 )
 
@@ -63,15 +65,20 @@ def _wage_rows(cursor, column: str, value: str) -> list:
     expr = (_CASE_EXPR if column == "CASE_NO" else _ROLL_EXPR).format(col=column)
     rows = []
     for table in WAGE_TABLES:
-        cursor.execute(
-            f"""
-            SELECT EMP_CD, CASE_NO, ROLL_NO, EMP_NAME, PEN_NAME, PENSIONER_TYPE
-            FROM {table}
-            WHERE {expr} = %s
-            """,
-            [value],
-        )
-        for r in cursor.fetchall():
+        try:
+            cursor.execute(
+                f"""
+                SELECT EMP_CD, CASE_NO, ROLL_NO, EMP_NAME, PEN_NAME, PENSIONER_TYPE
+                FROM {table}
+                WHERE {expr} = %s
+                """,
+                [value],
+            )
+            found = cursor.fetchall()
+        except Exception:
+            # Table not yet loaded on this database.
+            continue
+        for r in found:
             rows.append(
                 {
                     "table": table,

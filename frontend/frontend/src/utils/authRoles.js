@@ -254,6 +254,16 @@ const M2_USER_NAV = [
     label: "Family Pension Consolidation",
     end: true,
   },
+  {
+    to: "/dashboard/methodology2-oldage-arrear/family-report",
+    label: "Family Pension Report",
+    end: true,
+  },
+  {
+    to: "/dashboard/methodology2-oldage-arrear/doctor",
+    label: "Doctor Consolidation",
+    end: true,
+  },
   { to: "/dashboard/methodology2-arrear", label: "Arrear Calculation", end: true },
 ];
 
@@ -369,6 +379,16 @@ const M2_OA_ONLY_NAV = [
   {
     to: "/dashboard/methodology2-oldage-arrear/family",
     label: "Family Pension Consolidation",
+    end: true,
+  },
+  {
+    to: "/dashboard/methodology2-oldage-arrear/family-report",
+    label: "Family Pension Report",
+    end: true,
+  },
+  {
+    to: "/dashboard/methodology2-oldage-arrear/doctor",
+    label: "Doctor Consolidation",
     end: true,
   },
   { to: "/dashboard/methodology2-arrear", label: "Arrear Calculation", end: true },

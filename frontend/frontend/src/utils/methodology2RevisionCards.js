@@ -110,7 +110,7 @@ function isClass12OpeningBasic(description) {
  * (e.g. Basic Pay as on 01.01.2007), then DA and fitment.
  */
 export function ensureClass12OpeningBasic(blocks) {
-  let previousBasic = null;
+  let previous = null;
   return (blocks || []).map((block) => {
     const year = class12BlockYear(block);
     const rows = (block.rows || []).map((row) => ({ ...row }));
@@ -118,15 +118,11 @@ export function ensureClass12OpeningBasic(blocks) {
       const first = String(rows[0].description || "");
       // First scale keeps "Basic Pay in the existing scale (YYYY …)".
       // Later scales open with "Basic Pay as on 01.01.YYYY".
-      if (
-        year &&
-        previousBasic != null &&
-        previousBasic !== "" &&
-        !isClass12OpeningBasic(first)
-      ) {
+      if (year && previous && !isClass12OpeningBasic(first)) {
         rows.unshift({
           description: `Basic Pay as on 01.01.${year}`,
-          value: previousBasic,
+          value: previous.value,
+          ...(previous.npa != null ? { pay: previous.pay, npa: previous.npa } : {}),
         });
       }
       rows.forEach((row, idx) => {
@@ -134,7 +130,7 @@ export function ensureClass12OpeningBasic(blocks) {
         row.code = idx < 26 ? String.fromCharCode(65 + idx) : String(idx + 1);
       });
       const last = rows[rows.length - 1];
-      if (last?.value != null && last.value !== "") previousBasic = last.value;
+      if (last?.value != null && last.value !== "") previous = last;
     }
     return { ...block, rows };
   });

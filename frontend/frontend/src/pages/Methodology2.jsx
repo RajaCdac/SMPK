@@ -10,6 +10,7 @@ import SmpkDataTable from "../components/DataTable/SmpkDataTable";
 export default function Methodology2() {
   const [empId, setEmpId] = useState("");
   const [employeeName, setEmployeeName] = useState("");
+  const [blockedMsg, setBlockedMsg] = useState("");
   const [loadingEmployee, setLoadingEmployee] = useState(false);
   const skipCategoryResetRef = useRef(false);
 
@@ -150,6 +151,7 @@ export default function Methodology2() {
     if (!trimmed) return;
 
     setLoadingEmployee(true);
+    setBlockedMsg("");
     setCalculationRows([]);
     setPensionSummary(null);
     setClass12Result(null);
@@ -270,7 +272,17 @@ export default function Methodology2() {
         err.response?.data?.error ||
         err.response?.data?.message ||
         "Could not load employee.";
-      alert(msg);
+      if (err.response?.data?.compulsory_retirement) {
+        setBlockedMsg(`Employee ${trimmed}: ${msg}`);
+        setPrintMaster(null);
+        setEmployeeName("");
+        setRetirementDate("");
+        setScale("");
+        setLastPay("");
+        setPayStages([]);
+      } else {
+        alert(msg);
+      }
     } finally {
       setLoadingEmployee(false);
     }
@@ -673,6 +685,11 @@ export default function Methodology2() {
                       {loadingEmployee ? "Loading..." : "Load"}
                     </button>
                   </div>
+                  {blockedMsg ? (
+                    <div className="alert alert-danger fw-semibold py-2 mt-2 mb-0" role="alert">
+                      {blockedMsg}
+                    </div>
+                  ) : null}
                   {employeeName && (
                     <small className="text-muted d-block mt-1">
                       {employeeName}

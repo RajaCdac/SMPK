@@ -356,6 +356,10 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
   const blocks = isClass12
     ? ensureClass12OpeningBasic(rawBlocks)
     : rawBlocks;
+  // Doctor consolidation rows carry basic and NPA separately.
+  const npaSplit = blocks.some((block) =>
+    (block.rows || []).some((row) => row.npa != null)
+  );
 
   const macpTrack = macpTrackScale(snapshot.scale);
   const payForNpa = snapshot.last_pay ?? snapshot.average_pay;
@@ -556,12 +560,29 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
                     <colgroup>
                       <col className="code-col" />
                       <col />
-                      <col className="amt-col" />
+                      {npaSplit ? (
+                        <>
+                          <col className="amt-split-col" />
+                          <col className="amt-split-col" />
+                          <col className="amt-split-col" />
+                        </>
+                      ) : (
+                        <col className="amt-col" />
+                      )}
                     </colgroup>
                     <tbody>
                       <tr className="m2-consol-print__block-title-row">
-                        <td colSpan={3}>{titled}</td>
+                        <td colSpan={npaSplit ? 5 : 3}>{titled}</td>
                       </tr>
+                      {npaSplit ? (
+                        <tr>
+                          <th className="code" />
+                          <th>Particulars</th>
+                          <th className="amt-split">Pay</th>
+                          <th className="amt-split">NPA</th>
+                          <th className="amt-split">Total</th>
+                        </tr>
+                      ) : null}
                       {(block.rows || []).map((row, idx) => {
                         const rows = block.rows || [];
                         let desc = row.description;
@@ -580,9 +601,15 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
                                 : String(idx + 1))}
                           </td>
                           <td>{desc}</td>
-                          <td className="amt">
-                            {money(row.value)}
-                          </td>
+                          {npaSplit ? (
+                            <>
+                              <td className="amt-split">{money(row.pay)}</td>
+                              <td className="amt-split">{money(row.npa)}</td>
+                              <td className="amt-split">{money(row.value)}</td>
+                            </>
+                          ) : (
+                            <td className="amt">{money(row.value)}</td>
+                          )}
                         </tr>
                         );
                       })}

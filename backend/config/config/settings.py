@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     'methodology1',
     'methodology2',
     'M2_oldage_arrear.apps.M2OldageArrearConfig',
+    'M2_doctor.apps.M2DoctorConfig',
     'master_data',
 ]
 

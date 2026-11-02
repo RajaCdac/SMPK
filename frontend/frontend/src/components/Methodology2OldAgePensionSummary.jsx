@@ -246,6 +246,8 @@ export function buildClass12RevisionBlocks(
             : r.description
         ),
         value: r.value,
+        // Doctor consolidation: the same line as basic and NPA.
+        ...(r.npa != null ? { pay: r.pay, npa: r.npa } : {}),
       })),
     });
     current = [];
@@ -298,6 +300,7 @@ export default function Methodology2PensionSummary({
   printMaster = null,
   dateOfBirth = "",
   oldageBenefit = null,
+  saveUrl = "m2-oldage-arrear/consolidation/",
 }) {
   const [snapshot, setSnapshot] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -412,6 +415,9 @@ export default function Methodology2PensionSummary({
       m2_family_pension_359: m2_359,
       m1_family_pension_277: m1_277,
       m1_family_pension_359: m1_359,
+      // Family header form: 50% / 30% M1 per CPI override the wage table.
+      m1_inputs: master.m1_inputs || undefined,
+      rate_cutover: master.m1_inputs ? master.rate_cutover || null : undefined,
       m1_bunching:
         isDoctor && !includeBunching ? null : master.m1_bunching || null,
       diff_family_pension_277:
@@ -486,7 +492,7 @@ export default function Methodology2PensionSummary({
         date_of_birth: dateOfBirth || printMaster?.date_of_birth || null,
         oldage_benefit: oldageBenefit || null,
       };
-      await API.post(`m2-oldage-arrear/consolidation/${emp}/`, payload);
+      await API.post(`${saveUrl}${emp}/`, payload);
       setSaveOk(true);
       setSaveMsg("Saved to database");
     } catch (err) {

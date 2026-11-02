@@ -27,7 +27,7 @@ from .views_manual import (
     ManualEntryRowView,
     ManualEntryUploadView,
 )
-from .views_report import ConsolidationReportView
+from .views_report import ConsolidationReportView, FamilyPensionReportView
 from .views_benefit_enquiry import (
     OldAgeBenefitEnquirySaveView,
     OldAgeBenefitEnquiryView,
@@ -82,6 +82,7 @@ urlpatterns = [
     path("manual/row/", ManualEntryRowView.as_view()),
     path("manual/finish/", ManualEntryFinishView.as_view()),
     path("report/", ConsolidationReportView.as_view()),
+    path("family-report/", FamilyPensionReportView.as_view()),
     path("report/excel/", EmpListExcelReportView.as_view()),
     path("batches/", BatchListView.as_view()),
     path("batches/<str:batch_id>/report/", BatchExcelReportView.as_view()),

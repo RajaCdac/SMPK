@@ -161,6 +161,34 @@ def _fill_tqs_from_family_pensioner(result: dict, emp: str) -> None:
     result["tqs"] = format_tqs(row[0], row[1], row[2])
 
 
+COMPULSORY_RETIREMENT_MESSAGE = (
+    "No consolidation possible for compulsory retirement cases."
+)
+
+
+def is_compulsory_retirement(emp_id) -> bool:
+    """
+    SEPARATION_TYPE 'CR' on the employee admin record or the pension proposal
+    (emp 45709). Consolidation is not done for these cases.
+    """
+    emp = _emp_key(emp_id)
+    if not emp:
+        return False
+    try:
+        with connection.cursor() as cursor:
+            for table in ("fi_xx_mh_emp_adm", "fi_pn_mh_pension_proposal"):
+                cursor.execute(
+                    f"SELECT 1 FROM {table} WHERE EMP_CD = %s "
+                    "AND UPPER(TRIM(SEPARATION_TYPE)) = 'CR' LIMIT 1",
+                    [emp],
+                )
+                if cursor.fetchone():
+                    return True
+    except Exception:
+        return False
+    return False
+
+
 def _separation_type_label(code) -> str:
     """Display Type of Retirement from fi_xx_mh_emp_adm.SEPARATION_TYPE."""
     key = str(code or "").strip().upper()
@@ -585,17 +613,20 @@ def build_class12_revision_blocks(
             if idx == last_idx:
                 desc = _class12_notionalize_last_description(desc)
             desc = _class12_round_note(desc)
-            out_rows.append(
-                {
-                    "row": idx + 1,
-                    # Class 1/2 calc rows have no Excel codes — label A, B, C…
-                    # within each year block (same as class 3/4 print).
-                    "code": (r.get("code") or "").strip()
-                    or (chr(ord("A") + idx) if idx < 26 else str(idx + 1)),
-                    "description": desc,
-                    "value": r.get("value"),
-                }
-            )
+            line = {
+                "row": idx + 1,
+                # Class 1/2 calc rows have no Excel codes — label A, B, C…
+                # within each year block (same as class 3/4 print).
+                "code": (r.get("code") or "").strip()
+                or (chr(ord("A") + idx) if idx < 26 else str(idx + 1)),
+                "description": desc,
+                "value": r.get("value"),
+            }
+            # Doctor consolidation: the same line as basic and NPA.
+            if r.get("npa") is not None:
+                line["pay"] = r.get("pay")
+                line["npa"] = r.get("npa")
+            out_rows.append(line)
         blocks.append(
             {
                 "revision_key": key,
@@ -809,6 +840,90 @@ def _diff_amounts(m2, m1):
         return float(m2) - float(m1)
     except (TypeError, ValueError):
         return None
+
+
+M1_INPUT_KEYS = ("277_50", "277_30", "359_50", "359_30")
+
+
+def _m1_input_key(col) -> str:
+    """Employee and enhanced columns are the 50% rate; family is 30%."""
+    try:
+        cpi = int(col.get("cpi") or 0)
+    except (TypeError, ValueError):
+        return ""
+    rate = "30" if col.get("kind") == "family" else "50"
+    return f"{cpi}_{rate}"
+
+
+def apply_m1_inputs(comparison, m1_inputs):
+    """
+    Methodology-1 typed on the family header form wins over the wage header.
+
+    m1_inputs: {"277_50": …, "277_30": …, "359_50": …, "359_30": …}. Only the
+    keys present are applied; a present key with no value leaves that M1 blank.
+    """
+    if not isinstance(comparison, dict) or not isinstance(m1_inputs, dict):
+        return comparison
+    last_by_cpi = {}
+    for col in comparison.get("columns") or []:
+        if not isinstance(col, dict):
+            continue
+        key = _m1_input_key(col)
+        if key in m1_inputs:
+            col["m1"] = _float_or_none(m1_inputs.get(key))
+            col["diff"] = _diff_amounts(col.get("m2"), col["m1"])
+        last_by_cpi[key.split("_")[0]] = col
+    for cpi, col in last_by_cpi.items():
+        comparison[f"m1_family_pension_{cpi}"] = col.get("m1")
+    return comparison
+
+
+def m1_input_defaults(wage_info: dict, category=None) -> dict:
+    """
+    Database Methodology-1 for each rate and CPI, as the print columns read it.
+
+    Used to fill the family header form. Keys as in apply_m1_inputs.
+    """
+    wage_info = wage_info or {}
+    by_type = wage_info.get("wage_by_type") or {}
+    p_row = by_type.get("P") or {}
+    f_row = by_type.get("F") or {}
+    out = {
+        "277_50": p_row.get("m1_277")
+        if p_row.get("m1_277") is not None
+        else f_row.get("m1_employee_277"),
+        "277_30": f_row.get("m1_single_277")
+        if f_row.get("m1_single_277") is not None
+        else f_row.get("m1_277"),
+        "359_50": p_row.get("m1_359"),
+        "359_30": f_row.get("m1_single_359")
+        if f_row.get("m1_single_359") is not None
+        else f_row.get("m1_359"),
+    }
+    preview = build_pension_comparison(
+        date_of_death=wage_info.get("date_of_death"),
+        wage_by_type=by_type,
+        m2_emp_277=None,
+        m2_emp_359=None,
+        m2_fam_277=None,
+        m2_fam_359=None,
+        double_fpension_upto=wage_info.get("double_fpension_upto"),
+        enhanced_family_pension=wage_info.get("enhanced_family_pension"),
+        rate_cutover=wage_info.get("rate_cutover"),
+        die_in_harness=wage_info.get("die_in_harness"),
+        case_type=wage_info.get("case_type"),
+        category=category,
+    )
+    seen = set()
+    for col in preview.get("columns") or []:
+        key = _m1_input_key(col)
+        if key in out and key not in seen:
+            out[key] = col.get("m1")
+            seen.add(key)
+    if _is_class12_category(category):
+        out["359_50"] = None
+        out["359_30"] = None
+    return out
 
 
 def _pension_diff_for_store(comparison, cpi, *, is_employee, m2_emp, m2_fam, m1):
@@ -1236,21 +1351,32 @@ def _fetch_wage_rows_class34(emp):
         return cursor.fetchall()
 
 
-def _fetch_wage_rows_2017_third(emp):
-    """
-    Class 3/4 2017 wage header (fi_pn_wage_2017_hdr_third).
+# Class 3/4 2017 wage headers, in order of preference. Each pensioner type
+# (P / F) comes from the first table that has it: 47244 has its F row in _sec
+# and its P row in _third_126.
+CLASS34_2017_WAGE_TABLES = (
+    "fi_pn_wage_2017_hdr_third",
+    "fi_pn_wage_2017_hdr_sec",
+    "fi_pn_wage_2017_hdr_third_126",
+)
 
-    REV_BASIC_PENSION = M1 for enhanced / double FP under 277 CPI.
+
+def _fetch_wage_rows_2017_third(emp, table="fi_pn_wage_2017_hdr_third"):
+    """
+    Class 3/4 2017 wage header.
+
+    REV_BASIC_PENSION = M1 for employee / enhanced / double FP under 277 CPI.
     REV_SINGLE_BASIC_PENSION = M1 for normal single FP under 277 CPI.
+    A table missing from the database gives no rows.
     """
     try:
         with connection.cursor() as cursor:
             cursor.execute(
-                """
+                f"""
                 SELECT EMP_NAME, PEN_NAME, PENSIONER_TYPE,
                        OLD_BASIC_PENSION, REV_BASIC_PENSION,
                        OLD_SINGLE_BASIC_PENSION, REV_SINGLE_BASIC_PENSION
-                FROM fi_pn_wage_2017_hdr_third
+                FROM {table}
                 WHERE EMP_CD = %s
                 ORDER BY CASE UPPER(COALESCE(PENSIONER_TYPE, ''))
                            WHEN 'P' THEN 1
@@ -1260,9 +1386,7 @@ def _fetch_wage_rows_2017_third(emp):
                 """,
                 [emp],
             )
-            return _append_case_employee_row(
-                cursor.fetchall(), emp, "fi_pn_wage_2017_hdr_third"
-            )
+            return _append_case_employee_row(cursor.fetchall(), emp, table)
     except Exception:
         return []
 
@@ -1289,15 +1413,26 @@ def _fetch_wage_rows_class12(emp):
 
 def _attach_2017_third_enhanced_m1(by_type: dict, emp: str) -> dict:
     """
-    For class 3/4 death/enhanced print columns:
+    For class 3/4 death/enhanced print columns, from the 2017 class 3/4 wage
+    header (CLASS34_2017_WAGE_TABLES, first with rows):
 
-    fi_pn_wage_2017_hdr_third.REV_BASIC_PENSION → m1_enhanced_277
+    REV_BASIC_PENSION → m1_enhanced_277
     (Methodology-1 under Enhanced family pension @ 277 CPI)
+
+    Employee died before the 2022 revision: the 2022 header has only the F
+    row, so the employee pension @ 277 is the 2017 P row REV_BASIC
+    (47915: 22048, family 13568) → m1_employee_277.
     """
     if not by_type or not emp:
         return by_type
     # class12=True maps REV_BASIC → m1_277, REV_SINGLE → m1_single_277
-    w2017 = _wage_rows_by_type(_fetch_wage_rows_2017_third(emp), class12=True)
+    w2017 = {}
+    for table in CLASS34_2017_WAGE_TABLES:
+        found = _wage_rows_by_type(
+            _fetch_wage_rows_2017_third(emp, table), class12=True
+        )
+        for ptype, row in found.items():
+            w2017.setdefault(ptype, row)
     if not w2017:
         return by_type
     for ptype, row in by_type.items():
@@ -1308,7 +1443,41 @@ def _attach_2017_third_enhanced_m1(by_type: dict, emp: str) -> dict:
             row["m1_enhanced_277"] = src.get("m1_277")
         if src.get("m1_single_277") is not None:
             row["m1_2017_single_277"] = src.get("m1_single_277")
+    employee_2017 = (w2017.get("P") or {}).get("m1_277")
+    if "P" not in by_type and employee_2017 is not None:
+        enhanced_is_pension = _enhanced_fp_equals_employee_pension(emp)
+        for row in by_type.values():
+            row["m1_employee_277"] = employee_2017
+            if enhanced_is_pension:
+                row["enhanced_equals_pension"] = True
     return by_type
+
+
+def _enhanced_fp_equals_employee_pension(emp) -> bool:
+    """
+    Family pensioner master: enhanced (double) family pension equal to the
+    employee's original pension (43176: both 21630). Then the enhanced
+    Methodology-1 @ 277 is the employee pension @ 277.
+    """
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT f.ORIGINAL_DOUBLE_FPENSION_AMT, p.ORIGINAL_PENSION_AMT
+                FROM fi_pn_mh_familypensioner f
+                JOIN fi_pn_mh_pensioner p ON p.EMP_CD = f.EMP_CD
+                WHERE f.EMP_CD = %s
+                ORDER BY f.WEF_DT DESC
+                LIMIT 1
+                """,
+                [emp],
+            )
+            row = cursor.fetchone()
+    except Exception:
+        return False
+    if not row or row[0] is None or row[1] is None:
+        return False
+    return float(row[0]) > 0 and float(row[0]) == float(row[1])
 
 
 def _wage_rows_by_type(rows, *, class12=False):
@@ -1352,7 +1521,8 @@ def _cpi_kind_segments(
     """
     Split one CPI window into employee / enhanced / family segments.
 
-    Die-in-harness: enhanced (50%) until enhanced_upto, then family (30%).
+    Die-in-harness: employee until DOD (when DOD falls in the window, e.g.
+    43261 died 25/6/2017), enhanced (50%) until enhanced_upto, then family (30%).
     Died after retirement with active enhanced window:
       employee until DOD, enhanced until enhanced_upto, then family.
     Died after retirement, enhanced already expired: employee until DOD, then family.
@@ -1376,6 +1546,8 @@ def _cpi_kind_segments(
     # Each boundary is the LAST inclusive day of that kind.
     boundaries = []
     if die_in_harness and enhanced_upto:
+        if dod and dod < enhanced_upto:
+            boundaries.append((dod, "employee"))
         boundaries.append((enhanced_upto, "enhanced"))
     elif enhanced_family_pension and enhanced_upto and dod and enhanced_upto > dod:
         boundaries.append((dod, "employee"))
@@ -1516,26 +1688,55 @@ def build_pension_comparison(
         or ""
     ).strip()
 
+    def f_basic(cpi):
+        return f_row.get("m1_277") if cpi == 277 else f_row.get("m1_359")
+
+    def f_single(cpi):
+        return f_row.get("m1_single_277") if cpi == 277 else f_row.get("m1_single_359")
+
+    def f_basic_is_single(cpi):
+        """Family row basic equal to its single: that is the 30% family pension."""
+        return f_row and f_basic(cpi) is not None and f_basic(cpi) == f_single(cpi)
+
+    def f_basic_is_50(cpi):
+        """Family row basic is a 50% amount only beside a different single."""
+        return (
+            f_row
+            and f_basic(cpi) is not None
+            and f_single(cpi) is not None
+            and f_basic(cpi) != f_single(cpi)
+        )
+
     def amounts_for(kind, cpi):
         # employee + enhanced both use M2 50%; family uses 30%.
+        # A 50% column never takes the family (30%) amount (47660: 18572 is the
+        # widow's family pension); no 50% amount in the DB leaves M1 blank.
         if kind in ("employee", "enhanced"):
             m2 = m2_emp_277 if cpi == 277 else m2_emp_359
+            m1 = None
             if kind == "enhanced":
-                # Enhanced M1 from wage DB only (no ×50/30 invent). Prefer
-                # 2017 enhanced header, else P row, else F REV_BASIC / OLD_BASIC.
-                m1 = None
-                if cpi == 277:
-                    m1 = (f_row or {}).get("m1_enhanced_277") or (
-                        p_row or {}
-                    ).get("m1_enhanced_277")
+                if cpi == 277 and f_row:
+                    enh = f_row.get("m1_enhanced_277")
+                    if (
+                        enh is not None
+                        and enh != f_row.get("m1_2017_single_277")
+                        and not (enh == f_basic(277) and f_basic_is_single(277))
+                    ):
+                        m1 = enh
+                if m1 is None and cpi == 277:
+                    m1 = (p_row or {}).get("m1_enhanced_277")
                 if m1 is None and p_row:
                     m1 = p_row.get("m1_277") if cpi == 277 else p_row.get("m1_359")
-                if m1 is None and f_row:
-                    m1 = f_row.get("m1_277") if cpi == 277 else f_row.get("m1_359")
+                if m1 is None and f_row and not f_basic_is_single(cpi):
+                    m1 = f_basic(cpi)
+                if m1 is None and cpi == 277 and f_row.get("enhanced_equals_pension"):
+                    m1 = f_row.get("m1_employee_277")
             else:
                 m1 = p_row.get("m1_277") if cpi == 277 else p_row.get("m1_359")
-                if m1 is None and f_row:
-                    m1 = f_row.get("m1_277") if cpi == 277 else f_row.get("m1_359")
+                if m1 is None and cpi == 277 and f_row:
+                    m1 = f_row.get("m1_employee_277")
+                if m1 is None and f_basic_is_50(cpi):
+                    m1 = f_basic(cpi)
         else:
             m2 = m2_fam_277 if cpi == 277 else m2_fam_359
             m1 = None
@@ -1709,6 +1910,17 @@ def build_pension_comparison(
         section_title = (
             "EMPLOYEE PENSION" if is_employee_pension else "FAMILY PENSION"
         )
+
+    # Show up to 31 December of the current year. A period that starts later
+    # (43261: family from 26/6/2027) appears once that year is reached.
+    horizon = date(date.today().year, 12, 31).isoformat()
+    shown = [
+        col
+        for col in columns
+        if not col.get("period_from") or col["period_from"] <= horizon
+    ]
+    if shown:
+        columns = shown
 
     legacy_m1_277 = None
     legacy_m1_359 = None
@@ -2221,6 +2433,8 @@ def save_consolidation_snapshot(payload):
     emp = _emp_key(payload.get("emp_cd") or payload.get("emp_id"))
     if not emp:
         return {"error": "emp_cd is required"}
+    if is_compulsory_retirement(emp):
+        return {"error": COMPULSORY_RETIREMENT_MESSAGE, "compulsory_retirement": True}
 
     master = fetch_print_master_fields(emp, category=payload.get("category"))
 
@@ -2333,6 +2547,11 @@ def save_consolidation_snapshot(payload):
         case_type=case_type,
         category=payload.get("category") or master.get("category"),
     )
+    m1_inputs = payload.get("m1_inputs")
+    if not isinstance(m1_inputs, dict):
+        m1_inputs = None
+    if m1_inputs:
+        apply_m1_inputs(comparison, m1_inputs)
 
     family_pensioner_dob = _as_date(
         payload.get("family_pensioner_dob")
@@ -2359,6 +2578,11 @@ def save_consolidation_snapshot(payload):
         m1_fp_359 = _as_decimal(comparison.get("m1_family_pension_359"))
     if m1_fp_359 is None:
         m1_fp_359 = _as_decimal(payload.get("m1_family_pension_359"))
+    if m1_inputs:
+        if any(k.startswith("277_") for k in m1_inputs):
+            m1_fp_277 = _as_decimal(comparison.get("m1_family_pension_277"))
+        if any(k.startswith("359_") for k in m1_inputs):
+            m1_fp_359 = _as_decimal(comparison.get("m1_family_pension_359"))
 
     is_employee_pension = bool(
         payload.get(

@@ -48,6 +48,16 @@ class EmployeeLookupView(APIView):
     """
 
     def get(self, request, emp_id):
+        from methodology2.services.consolidation_service import (
+            COMPULSORY_RETIREMENT_MESSAGE,
+            is_compulsory_retirement,
+        )
+
+        if is_compulsory_retirement(emp_id):
+            return Response(
+                {"error": COMPULSORY_RETIREMENT_MESSAGE, "compulsory_retirement": True},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             data = fetch_employee_for_oldage(emp_id)
             if not data:
@@ -106,6 +116,16 @@ class EmployeeLookupView(APIView):
             data["m1_bunching"] = fetch_class12_m1_bunching(
                 emp_id, category=data.get("category")
             )
+            try:
+                from methodology2.services.consolidation_service import (
+                    m1_input_defaults,
+                )
+
+                data["m1_inputs"] = m1_input_defaults(
+                    master, category=data.get("category")
+                )
+            except Exception:
+                data["m1_inputs"] = {}
             if not data.get("date_of_birth"):
                 dob = fetch_employee_dob(emp_id)
                 data["date_of_birth"] = dob.isoformat() if dob else None
@@ -253,14 +273,25 @@ class OldAgeBenefitView(APIView):
         m1_277 = data.get("m1_pension_277")
         m1_359 = data.get("m1_pension_359")
 
+        m1_inputs = data.get("m1_inputs")
+        if not isinstance(m1_inputs, dict):
+            m1_inputs = None
+
         death_cmp = None
         wage = {}
         if emp_id:
             wage = fetch_methodology1_pension_from_wage(
                 emp_id, category=data.get("category")
             )
+
+            def pick(key):
+                # Family header form dates win over the database.
+                if m1_inputs is not None:
+                    return data.get(key) or wage.get(key)
+                return wage.get(key) or data.get(key)
+
             death_cmp = build_pension_comparison(
-                date_of_death=wage.get("date_of_death") or data.get("date_of_death"),
+                date_of_death=pick("date_of_death"),
                 wage_by_type=wage.get("wage_by_type") or {},
                 m2_emp_277=m2_emp_277,
                 m2_emp_359=m2_emp_359,
@@ -269,14 +300,21 @@ class OldAgeBenefitView(APIView):
                 family_pensioner_name=wage.get("pensioner_name")
                 or data.get("pensioner_name")
                 or "",
-                double_fpension_upto=wage.get("double_fpension_upto")
-                or data.get("double_fpension_upto"),
+                double_fpension_upto=pick("double_fpension_upto"),
                 enhanced_family_pension=wage.get("enhanced_family_pension"),
-                rate_cutover=wage.get("rate_cutover") or data.get("rate_cutover"),
+                rate_cutover=pick("rate_cutover"),
                 die_in_harness=wage.get("die_in_harness"),
                 case_type=wage.get("case_type"),
                 category=data.get("category") or wage.get("category"),
             )
+            if m1_inputs:
+                from methodology2.services.consolidation_service import (
+                    apply_m1_inputs,
+                )
+
+                apply_m1_inputs(death_cmp, m1_inputs)
+                m1_277 = death_cmp.get("m1_family_pension_277")
+                m1_359 = death_cmp.get("m1_family_pension_359")
             if m1_277 is None:
                 m1_277 = death_cmp.get("m1_family_pension_277")
             if m1_359 is None:

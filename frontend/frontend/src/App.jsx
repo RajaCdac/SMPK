@@ -21,6 +21,8 @@ import Methodology2OldAge from "./pages/Methodology2OldAge";
 import Methodology2OldAgeBenefit from "./pages/Methodology2OldAgeBenefit";
 import Methodology2OldAgeManualEntry from "./pages/Methodology2OldAgeManualEntry";
 import Methodology2FamilyPensionConsolidation from "./pages/Methodology2FamilyPensionConsolidation";
+import Methodology2DoctorConsolidation from "./pages/Methodology2DoctorConsolidation";
+import Methodology2FamilyPensionReport from "./pages/Methodology2FamilyPensionReport";
 import Methodology2ConsolidationReport from "./pages/Methodology2ConsolidationReport";
 import Methodology2Macp from "./pages/Methodology2Macp";
 import Methodology2Arrear from "./pages/Methodology2Arrear";
@@ -111,6 +113,14 @@ function App() {
               <Route
                 path="methodology2-oldage-arrear/family"
                 element={<Methodology2FamilyPensionConsolidation />}
+              />
+              <Route
+                path="methodology2-oldage-arrear/doctor"
+                element={<Methodology2DoctorConsolidation />}
+              />
+              <Route
+                path="methodology2-oldage-arrear/family-report"
+                element={<Methodology2FamilyPensionReport />}
               />
               <Route
                 path="methodology2-oldage-arrear/report"
@@ -217,6 +227,14 @@ function App() {
                 <Route
                   path="methodology2-oldage-arrear/family"
                   element={<Methodology2FamilyPensionConsolidation />}
+                />
+                <Route
+                  path="methodology2-oldage-arrear/doctor"
+                  element={<Methodology2DoctorConsolidation />}
+                />
+                <Route
+                  path="methodology2-oldage-arrear/family-report"
+                  element={<Methodology2FamilyPensionReport />}
                 />
                 <Route
                   path="methodology2-oldage-arrear/report"

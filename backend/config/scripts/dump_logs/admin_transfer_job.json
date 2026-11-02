@@ -1,6 +1,6 @@
 {
   "status": "done",
-  "job_id": "20261001-102000",
+  "job_id": "20261029-130955",
   "oracle_schema": "FINANCE",
   "mysql": {
     "host": "localhost",
@@ -23,21 +23,21 @@
     }
   },
   "queue": [
-    "FI_PN_LIC_MASTER"
+    "FI_PN_WAGE_2017_HDR_THIRD_126"
   ],
   "current_table": null,
   "current_index": 1,
   "total": 1,
   "completed": [
-    "FI_PN_LIC_MASTER"
+    "FI_PN_WAGE_2017_HDR_THIRD_126"
   ],
   "failed": {},
   "results": {
-    "FI_PN_LIC_MASTER": {
+    "FI_PN_WAGE_2017_HDR_THIRD_126": {
       "ok": true,
-      "table": "FI_PN_LIC_MASTER",
-      "columns": 69,
-      "rows": 23432,
+      "table": "FI_PN_WAGE_2017_HDR_THIRD_126",
+      "columns": 49,
+      "rows": 30,
       "mysql": {
         "host": "localhost",
         "port": 3306,
@@ -45,9 +45,9 @@
         "database": "finance"
       },
       "primary_key": {
-        "name": "PK_LIC_MASTER",
+        "name": "PK_WAGE_2017_CPI_126",
         "columns": [
-          "PENSION_ROLL_NO"
+          "ROLL_NO"
         ]
       },
       "fk_applied": 0,
@@ -56,31 +56,21 @@
     }
   },
   "log": [
-    "[10:20:00] --- [1/1] FI_PN_LIC_MASTER ---",
-    "[10:20:00] Oracle source : FINANCE.FI_PN_LIC_MASTER",
-    "[10:20:00] MySQL target  : root@localhost:3306/finance.FI_PN_LIC_MASTER",
-    "[10:20:01] Columns       : 69",
-    "[10:20:01] Primary key   : PK_LIC_MASTER (PENSION_ROLL_NO)",
-    "[10:20:01] Foreign keys  : 0",
-    "[10:20:01] Dropping existing MySQL table (if any)...",
-    "[10:20:01] Copying rows...",
-    "[10:20:01]   processed 2,000 rows...",
-    "[10:20:01]   processed 4,000 rows...",
-    "[10:20:02]   processed 6,000 rows...",
-    "[10:20:02]   processed 8,000 rows...",
-    "[10:20:03]   processed 10,000 rows...",
-    "[10:20:03]   processed 12,000 rows...",
-    "[10:20:04]   processed 14,000 rows...",
-    "[10:20:04]   processed 16,000 rows...",
-    "[10:20:05]   processed 18,000 rows...",
-    "[10:20:05]   processed 20,000 rows...",
-    "[10:20:06]   processed 22,000 rows...",
-    "[10:20:06]   processed 23,432 rows...",
-    "[10:20:06] Rows processed: 23,432",
-    "[10:20:06] OK FI_PN_LIC_MASTER: rows=23432, fk_applied=0, fk_pending=0",
-    "[10:20:06] Note: FKs were deferred (skip_foreign_keys=true). Use Apply pending FKs after parent tables are loaded."
+    "[13:09:55] --- [1/1] FI_PN_WAGE_2017_HDR_THIRD_126 ---",
+    "[13:09:55] Oracle source : FINANCE.FI_PN_WAGE_2017_HDR_THIRD_126",
+    "[13:09:55] MySQL target  : root@localhost:3306/finance.FI_PN_WAGE_2017_HDR_THIRD_126",
+    "[13:09:55] Columns       : 49",
+    "[13:09:55] Primary key   : PK_WAGE_2017_CPI_126 (ROLL_NO)",
+    "[13:09:55] Foreign keys  : 0",
+    "[13:09:55] Dropping existing MySQL table (if any)...",
+    "[13:09:55] Copying rows...",
+    "[13:09:55]   processed 30 rows...",
+    "[13:09:55] Rows processed: 30",
+    "[13:09:55] OK FI_PN_WAGE_2017_HDR_THIRD_126: rows=30, fk_applied=0, fk_pending=0",
+    "[13:09:55] Note: FKs were deferred (skip_foreign_keys=true). Use Apply pending FKs after parent tables are loaded.",
+    "[13:10:05] Applied pending foreign keys on root@localhost:3306/finance."
   ],
-  "started_at": "2026-10-01T10:20:00",
-  "finished_at": "2026-10-01T10:20:06",
+  "started_at": "2026-10-29T13:09:55",
+  "finished_at": "2026-10-29T13:09:55",
   "message": "Finished successfully: 1 table(s)."
 }

@@ -1,8 +1,7 @@
 """
-Methodology-2 proportionate pension for pre-01-Jan-2007 retirements.
+Methodology-2 proportionate pension.
 
-Rule (all classes 1/2/3/4):
-  - Applies only when retirement / separation date < 01-Jan-2007.
+Rule (all classes 1/2/3/4, every retirement / separation date):
   - TQS rounded like Oracle FFunc_TQS_Round_2:
       < 3 months  → whole years
       3–8 months  → years + 0.5
@@ -24,9 +23,6 @@ from datetime import date, datetime
 from typing import Any
 
 from methodology2.services.rounding_helpers import round_up_whole_rupee
-
-# Retirement strictly before this date uses the TQS/20 rule.
-PRE_2007_RETIREMENT_CUTOFF = date(2007, 1, 1)
 
 # Full (non-proportionate) qualifying service after Oracle month rounding.
 FULL_PENSION_TQS_YEARS = 20
@@ -63,12 +59,6 @@ def round_tqs_years_oracle(tqs_years, tqs_months, tqs_days=0) -> float:
     return float(years + 1)
 
 
-def is_pre_2007_retirement(retirement_date) -> bool:
-    """True when separation/retirement is strictly before 01-Jan-2007."""
-    d = _as_date(retirement_date)
-    return d is not None and d < PRE_2007_RETIREMENT_CUTOFF
-
-
 def resolve_service_factor(
     *,
     retirement_date,
@@ -83,8 +73,7 @@ def resolve_service_factor(
       applied, full_pension, factor, rounded_tqs, divisor, cutoff, note, ...
     """
     base = {
-        "rule": "pre_2007_tqs_20",
-        "cutoff": PRE_2007_RETIREMENT_CUTOFF.isoformat(),
+        "rule": "tqs_20",
         "divisor": FULL_PENSION_TQS_YEARS,
         "applied": False,
         "full_pension": True,
@@ -100,14 +89,8 @@ def resolve_service_factor(
     d = _as_date(retirement_date)
     base["retirement_date"] = d.isoformat() if d else None
 
-    if d is None or d >= PRE_2007_RETIREMENT_CUTOFF:
-        base["note"] = "Not applicable (retirement on/after 01-Jan-2007)."
-        return base
-
     if tqs_yr is None and tqs_month is None and tqs_days is None:
-        base["note"] = (
-            "Pre-2007 retirement but TQS not supplied — pension left at full rates."
-        )
+        base["note"] = "TQS not supplied — pension left at full rates."
         return base
 
     rounded = round_tqs_years_oracle(tqs_yr, tqs_month, tqs_days)
@@ -118,7 +101,7 @@ def resolve_service_factor(
         base["full_pension"] = True
         base["factor"] = 1.0
         base["note"] = (
-            f"Pre-2007: rounded TQS {rounded:g} >= {FULL_PENSION_TQS_YEARS} "
+            f"Rounded TQS {rounded:g} >= {FULL_PENSION_TQS_YEARS} "
             "-> full pension (50% / 30%)."
         )
         return base
@@ -127,7 +110,7 @@ def resolve_service_factor(
     base["full_pension"] = False
     base["factor"] = factor
     base["note"] = (
-        f"Pre-2007: rounded TQS {rounded:g} < {FULL_PENSION_TQS_YEARS} "
+        f"Rounded TQS {rounded:g} < {FULL_PENSION_TQS_YEARS} "
         f"-> proportionate x ({rounded:g}/{FULL_PENSION_TQS_YEARS})."
     )
     return base
@@ -182,7 +165,7 @@ def apply_proportionate_pension(
     out["proportionate"] = meta
 
     factor = float(meta.get("factor") or 1.0)
-    # Only rescale when the pre-2007 rule actually applies with a reduced factor.
+    # Only rescale when TQS gives a reduced factor.
     if not meta.get("applied") or factor >= 1.0:
         return _ceil_pension_fields(out)
 

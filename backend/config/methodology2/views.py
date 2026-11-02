@@ -230,6 +230,16 @@ class EmployeeLookupView(APIView):
     """Fetch separation date, scale, and last pay from local DB by employee code."""
 
     def get(self, request, emp_id):
+        from methodology2.services.consolidation_service import (
+            COMPULSORY_RETIREMENT_MESSAGE,
+            is_compulsory_retirement,
+        )
+
+        if is_compulsory_retirement(emp_id):
+            return Response(
+                {"error": COMPULSORY_RETIREMENT_MESSAGE, "compulsory_retirement": True},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             data = fetch_employee_for_methodology2(emp_id)
             if not data:

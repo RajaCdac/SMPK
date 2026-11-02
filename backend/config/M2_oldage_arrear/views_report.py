@@ -4,6 +4,7 @@ from datetime import datetime
 
 from django.http import HttpResponse
 from rest_framework import status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -23,6 +24,62 @@ def _parse_iso_date(value: str, field: str):
         return datetime.strptime(text, "%Y-%m-%d").date()
     except ValueError as exc:
         raise ValueError(f"{field} must be YYYY-MM-DD") from exc
+
+
+class FamilyPensionReportView(APIView):
+    """
+    POST /api/m2-oldage-arrear/family-report/
+
+    Either an Excel file with an EMP_CD column, or from_date + to_date
+    (date the consolidation was saved). Optional phase text.
+    Family pension consolidations only.
+    """
+
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def post(self, request):
+        from M2_oldage_arrear.services.family_report_service import (
+            build_family_pension_report,
+        )
+        from methodology2.services.bulk_excel_service import read_emp_rows_from_excel
+
+        upload = request.FILES.get("file")
+        phase = request.data.get("phase") or ""
+        try:
+            if upload:
+                rows = read_emp_rows_from_excel(upload.read())
+                content, filename, summary = build_family_pension_report(
+                    emp_codes=[r.get("emp_cd") for r in rows], phase=phase
+                )
+            else:
+                from_d = _parse_iso_date(request.data.get("from_date"), "from_date")
+                to_d = _parse_iso_date(request.data.get("to_date"), "to_date")
+                content, filename, summary = build_family_pension_report(
+                    from_date=from_d, to_date=to_d, phase=phase
+                )
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            return Response(
+                {"error": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        response = HttpResponse(
+            content,
+            content_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["X-Report-Requested"] = str(summary["requested"])
+        response["X-Report-Found"] = str(summary["found"])
+        response["X-Report-Not-Saved"] = ",".join(summary["not_saved"])
+        response["X-Report-Not-Family"] = ",".join(summary["not_family"])
+        response["Access-Control-Expose-Headers"] = (
+            "Content-Disposition, X-Report-Requested, X-Report-Found, "
+            "X-Report-Not-Saved, X-Report-Not-Family"
+        )
+        return response
 
 
 class ConsolidationReportView(APIView):

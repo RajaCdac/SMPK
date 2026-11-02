@@ -50,9 +50,81 @@ function matchScale(options, ...candidates) {
   return "";
 }
 
+const CPI_277_START = "2017-01-01";
+const CPI_277_END = "2021-12-31";
+const CPI_359_START = "2022-01-01";
+const HORIZON_END = "2026-12-31";
+const M1_KEYS = ["277_50", "277_30", "359_50", "359_30"];
+
+function fmtDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+
+function nextDay(iso) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Last day of the 50% rate: enhanced upto when after death, else date of death. */
+function rateCutover(values) {
+  const dod = values.date_of_death;
+  const upto = values.double_fpension_upto;
+  if (upto && (!dod || upto > dod)) return upto;
+  return dod || "";
+}
+
+/**
+ * M1 inputs for this case. A CPI period gets a 50% field when the employee or
+ * enhanced pension runs into it, and a 30% field when family pension does.
+ */
+function m1Fields(values) {
+  const class34 = values.category === "3" || values.category === "4";
+  const cut = rateCutover(values);
+  const eras = [
+    { cpi: "277", start: CPI_277_START, end: class34 ? CPI_277_END : HORIZON_END },
+  ];
+  if (class34) eras.push({ cpi: "359", start: CPI_359_START, end: HORIZON_END });
+  const fields = [];
+  eras.forEach(({ cpi, start, end }) => {
+    const has50 = !!cut && cut >= start;
+    const has30 = !cut || cut < end;
+    if (has50) {
+      const to = cut < end ? cut : end;
+      fields.push({
+        key: `${cpi}_50`,
+        label: `M1@${cpi} (50%)`,
+        period: `${fmtDate(start)} – ${fmtDate(to)}`,
+      });
+    }
+    if (has30) {
+      const from = cut && cut >= start ? nextDay(cut) : start;
+      fields.push({
+        key: `${cpi}_30`,
+        label: `M1@${cpi} (30%)`,
+        period: `${fmtDate(from)} – ${fmtDate(end)}`,
+      });
+    }
+  });
+  return fields;
+}
+
 function valuesFromMaster(master) {
   const m = master || {};
   const cat = String(m.category || "").trim();
+  const inputs = m.m1_inputs || m.m1_inputs_db || {};
+  const m1 = {};
+  M1_KEYS.forEach((key) => {
+    m1[`m1_${key}`] = numText(inputs[key]);
+  });
+  if (blank(m1.m1_277_30) && blank(inputs["277_30"])) {
+    m1.m1_277_30 = numText(m.m1_family_pension_277);
+  }
+  if (blank(m1.m1_359_30) && blank(inputs["359_30"])) {
+    m1.m1_359_30 = numText(m.m1_family_pension_359);
+  }
   return {
     name: m.name || "",
     category: CLASS_OPTIONS.includes(cat) ? cat : "",
@@ -72,8 +144,7 @@ function valuesFromMaster(master) {
     scale: String(m.scale || "").trim(),
     last_pay: numText(m.last_pay),
     average_pay: numText(m.average_pay),
-    m1_277: numText(m.m1_family_pension_277),
-    m1_359: numText(m.m1_family_pension_359),
+    ...m1,
   };
 }
 
@@ -93,10 +164,16 @@ function validate(values, payStages) {
       errors.tqs = "TQS: years 0–80, months 0–11, days 0–30 (fill all three or none).";
     }
   }
-  ["last_pay", "average_pay", "m1_277", "m1_359"].forEach((key) => {
+  ["last_pay", "average_pay", ...m1Fields(values).map((f) => `m1_${f.key}`)].forEach((key) => {
     const v = values[key];
     if (!blank(v) && (!Number.isFinite(Number(v)) || Number(v) < 0)) {
       errors[key] = "Enter a valid amount.";
+    }
+  });
+  m1Fields(values).forEach((f) => {
+    const key = `m1_${f.key}`;
+    if (blank(values[key])) {
+      errors[key] = "Not in the database. Enter this amount from the file.";
     }
   });
   if (
@@ -141,10 +218,25 @@ function patchFromValues(values) {
   patch.scale = values.scale || "";
   patch.last_pay = blank(values.last_pay) ? "" : Number(values.last_pay);
   patch.average_pay = blank(values.average_pay) ? "" : Number(values.average_pay);
-  patch.m1_family_pension_277 = blank(values.m1_277) ? null : Number(values.m1_277);
-  const class34 = values.category === "3" || values.category === "4";
-  patch.m1_family_pension_359 =
-    class34 && !blank(values.m1_359) ? Number(values.m1_359) : null;
+  // Only the M1 fields shown for this case are sent; they override the
+  // wage-table M1 on the matching print columns.
+  const amount = (key) => {
+    const v = values[`m1_${key}`];
+    return blank(v) ? null : Number(v);
+  };
+  const inputs = {};
+  m1Fields(values).forEach(({ key }) => {
+    inputs[key] = amount(key);
+  });
+  patch.m1_inputs = inputs;
+  patch.rate_cutover = rateCutover(values) || null;
+  const pick = (cpi) => {
+    if (`${cpi}_30` in inputs) return inputs[`${cpi}_30`];
+    if (`${cpi}_50` in inputs) return inputs[`${cpi}_50`];
+    return null;
+  };
+  patch.m1_family_pension_277 = pick("277");
+  patch.m1_family_pension_359 = pick("359");
   return patch;
 }
 
@@ -233,7 +325,7 @@ export default function FamilyHeaderForm({
       });
   }, [values.scale, values.retirement_date, values.category, loadPayStages]);
 
-  const class34 = values.category === "3" || values.category === "4";
+  const m1FieldList = m1Fields(values);
   const changed = (key) => String(values[key] ?? "") !== String(initial[key] ?? "");
   const cls = (key, base = "form-control form-control-sm") =>
     `${base}${errors[key] ? " is-invalid" : ""}${
@@ -261,20 +353,6 @@ export default function FamilyHeaderForm({
       <label className="form-label small mb-1">{label}</label>
       <input
         type="date"
-        className={cls(key)}
-        value={values[key]}
-        onChange={(e) => set(key, e.target.value)}
-      />
-      {err(key)}
-    </div>
-  );
-
-  const amount = (key, label, col = "col-6 col-md-3") => (
-    <div className={col}>
-      <label className="form-label small mb-1">{label}</label>
-      <input
-        type="number"
-        min="0"
         className={cls(key)}
         value={values[key]}
         onChange={(e) => set(key, e.target.value)}
@@ -469,8 +547,44 @@ export default function FamilyHeaderForm({
 
             <h6 className="border-bottom pb-1">M-I</h6>
             <div className="row g-2 mb-3">
-              {amount("m1_277", "277")}
-              {class34 ? amount("m1_359", "359") : null}
+              {m1FieldList.map((f) => {
+                const key = `m1_${f.key}`;
+                const other = f.key.endsWith("_50")
+                  ? `m1_${f.key.replace("_50", "_30")}`
+                  : null;
+                const sameAs30 =
+                  other &&
+                  m1FieldList.some((x) => `m1_${x.key}` === other) &&
+                  !blank(values[key]) &&
+                  String(values[key]) === String(values[other]);
+                return (
+                  <div key={key} className="col-6 col-md-3">
+                    <label className="form-label small mb-1">{f.label} *</label>
+                    <input
+                      type="number"
+                      min="0"
+                      className={cls(key)}
+                      value={values[key]}
+                      onChange={(e) => set(key, e.target.value)}
+                    />
+                    <div className="form-text">
+                      {f.key.endsWith("_50") ? "Employee / enhanced" : "Family"}:{" "}
+                      {f.period}
+                    </div>
+                    {sameAs30 ? (
+                      <div className="form-text text-danger">
+                        Same as the 30% amount. Check the 50% amount in the file.
+                      </div>
+                    ) : null}
+                    {blank(initial[key]) && !errors[key] ? (
+                      <div className="form-text text-danger">
+                        Not in the database. Enter this amount from the file.
+                      </div>
+                    ) : null}
+                    {err(key)}
+                  </div>
+                );
+              })}
             </div>
 
             <h6 className="border-bottom pb-1 text-muted">Other details</h6>

@@ -14,6 +14,7 @@ export default function Methodology2OldAge({ familyMode = false }) {
   const [searchText, setSearchText] = useState("");
   const [searchMatches, setSearchMatches] = useState([]);
   const [familyFormOpen, setFamilyFormOpen] = useState(false);
+  const [blockedMsg, setBlockedMsg] = useState("");
   const [employeeName, setEmployeeName] = useState("");
   const [loadingEmployee, setLoadingEmployee] = useState(false);
   const skipCategoryResetRef = useRef(false);
@@ -213,6 +214,8 @@ export default function Methodology2OldAge({ familyMode = false }) {
         pension_277: m2_277,
         m1_pension_359: m1_359,
         m1_pension_277: m1_277,
+        m1_inputs: printMaster?.m1_inputs || undefined,
+        rate_cutover: printMaster?.m1_inputs ? printMaster?.rate_cutover || null : undefined,
       });
       setOldageBenefit(res.data);
     } catch (err) {
@@ -262,6 +265,7 @@ export default function Methodology2OldAge({ familyMode = false }) {
 
     setLoadingEmployee(true);
     setFamilyFormOpen(false);
+    setBlockedMsg("");
     setCalculationRows([]);
     setPensionSummary(null);
     setClass12Result(null);
@@ -275,6 +279,17 @@ export default function Methodology2OldAge({ familyMode = false }) {
     try {
       const res = await API.get(`m2-oldage-arrear/employee/${trimmed}/`);
       const data = res.data;
+      if (
+        !familyMode &&
+        (Number(data.doctor_flg) === 1 ||
+          (data.npa_amount != null && data.npa_amount !== ""))
+      ) {
+        alert(
+          `Employee ${data.emp_id || trimmed} is a doctor. ` +
+            "Use the Doctor Consolidation menu."
+        );
+        return;
+      }
 
       // Family confirm: do not invent class 3/4 — user confirms class after name.
       const empCategory = data.category
@@ -380,6 +395,7 @@ export default function Methodology2OldAge({ familyMode = false }) {
         m1_family_pension_277: data.m1_family_pension_277 ?? null,
         m1_family_pension_359: data.m1_family_pension_359 ?? null,
         m1_bunching: data.m1_bunching || null,
+        m1_inputs_db: data.m1_inputs || {},
         date_of_birth: empDob || null,
         scale: scaleValue || "",
         last_pay: pay || "",
@@ -497,7 +513,18 @@ export default function Methodology2OldAge({ familyMode = false }) {
         err.response?.data?.error ||
         err.response?.data?.message ||
         "Could not load employee.";
-      alert(msg);
+      if (err.response?.data?.compulsory_retirement) {
+        setBlockedMsg(`Employee ${trimmed}: ${msg}`);
+        setPrintMaster(null);
+        setEmployeeName("");
+        setRetirementDate("");
+        setScale("");
+        setLastPay("");
+        setPayStages([]);
+        setOldageBenefit(null);
+      } else {
+        alert(msg);
+      }
     } finally {
       setLoadingEmployee(false);
     }
@@ -1398,6 +1425,11 @@ export default function Methodology2OldAge({ familyMode = false }) {
                       {loadingEmployee ? "Loading..." : "Load"}
                     </button>
                   </div>
+                  {blockedMsg ? (
+                    <div className="alert alert-danger fw-semibold py-2 mt-2 mb-0" role="alert">
+                      {blockedMsg}
+                    </div>
+                  ) : null}
                   {searchMatches.length ? (
                     <div className="border rounded p-2 mt-2 bg-light">
                       <div className="small fw-semibold mb-1">

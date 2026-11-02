@@ -150,6 +150,24 @@ table.m2-consol-print__cpi-card td {
   width: 28% !important;
 }
 
+/* Doctor consolidation: Pay | NPA | Total in each revision block. */
+table.m2-consol-print__cpi-card col.amt-split-col {
+  width: 16%;
+}
+
+.m2-consol-print__cpi-card td.amt-split,
+.m2-consol-print__cpi-card th.amt-split {
+  text-align: center !important;
+  white-space: nowrap !important;
+  width: 16% !important;
+}
+
+.m2-consol-print__cpi-card th {
+  border: 1px solid #333 !important;
+  padding: 1px 4px !important;
+  font-weight: 700 !important;
+}
+
 .m2-consol-print__cpi-card tr {
   break-inside: avoid;
   page-break-inside: avoid;

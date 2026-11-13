@@ -6,7 +6,9 @@ Starting-scale pay (607 slab / 30%) is rounded up before the next CPI.
 Pay-protect minimums apply to final notional after fitment, not starting pay.
 """
 
+import contextvars
 import math
+from contextlib import contextmanager
 
 from methodology1.services.parallel_cpi_service import (
     CPI_1030_REVISION,
@@ -44,6 +46,39 @@ def _round2(value):
     return round(float(value) + 1e-9, 2)
 
 
+# CR 06-11-2026 (M2 "M1 calculation"): run the same chain on the full last pay.
+# Off by default, so Methodology-1 family pension is unchanged. When on, the
+# starting 30% / 607 slab (and its slab minimums) is skipped; every later step
+# (DA, fitment, 1708 DA cap, pay-protect minimums) stays exactly as it is.
+_FULL_PAY_CHAIN = contextvars.ContextVar("m1_full_pay_chain", default=False)
+_CHAIN_TRACE = contextvars.ContextVar("m1_chain_trace", default=None)
+
+
+@contextmanager
+def full_pay_chain(trace=None):
+    """Use the full last pay as the starting stage; optionally record each stage."""
+    token = _FULL_PAY_CHAIN.set(True)
+    trace_token = _CHAIN_TRACE.set(trace)
+    try:
+        yield trace
+    finally:
+        _FULL_PAY_CHAIN.reset(token)
+        _CHAIN_TRACE.reset(trace_token)
+
+
+def _initial_share(pay, share):
+    """Starting stage: pay x share normally, the pay itself in a full-pay chain."""
+    if _FULL_PAY_CHAIN.get():
+        return _round2(pay)
+    return _round2(pay * share)
+
+
+def _trace(stage, **values):
+    trace = _CHAIN_TRACE.get()
+    if trace is not None:
+        trace.append({"stage": stage, **values})
+
+
 def _round_up_whole_rupee(value):
     return math.ceil(float(value))
 
@@ -77,6 +112,8 @@ def get_607_pay(last_pay):
     pay = float(last_pay)
     if pay <= 0:
         return None
+    if _FULL_PAY_CHAIN.get():
+        return _round2(pay)
     if pay <= 1499:
         return max(_round2(pay * 0.30), MIN_PAY_30)
     if 1500 < pay <= 3000:
@@ -104,7 +141,7 @@ def get_607_direct_1030_chain_pay(last_pay, scales=None):
         pay = float(mapped)
     if pay <= 0:
         return None
-    return _round_up_whole_rupee(_round2(pay * 0.30))
+    return _round_up_whole_rupee(_initial_share(pay, 0.30))
 
 
 def _resolve_607_chain_pay(
@@ -143,7 +180,7 @@ def separation_scale_chain_pay(
         )
         return get_607_chain_pay(base)
     if card in MIN_PAY_PROTECT:
-        return _round_up_whole_rupee(_round2(float(last_pay) * 0.30))
+        return _round_up_whole_rupee(_initial_share(float(last_pay), 0.30))
     return None
 
 
@@ -158,7 +195,7 @@ def compute_1708_notional(
 ):
     scale_card = _map_scale_to_card(scale_revision)
     if scale_card == CPI_1708_REVISION:
-        return _round_up_whole_rupee(_round2(float(last_pay) * 0.30))
+        return _round_up_whole_rupee(_initial_share(float(last_pay), 0.30))
     if scale_card not in (CPI_607_REVISION, CPI_1030_REVISION):
         if not (
             separation_date
@@ -176,7 +213,9 @@ def compute_1708_notional(
     da = _da_relief_1708(pay)
     fitment = _round2(pay * 0.43)
     notional = _round_up_whole_rupee(pay + da + fitment)
-    return _protect_notional(notional, CPI_1708_REVISION)
+    result = _protect_notional(notional, CPI_1708_REVISION)
+    _trace(CPI_1708_REVISION, pay=pay, da=da, fitment=fitment, notional=result)
+    return result
 
 
 def first_chain_stage_pay(
@@ -221,7 +260,9 @@ def compute_126_notional(
     da = _round2(pay * 0.782)
     fitment = _round2((pay + da) * 0.23)
     notional = _round_up_whole_rupee(pay + da + fitment)
-    return _protect_notional(notional, "2007(126 CPI)")
+    result = _protect_notional(notional, "2007(126 CPI)")
+    _trace("2007(126 CPI)", pay=pay, da=da, fitment=fitment, notional=result)
+    return result
 
 
 # --- 198 ----------------------------------------------------------------
@@ -248,7 +289,9 @@ def compute_198_notional(
     da = _round2(pay * 0.5714)
     fitment = _round2((pay + da) * 0.105)
     notional = _round_up_whole_rupee(pay + da + fitment)
-    return _protect_notional(notional, "2012(198 CPI)")
+    result = _protect_notional(notional, "2012(198 CPI)")
+    _trace("2012(198 CPI)", pay=pay, da=da, fitment=fitment, notional=result)
+    return result
 
 
 # --- 277 ----------------------------------------------------------------
@@ -281,6 +324,7 @@ def compute_277(
     fitment = _round2((pay + da) * 0.106)
     raw_notional = _round_up_whole_rupee(pay + da + fitment)
     notional = _protect_notional(raw_notional, CPI_277_REVISION)
+    _trace(CPI_277_REVISION, pay=pay, da=da, fitment=fitment, notional=notional)
     return {
         "pay": pay,
         "da": da,
@@ -314,6 +358,7 @@ def compute_359(
         if pay is None:
             return None
         notional = _protect_notional(pay, CPI_359_REVISION)
+        _trace(CPI_359_REVISION, pay=pay, da=0, fitment=0, notional=notional)
         return {
             "pay": pay,
             "da": 0,
@@ -340,6 +385,7 @@ def compute_359(
     fitment = _round2((pay + da) * 0.085)
     raw_notional = _round_up_whole_rupee(pay + da + fitment)
     notional = _protect_notional(raw_notional, CPI_359_REVISION)
+    _trace(CPI_359_REVISION, pay=pay, da=da, fitment=fitment, notional=notional)
     return {
         "pay": pay,
         "da": da,

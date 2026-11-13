@@ -102,6 +102,7 @@ def calculate_doctor_class12(
     tqs_yr=None,
     tqs_month=None,
     tqs_days=None,
+    retirement_type=None,
 ):
     basic = _number(basic)
     npa = _number(npa, allow_zero=True) or 0.0
@@ -120,6 +121,8 @@ def calculate_doctor_class12(
             tqs_yr=tqs_yr,
             tqs_month=tqs_month,
             tqs_days=tqs_days,
+            # CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+            retirement_type=retirement_type,
         )
         if not result.get("error"):
             result.update(npa_split=False, note=NO_SPLIT_NOTE)
@@ -142,6 +145,8 @@ def calculate_doctor_class12(
         tqs_yr=tqs_yr,
         tqs_month=tqs_month,
         tqs_days=tqs_days,
+        # CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+        retirement_type=retirement_type,
     )
 
     start_scale = scale_row.get(SCALE_COLUMNS[start])
@@ -177,6 +182,7 @@ def calculate_doctor_class34(
     tqs_yr=None,
     tqs_month=None,
     tqs_days=None,
+    retirement_type=None,
 ):
     """Class 3/4: pay matrix steps — combined pay, as before."""
     from methodology2.services.calculation_service import calculate_revision
@@ -198,6 +204,8 @@ def calculate_doctor_class34(
         tqs_yr=tqs_yr,
         tqs_month=tqs_month,
         tqs_days=tqs_days,
+        # CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+        retirement_type=retirement_type,
     )
     return {
         "rows": result.get("rows", []),

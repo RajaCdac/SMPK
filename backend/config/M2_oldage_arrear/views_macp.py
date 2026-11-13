@@ -33,6 +33,8 @@ class MacpCalculateView(APIView):
             tqs_yr=request.data.get("tqs_yr"),
             tqs_month=request.data.get("tqs_month"),
             tqs_days=request.data.get("tqs_days"),
+            # CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+            retirement_type=request.data.get("retirement_type"),
         )
         if result.get("error"):
             return Response(result, status=status.HTTP_400_BAD_REQUEST)

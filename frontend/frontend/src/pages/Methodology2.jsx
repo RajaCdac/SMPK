@@ -89,6 +89,8 @@ export default function Methodology2() {
           tqs_yr: printMaster?.tqs_yr,
           tqs_month: printMaster?.tqs_month,
           tqs_days: printMaster?.tqs_days,
+          // CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+          retirement_type: printMaster?.retirement_type,
         });
         setCalculationRows(res.data.rows || []);
         setPensionSummary(res.data.pension || null);
@@ -116,6 +118,8 @@ export default function Methodology2() {
         tqs_yr: printMaster?.tqs_yr,
         tqs_month: printMaster?.tqs_month,
         tqs_days: printMaster?.tqs_days,
+        // CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+        retirement_type: printMaster?.retirement_type,
       });
       setClass12Result(res.data);
     } catch (err) {
@@ -201,6 +205,8 @@ export default function Methodology2() {
         m1_family_pension_277: data.m1_family_pension_277 ?? null,
         m1_family_pension_359: data.m1_family_pension_359 ?? null,
         m1_bunching: data.m1_bunching || null,
+        // CR 12-11-2026 (emp 46913): family (30%) M1 missing in the DB — asked.
+        family_m1_missing: data.family_m1_missing || [],
       });
 
       const sepDate = data.separation_date;

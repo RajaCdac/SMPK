@@ -124,15 +124,10 @@ def _apply_oldage_print_columns(result: dict, payload: dict | None = None) -> di
             result.get("is_employee_pension", existing.get("is_employee_pension"))
         )
         if not is_emp:
-            merged["has_oldage_calc_table"] = False
-            merged["has_oldage_split"] = False
             merged["section_title"] = existing.get("section_title") or "FAMILY PENSION"
             merged["is_employee_pension"] = False
-            dob = resolve_oldage_dob(
-                payload,
-                result,
-                str(result.get("emp_cd") or "").strip()[:5],
-            )
+            emp_cd = str(result.get("emp_cd") or "").strip()[:5]
+            dob = resolve_oldage_dob(payload, result, emp_cd)
             if dob:
                 from M2_oldage_arrear.services.oldage_print_columns import (
                     _month_label,
@@ -143,6 +138,24 @@ def _apply_oldage_print_columns(result: dict, payload: dict | None = None) -> di
                 merged["family_pensioner_dob"] = dob.isoformat()
                 merged["oldage_wef_80"] = wef80.isoformat()
                 merged["oldage_wef_80_display"] = _month_label(wef80)
+            # CR 02-11-2026 (emp 26089): old age was switched off for every
+            # death-split case. The employee period now uses the employee's DOB
+            # (80 before death) and the family period the family pensioner's DOB.
+            from M2_oldage_arrear.services.oldage_print_columns import (
+                apply_oldage_to_death_split_columns,
+            )
+
+            emp_dob = _as_date(
+                payload.get("date_of_birth") or result.get("date_of_birth")
+            ) or (fetch_employee_dob(emp_cd) if emp_cd else None)
+            merged["columns"] = apply_oldage_to_death_split_columns(
+                existing_cols, employee_dob=emp_dob, family_dob=dob
+            )
+            has_oa = any(
+                float(c.get("oldage_percent") or 0) > 0 for c in merged["columns"]
+            )
+            merged["has_oldage_calc_table"] = has_oa
+            merged["has_oldage_split"] = has_oa
         result["pension_comparison"] = merged
         emp = str(result.get("emp_cd") or "").strip()[:5]
         if emp:

@@ -187,6 +187,16 @@ table.m2-consol-print__fp-wrap {
   display: table !important;
 }
 
+/* CR 12-11-2026 (emp 21908): DA slab is a reference table — 30% of the page. */
+table.m2-consol-print__fp-wrap.m2-consol-print__slab-wrap {
+  width: 30% !important;
+}
+
+/* Slab title sits over the left-aligned slab table, not centred. */
+.m2-consol-print__fp-title.m2-consol-print__slab-title {
+  text-align: left !important;
+}
+
 table.m2-consol-print__fp-wrap td.wrap-cell {
   border: none !important;
   padding: 0 !important;

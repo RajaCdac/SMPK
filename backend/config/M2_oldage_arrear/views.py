@@ -126,6 +126,18 @@ class EmployeeLookupView(APIView):
                 )
             except Exception:
                 data["m1_inputs"] = {}
+            # CR 12-11-2026 (emp 46913): family (30%) M1 not in the database —
+            # the consolidation prompt asks for these before saving.
+            try:
+                from methodology2.services.consolidation_service import (
+                    family_m1_missing_for_lookup,
+                )
+
+                data["family_m1_missing"] = family_m1_missing_for_lookup(
+                    master, category=data.get("category")
+                )
+            except Exception:
+                data["family_m1_missing"] = []
             if not data.get("date_of_birth"):
                 dob = fetch_employee_dob(emp_id)
                 data["date_of_birth"] = dob.isoformat() if dob else None
@@ -297,8 +309,10 @@ class OldAgeBenefitView(APIView):
                 m2_emp_359=m2_emp_359,
                 m2_fam_277=m2_fam_277,
                 m2_fam_359=m2_fam_359,
-                family_pensioner_name=wage.get("pensioner_name")
-                or data.get("pensioner_name")
+                # CR 10-11-2026: name typed on the family header form must win
+                # over the wage table, else the print shows the name at form load.
+                family_pensioner_name=data.get("pensioner_name")
+                or wage.get("pensioner_name")
                 or "",
                 double_fpension_upto=pick("double_fpension_upto"),
                 enhanced_family_pension=wage.get("enhanced_family_pension"),
@@ -325,6 +339,7 @@ class OldAgeBenefitView(APIView):
             if not is_emp:
                 cmp["has_oldage_calc_table"] = False
                 cmp["has_oldage_split"] = False
+            fp_dob = None
             fp_dob_raw = data.get("family_pensioner_dob") or wage.get(
                 "family_pensioner_dob"
             )
@@ -341,6 +356,28 @@ class OldAgeBenefitView(APIView):
                 if fp_dob:
                     cmp["family_pensioner_dob"] = fp_dob.isoformat()
                     cmp["family_pensioner_dob_display"] = _format_dod_display(fp_dob)
+            if not is_emp:
+                # CR 02-11-2026 (emp 26089): preview must match the saved print —
+                # employee columns by employee DOB, family columns by family DOB.
+                from M2_oldage_arrear.services.consolidation_bridge import (
+                    fetch_employee_dob,
+                )
+                from M2_oldage_arrear.services.oldage_print_columns import (
+                    apply_oldage_to_death_split_columns,
+                )
+                from M2_oldage_arrear.services.oldage_service import _as_date as _oa_date
+
+                emp_dob = _oa_date(data.get("date_of_birth")) or (
+                    fetch_employee_dob(emp_id) if emp_id else None
+                )
+                cmp["columns"] = apply_oldage_to_death_split_columns(
+                    cmp.get("columns") or [], employee_dob=emp_dob, family_dob=fp_dob
+                )
+                has_oa = any(
+                    float(c.get("oldage_percent") or 0) > 0 for c in cmp["columns"]
+                )
+                cmp["has_oldage_calc_table"] = has_oa
+                cmp["has_oldage_split"] = has_oa
             result["pension_comparison"] = cmp
             return result
 

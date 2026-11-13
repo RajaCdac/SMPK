@@ -252,6 +252,7 @@ def calculate_macp(
     tqs_yr=None,
     tqs_month=None,
     tqs_days=None,
+    retirement_type=None,
 ) -> dict:
     options = macp_options(retirement_date)
     if options.get("error"):
@@ -287,6 +288,8 @@ def calculate_macp(
         tqs_yr=tqs_yr,
         tqs_month=tqs_month,
         tqs_days=tqs_days,
+        # CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+        retirement_type=retirement_type,
     )
     scales = _equivalent_from(track, revision)
     return {

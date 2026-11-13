@@ -86,6 +86,8 @@ export default function Methodology2Macp() {
         tqs_yr: printMaster?.tqs_yr,
         tqs_month: printMaster?.tqs_month,
         tqs_days: printMaster?.tqs_days,
+        // CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+        retirement_type: printMaster?.retirement_type,
       });
       setCalculationRows(res.data.rows || []);
       setPensionSummary(res.data.pension || null);

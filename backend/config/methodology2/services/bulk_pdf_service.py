@@ -549,6 +549,9 @@ def _build_print_context(snapshot: dict) -> dict:
         "m1_particulars": m1_particulars,
         "show_oldage_calc": show_oldage_calc,
         "blocks": blocks,
+        # CR 12-11-2026 (emp 21908): DA slab under the consolidation when a
+        # class 1/2 block uses "D.A (As per Slab)*".
+        "da_slab_rows": _da_slab_rows_if_used(blocks),
         "print_title": (
             "Consolidation of Pension as per Methodology-2 and comparison "
             "between M-1 & M-2 for 2017"
@@ -559,6 +562,28 @@ def _build_print_context(snapshot: dict) -> dict:
             )
         ),
     }
+
+
+def _da_slab_rows_if_used(blocks) -> list[dict]:
+    from methodology2.services.class1_2_service import class12_da_slab_rows
+    from methodology2.services.consolidation_service import CLASS12_DA_SLAB_MARK
+
+    used = any(
+        CLASS12_DA_SLAB_MARK in str(row.get("description") or "")
+        for block in blocks or []
+        for row in block.get("rows") or []
+    )
+    if not used:
+        return []
+    return [
+        {
+            "range": f"{r['min']:,} – {r['max']:,}" if r["max"] < 10000000 else f"{r['min']:,} and above",
+            # 2697.5 stays 2,697.50 (not rounded to 2,698).
+            "slab": f"{r['slab']:,.2f}" if r["slab"] % 1 else f"{r['slab']:,.0f}",
+            "rate": f"{r['rate_pct']:g}%",
+        }
+        for r in class12_da_slab_rows()
+    ]
 
 
 def render_consolidation_html(snapshot: dict) -> str:

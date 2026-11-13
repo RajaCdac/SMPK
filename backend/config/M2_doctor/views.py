@@ -73,6 +73,8 @@ class DoctorCalculateView(APIView):
             "tqs_yr": data.get("tqs_yr"),
             "tqs_month": data.get("tqs_month"),
             "tqs_days": data.get("tqs_days"),
+            # CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+            "retirement_type": data.get("retirement_type"),
         }
         try:
             if category in ("1", "2"):

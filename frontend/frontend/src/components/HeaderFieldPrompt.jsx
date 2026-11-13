@@ -130,11 +130,25 @@ export function missingConsolidationHeaderFields(master, answered, amounts) {
         type: "category",
       });
     }
+    // CR 12-11-2026 (emp 46913): a family (30%) print column with no M1 in the
+    // database is asked by itself (never worked out from the employee pension).
+    const familyM1 = (master?.family_m1_missing || []).filter(
+      (key) => !key.startsWith("359") || category === "3" || category === "4"
+    );
+    const familyM1Cpis = new Set(familyM1.map((key) => key.split("_")[0]));
     FAMILY_AMOUNT_FIELDS.forEach((spec) => {
       if (spec.key.endsWith("359") && category !== "3" && category !== "4") {
         return;
       }
+      if (familyM1Cpis.has(spec.key.split("_")[1])) return;
       specs.push(spec);
+    });
+    familyM1.forEach((key) => {
+      specs.push({
+        key: `fm1_${key}`,
+        label: `Family pension M1@${key.split("_")[0]} (30%)`,
+        type: "number",
+      });
     });
   }
   return specs.filter((spec) => {
@@ -150,6 +164,9 @@ export function missingConsolidationHeaderFields(master, answered, amounts) {
     }
     if (spec.key === "m1_277" || spec.key === "m1_359") {
       return amountMissing(master, spec.key);
+    }
+    if (spec.key.startsWith("fm1_")) {
+      return isBlank(master?.m1_inputs?.[spec.key.slice(4)]);
     }
     return isBlank(master?.[spec.key]);
   });
@@ -292,6 +309,12 @@ function draftStateForField(master, field) {
 function patchFromAnswers(overrides) {
   const patch = {};
   Object.entries(overrides || {}).forEach(([key, value]) => {
+    // CR 12-11-2026 (emp 46913): typed family (30%) M1 goes on that print
+    // column through m1_inputs (e.g. {"359_30": 27300}).
+    if (key.startsWith("fm1_")) {
+      patch.m1_inputs = { ...(patch.m1_inputs || {}), [key.slice(4)]: value };
+      return;
+    }
     if (key === "tqs") {
       if (value == null) {
         patch.tqs = "";
@@ -610,6 +633,15 @@ export function useConsolidationHeaderPrompt({
       setPrompt((prev) => ({
         ...prev,
         error: "Choose class 1, 2, 3 or 4.",
+      }));
+      return;
+    }
+    // CR 12-11-2026 (emp 46913): family M1 is required — the consolidation
+    // cannot be saved without it, and it is never calculated.
+    if (useNull && String(field.key || "").startsWith("fm1_")) {
+      setPrompt((prev) => ({
+        ...prev,
+        error: "Family pension M1 is not in the database. Enter it from the file.",
       }));
       return;
     }

@@ -80,9 +80,15 @@ def _pension_obj(emp: str):
     from methodology2.models import Methodology2Consolidation
 
     met2 = Methodology2Consolidation.objects.filter(emp_cd=emp).first()
-    if met2 is not None:
-        return met2
-    return M2OldageArrearConsolidation.objects.filter(emp_cd=emp).first()
+    oa = M2OldageArrearConsolidation.objects.filter(emp_cd=emp).first()
+    # CR 12-11-2026 (emp 46913): same pick as the arrear — the one saved last.
+    if met2 is not None and oa is not None:
+        def saved_at(obj):
+            return getattr(obj, "updated_at", None) or getattr(obj, "created_at", None)
+
+        m2_at, oa_at = saved_at(met2), saved_at(oa)
+        return oa if (oa_at and (not m2_at or oa_at > m2_at)) else met2
+    return met2 or oa
 
 
 def _num(value):
@@ -122,6 +128,8 @@ def _identity(emp: str) -> dict:
     if obj is None:
         return {
             "name": "",
+            "case_no": "",
+            "roll_no": "",
             "retirement_date": "",
             "class_label": "",
             "designation": "",
@@ -132,6 +140,9 @@ def _identity(emp: str) -> dict:
     retired = getattr(obj, "retirement_date", None)
     return {
         "name": str(getattr(obj, "name", "") or ""),
+        # CR 03-11-2026: case / roll no are columns of the class-wise arrear templates.
+        "case_no": str(getattr(obj, "case_no", "") or ""),
+        "roll_no": str(getattr(obj, "roll_no", "") or ""),
         "retirement_date": _dmy(retired),
         "class_label": _class_label(getattr(obj, "category", "")),
         "designation": str(getattr(obj, "designation", "") or ""),
@@ -210,12 +221,13 @@ def _short_month(d: date) -> str:
     return f"{_FULL_MONTH[d.month - 1][:3]} {d.year}"
 
 
-def _payment_periods(from_month, from_year, to_month, to_year) -> list[dict]:
+def _payment_periods(from_month, from_year, to_month, to_year, class_grp=None) -> list[dict]:
     """
     One block per DA change inside the payment window.
 
     May–Jun stays one block and Jul–Sep stays the next when DA changes in July.
     An old-age start in June does not open another block.
+    class_grp: 1 (class 1/2) or 3 (class 3/4) — only that group's DA changes.
     """
     from M2_oldage_arrear.services.da_service import da_wef_dates
 
@@ -223,7 +235,8 @@ def _payment_periods(from_month, from_year, to_month, to_year) -> list[dict]:
     end = date(int(to_year), int(to_month), 1)
     last = _month_end(end)
     points = {start}
-    for grp in (1, 3):
+    # CR 03-11-2026: class-wise sheets split only at their own DA changes.
+    for grp in ((class_grp,) if class_grp else (1, 3)):
         for wef in da_wef_dates(grp, start, last):
             points.add(date(wef.year, wef.month, 1))
     ordered = [p for p in sorted(points) if start <= p <= end]
@@ -274,9 +287,12 @@ def _amounts_by_period(lines: list[dict], periods: list[dict]) -> dict:
         if ids and len(set(ids)) == 1 and ids[0]:
             pid = ids[0]
             count = int(line.get("months") or len(months))
-            totals[pid]["oa"] = _money(
-                totals[pid]["oa"] + float(line.get("oldage_benefit") or 0) * count
-            )
+            # CR 12-11-2026: oldage_arrear has the day-split change-over month
+            # (enhanced → family); old-age × months only for older results.
+            oa_paid = line.get("oldage_arrear")
+            if oa_paid is None:
+                oa_paid = float(line.get("oldage_benefit") or 0) * count
+            totals[pid]["oa"] = _money(totals[pid]["oa"] + float(oa_paid))
             totals[pid]["basic"] = _money(
                 totals[pid]["basic"] + float(line.get("pension_arrear") or 0)
             )
@@ -567,6 +583,561 @@ def _write_row(ws, excel_row: int, sl_no: int, row: dict, periods: list[dict], p
         cell.border = _THIN
 
 
+# ---------------------------------------------------------------------------
+# CR 03-11-2026: arrear Excel in 4 report types. One uploaded list can mix
+# classes and pension types, so each row is routed to its type's sheet.
+# A type with "columns" uses its own template; a type without one keeps the
+# generic layout above until its format is given.
+# ---------------------------------------------------------------------------
+
+_TITLE_FILL = PatternFill("solid", fgColor="1F4E79")
+_TITLE_FONT = Font(bold=True, color="FFFFFF", size=12)
+_COL_HEAD_FONT = Font(bold=True, color="000000", size=9)
+_M1M2_FILL = PatternFill("solid", fgColor="CCC0DA")
+_BENEFIT_FILL = PatternFill("solid", fgColor="FFC000")
+_BILL_FILL = PatternFill("solid", fgColor="5B9BD5")
+
+
+def _month_word(d: date) -> str:
+    """May, June, July stay whole; longer names are cut (Aug, Sep, Oct) — as on the bill."""
+    full = _FULL_MONTH[d.month - 1]
+    return full if len(full) <= 4 else full[:3]
+
+
+def _period_words(period: dict, with_year: bool = True) -> str:
+    """'May & June 2026', 'July, Aug & Sep 2026', 'Oct 2026'."""
+    months = []
+    cursor = period["from"]
+    while cursor <= period["to"]:
+        months.append(cursor)
+        cursor = _add_month(cursor)
+    if len({m.year for m in months}) > 1:
+        names = [f"{_month_word(m)} {m.year}" for m in months]
+        year = ""
+    else:
+        names = [_month_word(m) for m in months]
+        year = f" {months[0].year}" if with_year and months else ""
+    if len(names) == 1:
+        text = names[0]
+    else:
+        text = ", ".join(names[:-1]) + " & " + names[-1]
+    return text + year
+
+
+def _da_header(periods: list[dict], class_grp: int, cpi: str) -> str:
+    from M2_oldage_arrear.services.da_service import lookup_da_pct
+
+    parts = [
+        f"For {_period_words(p, with_year=False)} @ {_pct_text(lookup_da_pct(class_grp, cpi, p['from']))} %"
+        for p in periods
+    ]
+    return "DA as per applicable % (" + ", ".join(parts) + ")"
+
+
+def _row_months(row: dict) -> int:
+    return sum(int(line.get("months") or 0) for line in row.get("lines") or [])
+
+
+def _payment_tail_values(row: dict, periods: list[dict], phase: str, paid_upto: str) -> list:
+    """Old-age diff / basic+OA per DA period, DA, months, bill, phase … (all 4 types)."""
+    amounts = _amounts_by_period(row.get("lines") or [], periods)
+    oa = [(amounts.get(p["id"]) or {}).get("oa", 0) for p in periods]
+    basic = [(amounts.get(p["id"]) or {}).get("basic", 0) for p in periods]
+    return [
+        *[("money", v) for v in oa],
+        *[("money", v) for v in basic],
+        ("money", row.get("da_relief")),
+        _row_months(row),
+        ("money", row.get("total")),
+        phase or "",
+        paid_upto,
+        "",
+        "",
+        _not_eligible_remark(row),
+    ]
+
+
+def _not_eligible_remark(row: dict) -> str:
+    """CR 03-11-2026: M-I above M-II (negative benefit) months are not paid.
+
+    Whole window not payable → 'Not eligible for M2 benefit'; only some months →
+    the same text with those months.
+    """
+    lines = row.get("lines") or []
+    unpaid = [line for line in lines if line.get("not_payable")]
+    if not unpaid:
+        return ""
+    if len(unpaid) == len(lines):
+        return "Not eligible for M2 benefit"
+    spans = ", ".join(
+        line.get("from_label") if line.get("from_label") == line.get("to_label")
+        else f"{line.get('from_label')} - {line.get('to_label')}"
+        for line in unpaid
+    )
+    return f"Not eligible for M2 benefit ({spans})"
+
+
+def _payment_tail_columns(periods: list[dict], class_grp: int, cpi: str) -> list[dict]:
+    cols = [
+        {"title": f"Total Diff amt of Old Age benefit for {_period_words(p)}", "width": 12}
+        for p in periods
+    ]
+    cols += [
+        {"title": f"Total Basic & Old Age Benefit for {_period_words(p)}", "width": 13, "role": "basic_oa"}
+        for p in periods
+    ]
+    cols += [
+        {"title": _da_header(periods, class_grp, cpi), "width": 24, "role": "da"},
+        {"title": "No. of Months of Payment", "width": 9},
+        # CR 03-11-2026: bill = ROUND(basic & old age + DA, 0) as an Excel formula.
+        {"title": "Total Bill Amount", "width": 14, "fill": _BILL_FILL, "role": "bill"},
+        {"title": "Phase", "width": 9},
+        {"title": "Arrear to be paid upto", "width": 13},
+        {"title": "Abstract No.", "width": 11},
+        {"title": "Abstract Date", "width": 11},
+        {"title": "Remarks", "width": 18, "align": "left"},
+    ]
+    return cols
+
+
+def _class12_employee_values(row: dict, periods: list[dict], phase: str, paid_upto: str) -> list:
+    """Cells for the class 1/2 employee-pension template (same order as its columns)."""
+    pair = row.get("pair") or {}
+    return [
+        row.get("name") or "",
+        row.get("case_no") or "",
+        row.get("roll_no") or "",
+        row.get("emp_cd") or "",
+        row.get("retirement_date") or "",
+        row.get("tqs") or "",
+        row.get("class_label") or "",
+        row.get("designation") or "",
+        ("money", row.get("last_pay")),
+        row.get("scale") or "",
+        ("money", pair.get("m1")),
+        ("money", pair.get("m2")),
+        pair.get("beneficial") or "",
+        ("money", pair.get("benefit")),
+        *_payment_tail_values(row, periods, phase, paid_upto),
+    ]
+
+
+def _class12_employee_columns(periods: list[dict]) -> list[dict]:
+    cols = [
+        {"title": "Emp Name(Pensioner Name)", "width": 28, "align": "left"},
+        {"title": "Case No", "width": 10},
+        {"title": "Roll No.", "width": 12},
+        {"title": "Emp Code", "width": 10},
+        {"title": "Retirement Date", "width": 12},
+        {"title": "TQS", "width": 16},
+        {"title": "Class", "width": 7},
+        {"title": "Designation", "width": 22, "align": "left"},
+        {"title": "Pay(Revised) at the time of retirement", "width": 13},
+        {"title": "Pay Scale at the time of retirement", "width": 24, "align": "left"},
+        {"title": "Basic Pension amt as per M-I in 2017 (277 CPI)", "width": 15, "fill": _M1M2_FILL},
+        {"title": "Revised Basic Pension amt as per M-II in 2017 (277 CPI)", "width": 15, "fill": _M1M2_FILL},
+        {"title": "Beneficial under M-I or M-2", "width": 9, "fill": _M1M2_FILL},
+        {"title": "Basic Pension Amt of Benefit (PM) Excluding DA", "width": 14, "fill": _BENEFIT_FILL},
+    ]
+    return cols + _payment_tail_columns(periods, 1, "277")
+
+
+def _class34_employee_values(row: dict, periods: list[dict], phase: str, paid_upto: str) -> list:
+    """Class 3/4 employee: 2017 (277) and 2022 (359) M-I / M-II blocks."""
+    emp = row.get("emp_cd") or ""
+    columns = _comparison_columns(emp)
+    return [
+        row.get("name") or "",
+        row.get("case_no") or "",
+        row.get("roll_no") or "",
+        emp,
+        row.get("retirement_date") or "",
+        row.get("tqs") or "",
+        row.get("class_label") or "",
+        row.get("designation") or "",
+        ("money", row.get("last_pay")),
+        row.get("scale") or "",
+        *_kind_block(columns, "employee", 277, row.get("lines")),
+        *_kind_block(columns, "employee", 359, row.get("lines")),
+        *_payment_tail_values(row, periods, phase, paid_upto),
+    ]
+
+
+def _class34_employee_columns(periods: list[dict]) -> list[dict]:
+    m1m2 = {"width": 15, "fill": _M1M2_FILL}
+    benefit = {"width": 14, "fill": _BENEFIT_FILL}
+    ben = {"title": "Beneficial under M-1 or M-2", "width": 9, "fill": _M1M2_FILL}
+    cols = [
+        {"title": "Emp Name(Pensioner Name)", "width": 28, "align": "left"},
+        {"title": "Case No", "width": 10},
+        {"title": "Roll No.", "width": 12},
+        {"title": "Emp Code", "width": 10},
+        {"title": "Retirement Date", "width": 12},
+        {"title": "TQS", "width": 16},
+        {"title": "Class", "width": 7},
+        {"title": "Designation", "width": 22, "align": "left"},
+        {"title": "Pay(Revised) at the time of retirement", "width": 13},
+        {"title": "Pay Scale at the time of retirement", "width": 24, "align": "left"},
+        {"title": "Basic Pension amt as per M-I in 2017 (277 CPI)", **m1m2},
+        {"title": "Revised Basic Pension amt as per M-II in 2017 (277 CPI)", **m1m2},
+        dict(ben),
+        {"title": "Basic Pension Amt of Benefit (PM) Excluding DA", **benefit},
+        {"title": "Basic Pension amt as per M-I in 2022 (359 CPI)", **m1m2},
+        {"title": "Revised Basic Pension amt as per M-II in 2022 (359 CPI)", **m1m2},
+        dict(ben),
+        {"title": "Basic Pension Amt of Benefit (PM) Excluding DA", **benefit},
+    ]
+    return cols + _payment_tail_columns(periods, 3, "359")
+
+
+def _kind_block(columns: list[dict], kind: str, cpi: int, lines: list[dict] | None = None) -> list:
+    """M-I, M-II, beneficial, benefit (M-II − M-I) of one pension kind at one CPI.
+
+    A kind paid in this window takes the arrear line amounts, so the block
+    matches the bill (15068: family M-I on the print equals the employee
+    pension; the arrear pays on that × 0.6). Otherwise the consolidation
+    column is used; old-age splits repeat the same M-I / M-II, so the first
+    column of that kind is taken. No such period leaves the block blank.
+    """
+    for line in lines or []:
+        if line.get("pension_kind") != kind or str(line.get("cpi")) != str(cpi):
+            continue
+        m1 = _num(line.get("m1"))
+        m2 = _num(line.get("m2"))
+        diff = _num(line.get("pension_diff"))
+        if m1 is not None and m2 is not None:
+            return [("money", m1), ("money", m2), _beneficial(diff), ("money", diff)]
+    for col in columns:
+        try:
+            col_cpi = int(col.get("cpi") or 0)
+        except (TypeError, ValueError):
+            continue
+        if col.get("kind") != kind or col_cpi != cpi:
+            continue
+        m1 = _num(col.get("m1"))
+        m2 = _num(col.get("m2"))
+        diff = round(m2 - m1, 2) if m1 is not None and m2 is not None else None
+        return [("money", m1), ("money", m2), _beneficial(diff), ("money", diff)]
+    return [("money", None), ("money", None), "", ("money", None)]
+
+
+def _family_identity(emp: str) -> dict:
+    obj = _pension_obj(emp)
+    cmp_ = getattr(obj, "pension_comparison", None) if obj is not None else None
+    cmp_ = cmp_ if isinstance(cmp_, dict) else {}
+    return {
+        "family_pensioner_name": str(
+            cmp_.get("family_pensioner_name") or getattr(obj, "pensioner_name", "") or ""
+        ).strip(),
+        "family_pensioner_dob": _dmy(cmp_.get("family_pensioner_dob")),
+        "date_of_death": _dmy(cmp_.get("date_of_death") or getattr(obj, "date_of_death", None)),
+    }
+
+
+def _family_detail_values(row: dict) -> list:
+    """Family pensioner … pay scale cells shared by the two family templates."""
+    emp = row.get("emp_cd") or ""
+    fam = _family_identity(emp)
+    return [
+        fam["family_pensioner_name"],
+        fam["family_pensioner_dob"],
+        row.get("name") or "",
+        row.get("case_no") or "",
+        row.get("roll_no") or "",
+        emp,
+        row.get("retirement_date") or "",
+        fam["date_of_death"],
+        row.get("tqs") or "",
+        row.get("class_label") or "",
+        row.get("designation") or "",
+        ("money", row.get("last_pay")),
+        row.get("scale") or "",
+    ]
+
+
+def _family_detail_columns() -> list[dict]:
+    return [
+        {"title": "Family Pensioner Name", "width": 26, "align": "left"},
+        {"title": "DOB of Family Pensioner", "width": 11},
+        {"title": "Ex-Emp Name", "width": 26, "align": "left"},
+        {"title": "Case No", "width": 10},
+        {"title": "Roll No.", "width": 12},
+        {"title": "Emp Code", "width": 10},
+        {"title": "Retirement Date", "width": 12},
+        {"title": "Date of Death", "width": 12},
+        {"title": "TQS", "width": 16},
+        {"title": "Class", "width": 7},
+        {"title": "Designation", "width": 22, "align": "left"},
+        {"title": "Pay(Revised) at the time of retirement", "width": 13},
+        {"title": "Pay Scale at the time of retirement", "width": 24, "align": "left"},
+    ]
+
+
+def _family_kind_columns(year: str, cpi: int, band: dict | None = None) -> list[dict]:
+    """Employee / enhanced 50% / single 30% blocks for one revision year."""
+    m1m2 = {"width": 15, "fill": _M1M2_FILL}
+    benefit = {"width": 15, "fill": _BENEFIT_FILL}
+    ben = {"title": "Beneficial under M-1 or M-2", "width": 9, "fill": _M1M2_FILL}
+    till = f"(Jan {year} to till date of Death)"
+    cols = [
+        {"title": f"Basic Employee Pension Amt as per M-1 in {year}({cpi} CPI) {till}", **m1m2},
+        {"title": f"Revised Basic Employee Pension amt as per M-2 in {year}({cpi} CPI) {till}", **m1m2},
+        dict(ben),
+        {"title": f"Basic Employee Pension amt of Benefit(PM) excluding DA {till}", **benefit},
+        {"title": f"Basic Family Pension Amt (enhanced i.e. 50%) as per M-1 in {year}({cpi} CPI)", **m1m2},
+        {"title": f"Revised Basic Family Pension Amt(enhanced i.e. 50%) as per M-2 in {year}({cpi} CPI)", **m1m2},
+        dict(ben),
+        {"title": "Enhanced (i.e. 50%) Basic Family Pension amt of Benefit(PM) excluding DA", **benefit},
+        {"title": f"Basic Family Pension Amt (i.e. Single Pension @30%) as per M-1 in {year}({cpi} CPI)", **m1m2},
+        {"title": f"Revised Basic Family Pension Amt(i.e. Single Pension @30%) as per M-2 in {year}({cpi} CPI)", **m1m2},
+        dict(ben),
+        {"title": "Basic Family Pension amt of Benefit(PM) excluding DA (i.e. Single Pension @30%)", **benefit},
+    ]
+    if band:
+        for col in cols:
+            col["band"] = band
+    return cols
+
+
+def _family_kind_values(row: dict, cpi: int) -> list:
+    columns = _comparison_columns(row.get("emp_cd") or "")
+    lines = row.get("lines")
+    return [
+        *_kind_block(columns, "employee", cpi, lines),
+        *_kind_block(columns, "enhanced", cpi, lines),
+        *_kind_block(columns, "family", cpi, lines),
+    ]
+
+
+_BAND_2017 = {"label": "w.e.f. 2017", "fill": PatternFill("solid", fgColor="FFFF00")}
+_BAND_2022 = {"label": "w.e.f. 2022", "fill": PatternFill("solid", fgColor="92D050")}
+
+
+def _class34_family_values(row: dict, periods: list[dict], phase: str, paid_upto: str) -> list:
+    """Class 3/4 family: employee / enhanced / single blocks for 2017 (277) and 2022 (359)."""
+    return [
+        *_family_detail_values(row),
+        *_family_kind_values(row, 277),
+        *_family_kind_values(row, 359),
+        *_payment_tail_values(row, periods, phase, paid_upto),
+    ]
+
+
+def _class34_family_columns(periods: list[dict]) -> list[dict]:
+    return (
+        _family_detail_columns()
+        + _family_kind_columns("2017", 277, _BAND_2017)
+        + _family_kind_columns("2022", 359, _BAND_2022)
+        + _payment_tail_columns(periods, 3, "359")
+    )
+
+
+def _class12_family_values(row: dict, periods: list[dict], phase: str, paid_upto: str) -> list:
+    """Class 1/2 family: employee / enhanced (50%) / single (30%) blocks at 277 CPI."""
+    emp = row.get("emp_cd") or ""
+    fam = _family_identity(emp)
+    columns = _comparison_columns(emp)
+    return [
+        fam["family_pensioner_name"],
+        fam["family_pensioner_dob"],
+        row.get("name") or "",
+        row.get("case_no") or "",
+        row.get("roll_no") or "",
+        emp,
+        row.get("retirement_date") or "",
+        fam["date_of_death"],
+        row.get("tqs") or "",
+        row.get("class_label") or "",
+        row.get("designation") or "",
+        ("money", row.get("last_pay")),
+        row.get("scale") or "",
+        *_kind_block(columns, "employee", 277, row.get("lines")),
+        *_kind_block(columns, "enhanced", 277, row.get("lines")),
+        *_kind_block(columns, "family", 277, row.get("lines")),
+        *_payment_tail_values(row, periods, phase, paid_upto),
+    ]
+
+
+def _class12_family_columns(periods: list[dict]) -> list[dict]:
+    m1m2 = {"width": 15, "fill": _M1M2_FILL}
+    benefit = {"width": 15, "fill": _BENEFIT_FILL}
+    ben = {"title": "Beneficial under M-1 or M-2", "width": 9, "fill": _M1M2_FILL}
+    cols = [
+        {"title": "Family Pensioner Name", "width": 26, "align": "left"},
+        {"title": "DOB of Family Pensioner", "width": 11},
+        {"title": "Ex-Emp Name", "width": 26, "align": "left"},
+        {"title": "Case No", "width": 10},
+        {"title": "Roll No.", "width": 12},
+        {"title": "Emp Code", "width": 10},
+        {"title": "Retirement Date", "width": 12},
+        {"title": "Date of Death", "width": 12},
+        {"title": "TQS", "width": 16},
+        {"title": "Class", "width": 7},
+        {"title": "Designation", "width": 22, "align": "left"},
+        {"title": "Pay(Revised) at the time of retirement", "width": 13},
+        {"title": "Pay Scale at the time of retirement", "width": 24, "align": "left"},
+        {"title": "Basic Employee Pension Amt as per M-1 in 2017(277 CPI) (Jan 2017 to till date of Death)", **m1m2},
+        {"title": "Revised Basic Employee Pension amt as per M-2 in 2017(277 CPI) (Jan 2017 to till date of Death)", **m1m2},
+        dict(ben),
+        {"title": "Basic Employee Pension amt of Benefit(PM) excluding DA (Jan 2017 to till date of Death)", **benefit},
+        {"title": "Basic Family Pension Amt (enhanced i.e. 50%) as per M-1 in 2017(277 CPI)", **m1m2},
+        {"title": "Revised Basic Family Pension Amt(enhanced i.e. 50%) as per M-2 in 2017(277 CPI)", **m1m2},
+        dict(ben),
+        {"title": "Enhanced (i.e. 50%) Basic Family Pension amt of Benefit(PM) excluding DA", **benefit},
+        {"title": "Basic Family Pension Amt (i.e. Single Pension @30%) as per M-1 in 2017(277 CPI)", **m1m2},
+        {"title": "Revised Basic Family Pension Amt(i.e. Single Pension @30%) as per M-2 in 2017(277 CPI)", **m1m2},
+        dict(ben),
+        {"title": "Basic Family Pension amt of Benefit(PM) excluding DA (i.e. Single Pension @30%)", **benefit},
+    ]
+    return cols + _payment_tail_columns(periods, 1, "277")
+
+
+# Order = sheet order. key: (class group, pension) — "12"/"34", "emp"/"fp".
+REPORT_TYPES = (
+    {
+        "key": ("12", "emp"),
+        "sheet": "Class I-II Employee",
+        "title": (
+            "Summary of Consolidation of 1st Pensioner (Class 1 & 2) as per "
+            "Methodology-2 and comparison between M-1 & M-2 for 2017."
+        ),
+        "class_grp": 1,
+        "columns": _class12_employee_columns,
+        "values": _class12_employee_values,
+    },
+    {
+        "key": ("12", "fp"),
+        "sheet": "Class I-II Family",
+        "title": (
+            "Summary of Consolidation of Family Pension(Class 1 & 2) as per "
+            "Methodology-2 and comparison between M-1 & M-2 for 2017."
+        ),
+        "class_grp": 1,
+        "columns": _class12_family_columns,
+        "values": _class12_family_values,
+        "header_height": 120,
+    },
+    {
+        "key": ("34", "emp"),
+        "sheet": "Class III-IV Employee",
+        "title": (
+            "Summary of Consolidation of 1st Pensioner (Class 3 & 4) as per "
+            "Methodology-2 and comparison between M-1 & M-2 for 2017 & 2022."
+        ),
+        "class_grp": 3,
+        "columns": _class34_employee_columns,
+        "values": _class34_employee_values,
+    },
+    {
+        "key": ("34", "fp"),
+        "sheet": "Class III-IV Family",
+        "title": (
+            "Summary of Consolidation of Family Pension as per Methodology-2 "
+            "and comparison between M-1 & M-2 for 2017 & 2022."
+        ),
+        "class_grp": 3,
+        "columns": _class34_family_columns,
+        "values": _class34_family_values,
+        "header_height": 120,
+    },
+)
+
+
+def report_type_key(row: dict) -> tuple[str, str]:
+    """Class group and the pension paid in this window (any family month → family)."""
+    group = "12" if row.get("class12") else "34"
+    kinds = {line.get("pension_kind") for line in row.get("lines") or []}
+    pension = "fp" if kinds & {"family", "enhanced"} else "emp"
+    return group, pension
+
+
+def _write_template_sheet(ws, spec: dict, rows: list[dict], periods: list[dict], phase: str, paid_upto: str):
+    columns = [{"title": "Sl. No.", "width": 6}] + spec["columns"](periods)
+    last_col = len(columns)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_col)
+    title = ws.cell(1, 1, spec["title"])
+    title.fill = _TITLE_FILL
+    title.font = _TITLE_FONT
+    title.alignment = Alignment(vertical="center", horizontal="left")
+    ws.row_dimensions[1].height = 22
+
+    # Type 4 groups its blocks under "w.e.f. 2017" / "w.e.f. 2022" bands: one
+    # band row above the column titles; columns outside a band span both rows.
+    banded = any(meta.get("band") for meta in columns)
+    head_row = 3 if banded else 2
+    if banded:
+        col = 1
+        while col <= last_col:
+            band = columns[col - 1].get("band")
+            if not band:
+                ws.merge_cells(start_row=2, start_column=col, end_row=3, end_column=col)
+                col += 1
+                continue
+            end = col
+            while end + 1 <= last_col and columns[end].get("band") is band:
+                end += 1
+            ws.merge_cells(start_row=2, start_column=col, end_row=2, end_column=end)
+            cell = ws.cell(2, col, band["label"])
+            cell.font = Font(bold=True, size=16)
+            cell.alignment = Alignment(vertical="center", horizontal="center")
+            for c in range(col, end + 1):
+                ws.cell(2, c).fill = band["fill"]
+                ws.cell(2, c).border = _THIN
+            col = end + 1
+        ws.row_dimensions[2].height = 26
+
+    for col, meta in enumerate(columns, start=1):
+        cell = ws.cell(2 if banded and not meta.get("band") else head_row, col, meta["title"])
+        cell.font = _COL_HEAD_FONT
+        cell.alignment = _WRAP
+        cell.border = _THIN
+        if meta.get("fill"):
+            cell.fill = meta["fill"]
+        ws.column_dimensions[get_column_letter(col)].width = meta.get("width", 14)
+    ws.row_dimensions[head_row].height = spec.get("header_height", 78)
+    ws.freeze_panes = f"C{head_row + 1}"
+
+    role_cols = {}
+    for col, meta in enumerate(columns, start=1):
+        if meta.get("role"):
+            role_cols.setdefault(meta["role"], []).append(get_column_letter(col))
+
+    for index, row in enumerate(rows, start=1):
+        excel_row = index + head_row
+        values = [index] + spec["values"](row, periods, phase, paid_upto)
+        for col, value in enumerate(values, start=1):
+            cell = ws.cell(excel_row, col)
+            cell.border = _THIN
+            role = columns[col - 1].get("role") if col - 1 < len(columns) else None
+            if role == "bill" and role_cols.get("basic_oa") and role_cols.get("da"):
+                first, last = role_cols["basic_oa"][0], role_cols["basic_oa"][-1]
+                da = role_cols["da"][0]
+                cell.value = f"=ROUND(SUM({first}{excel_row}:{last}{excel_row})+{da}{excel_row},0)"
+                cell.number_format = "#,##0"
+                cell.alignment = _RIGHT
+                continue
+            if isinstance(value, tuple) and value and value[0] == "money":
+                _put_money(cell, value[1])
+                continue
+            cell.value = value
+            align = columns[col - 1].get("align") if col - 1 < len(columns) else None
+            cell.alignment = (
+                _LEFT if align == "left" else Alignment(vertical="center", horizontal="center")
+            )
+
+
+def _write_generic_sheet(ws, rows: list[dict], periods: list[dict], phase: str, paid_upto: str):
+    _write_header(ws, periods)
+    for index, row in enumerate(rows, start=1):
+        _write_row(ws, index + 2, index, row, periods, phase, paid_upto)
+    widths = {
+        1: 8, 2: 28, 3: 14, 4: 16, 5: 10, 6: 22,
+        7: 18, 8: 28, 9: 16, 10: 16, 11: 16, 12: 10, 13: 16, 14: 16,
+    }
+    for col in range(1, ws.max_column + 1):
+        ws.column_dimensions[get_column_letter(col)].width = widths.get(col, 18)
+
+
 def build_arrear_payment_excel_bytes(
     emp_codes,
     from_month,
@@ -578,32 +1149,33 @@ def build_arrear_payment_excel_bytes(
     batch = calculate_arrear_batch(emp_codes, from_month, from_year, to_month, to_year)
     if batch.get("error"):
         raise ValueError(batch["error"])
-    failed = [row for row in batch["rows"] if not row.get("ok")]
-    if failed:
-        first = failed[0]
-        raise ValueError(f"{first.get('emp_cd')}: {first.get('error')}")
+    # CR 12-11-2026: an employee without a consolidation (or whose arrear
+    # cannot be worked out) is left out of the export instead of stopping it.
     ready = [row for row in batch["rows"] if row.get("ok")]
     if not ready:
         raise ValueError("None of the selected employees have an arrear calculation.")
 
-    periods = _payment_periods(from_month, from_year, to_month, to_year)
     paid = batch["paid_upto"]
     phase_text = str(phase or "").strip()
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Arrear"
-    _write_header(ws, periods)
-    for index, row in enumerate(ready, start=1):
-        _write_row(ws, index + 2, index, row, periods, phase_text, paid)
+    by_type: dict[tuple[str, str], list[dict]] = {}
+    for row in ready:
+        by_type.setdefault(report_type_key(row), []).append(row)
 
-    widths = {
-        1: 8, 2: 28, 3: 14, 4: 16, 5: 10, 6: 22,
-        7: 18, 8: 28, 9: 16, 10: 16, 11: 16, 12: 10, 13: 16, 14: 16,
-    }
-    for col in range(1, ws.max_column + 1):
-        letter = get_column_letter(col)
-        ws.column_dimensions[letter].width = widths.get(col, 18)
+    wb = Workbook()
+    wb.remove(wb.active)
+    for spec in REPORT_TYPES:
+        rows = by_type.get(spec["key"])
+        if not rows:
+            continue
+        periods = _payment_periods(
+            from_month, from_year, to_month, to_year, class_grp=spec["class_grp"]
+        )
+        ws = wb.create_sheet(spec["sheet"])
+        if spec.get("columns"):
+            _write_template_sheet(ws, spec, rows, periods, phase_text, paid)
+        else:
+            _write_generic_sheet(ws, rows, periods, phase_text, paid)
 
     buf = BytesIO()
     wb.save(buf)

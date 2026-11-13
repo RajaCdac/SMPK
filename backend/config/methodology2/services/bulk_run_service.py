@@ -252,6 +252,8 @@ def _process_class12(
             tqs_yr=master.get("tqs_yr"),
             tqs_month=master.get("tqs_month"),
             tqs_days=master.get("tqs_days"),
+            # CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+            retirement_type=master.get("retirement_type"),
         )
     except Exception as exc:
         result["reason"] = f"calc error: {exc}"
@@ -335,6 +337,8 @@ def _process_class34(
             tqs_yr=master.get("tqs_yr"),
             tqs_month=master.get("tqs_month"),
             tqs_days=master.get("tqs_days"),
+            # CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+            retirement_type=master.get("retirement_type"),
         )
     except Exception as exc:
         result["reason"] = f"calc error: {exc}"

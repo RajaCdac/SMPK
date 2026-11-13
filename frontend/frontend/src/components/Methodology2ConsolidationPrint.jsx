@@ -1,5 +1,8 @@
 import "../styles/Methodology2ConsolidationPrint.css";
+import { useEffect, useState } from "react";
+import API from "../services/Api";
 import {
+  CLASS12_DA_SLAB_MARK,
   ensureClass12OpeningBasic,
   formatCardValue,
 } from "../utils/methodology2RevisionCards";
@@ -74,8 +77,13 @@ function class12NotionalizeLastDescription(desc) {
 function class12RoundNote(desc) {
   const text = String(desc || "").trim();
   if (!text || /Rounded to the next 10/i.test(text)) return text;
-  if (/minimum basic/i.test(text)) return text;
+  // CR 12-11-2026: "(minimum / maximum of the scale)", "(fixed at the next stage of
+  // the scale)" replace "(minimum basic)" — scale fixation, not rounding.
+  if (/minimum basic|of the scale/i.test(text)) return text;
   if (/^Basic\s+Pay\s+as\s+on\s+01\.01\.2017$/i.test(text)) return text;
+  // CR 12-11-2026: opening "Basic Pay Over … CPI Points as on 01.01.YYYY" is the
+  // brought-forward basic, not a rounded line.
+  if (/^Basic\s+Pay\s+Over\b.*\bas\s+on\b/i.test(text)) return text;
   if (/Notional/i.test(text) || /Basic Pay Over/i.test(text)) {
     return `${text} (Rounded to the next 10 Rupees)`;
   }
@@ -333,6 +341,65 @@ function columnsForSnapshot(snapshot, comparison) {
  * A4 portrait consolidation print — layout matches bulk PDF (bulk_consolidation.html).
  * When DOD splits a CPI period, comparison table gains extra columns.
  */
+// CR 13-11-2026 (emp 21908): slab rows come from class1_2.xlsx (DA1_1992) via
+// the backend; a fixed copy in the frontend went stale when the sheet changed.
+let daSlabCache = null;
+
+function DaSlabTable() {
+  const [rows, setRows] = useState(daSlabCache);
+  useEffect(() => {
+    if (daSlabCache) return;
+    let alive = true;
+    API.get("methodology2/class12-da-slab/")
+      .then((res) => {
+        daSlabCache = res.data?.rows || [];
+        if (alive) setRows(daSlabCache);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (!rows?.length) return null;
+  return (
+    <>
+      <div className="m2-consol-print__fp-title m2-consol-print__slab-title">
+        * D.A. Slab (1099 CPI)
+      </div>
+      <table className="m2-consol-print__fp-wrap m2-consol-print__slab-wrap">
+        <tbody>
+          <tr>
+            <td className="wrap-cell">
+              <table className="m2-consol-print__fp-table">
+                <thead>
+                  <tr>
+                    <th>Basic Pay (Rs.)</th>
+                    <th>Rate</th>
+                    <th>Sub to Min (Rs.)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((slab) => (
+                    <tr key={slab.min}>
+                      <td className="part">
+                        {slab.max < 10000000
+                          ? `${money(slab.min)} – ${money(slab.max)}`
+                          : `${money(slab.min)} and above`}
+                      </td>
+                      <td className="amt">{slab.rate_pct}%</td>
+                      <td className="amt">{money(slab.slab)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </>
+  );
+}
+
 export default function Methodology2ConsolidationPrint({ snapshot }) {
   if (!snapshot) return null;
 
@@ -834,6 +901,16 @@ export default function Methodology2ConsolidationPrint({ snapshot }) {
               </tbody>
             </table>
           </>
+        ) : null}
+
+        {/* CR 12-11-2026 (emp 21908): slab for "D.A (As per Slab)*". */}
+        {isClass12 &&
+        blocks.some((block) =>
+          (block.rows || []).some((row) =>
+            String(row.description || "").includes(CLASS12_DA_SLAB_MARK)
+          )
+        ) ? (
+          <DaSlabTable />
         ) : null}
 
         <table className="m2-consol-print__footer">

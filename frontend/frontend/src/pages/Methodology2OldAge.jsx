@@ -36,6 +36,8 @@ export default function Methodology2OldAge({ familyMode = false }) {
 
   const [retirementDate, setRetirementDate] = useState("");
   const [scale, setScale] = useState("");
+  // CR 06-11-2026 (emp 00334): set when scale / pay came from the family pension claim.
+  const [scaleNote, setScaleNote] = useState("");
   const [lastPay, setLastPay] = useState("");
   const [stagnationAmount, setStagnationAmount] = useState("");
   const [npaAmount, setNpaAmount] = useState("");
@@ -135,6 +137,8 @@ export default function Methodology2OldAge({ familyMode = false }) {
           tqs_yr: printMaster?.tqs_yr,
           tqs_month: printMaster?.tqs_month,
           tqs_days: printMaster?.tqs_days,
+          // CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+          retirement_type: printMaster?.retirement_type,
         });
         setCalculationRows(res.data.rows || []);
         setPensionSummary(res.data.pension || null);
@@ -162,6 +166,8 @@ export default function Methodology2OldAge({ familyMode = false }) {
         tqs_yr: printMaster?.tqs_yr,
         tqs_month: printMaster?.tqs_month,
         tqs_days: printMaster?.tqs_days,
+        // CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+        retirement_type: printMaster?.retirement_type,
       });
       setClass12Result(res.data);
     } catch (err) {
@@ -325,6 +331,7 @@ export default function Methodology2OldAge({ familyMode = false }) {
       setOldageBenefit(null);
       const sepDate = data.separation_date || "";
       const scaleValue = data.scale || "";
+      setScaleNote(data.scale_note || "");
       const pay =
         data.last_pay != null && data.last_pay !== ""
           ? String(data.last_pay)
@@ -396,9 +403,14 @@ export default function Methodology2OldAge({ familyMode = false }) {
         m1_family_pension_359: data.m1_family_pension_359 ?? null,
         m1_bunching: data.m1_bunching || null,
         m1_inputs_db: data.m1_inputs || {},
+        // CR 12-11-2026 (emp 46913): family (30%) M1 missing in the DB — asked.
+        family_m1_missing: data.family_m1_missing || [],
         date_of_birth: empDob || null,
         scale: scaleValue || "",
         last_pay: pay || "",
+        // CR 06-11-2026 (emp 00334): note shown under the scale on the family form.
+        scale_note: data.scale_note || "",
+        scale_display: data.scale_display || "",
       };
 
       // Family confirm menu: headers first (name → class → …); scales after class OK.
@@ -1536,6 +1548,9 @@ export default function Methodology2OldAge({ familyMode = false }) {
                       </option>
                     ))}
                   </select>
+                  {scaleNote ? (
+                    <div className="form-text text-danger small">{scaleNote}</div>
+                  ) : null}
                 </div>
 
                 <div className="col-6 col-md-4 col-xl-2">

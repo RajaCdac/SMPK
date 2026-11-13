@@ -359,6 +359,7 @@ def calculate_revision(
     tqs_yr=None,
     tqs_month=None,
     tqs_days=None,
+    retirement_type=None,
 ):
     if not scales:
         return {"rows": [], "pension": {}}
@@ -393,6 +394,8 @@ def calculate_revision(
         tqs_yr=tqs_yr,
         tqs_month=tqs_month,
         tqs_days=tqs_days,
+        # CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+        retirement_type=retirement_type,
     )
 
     # Show only from retirement CPI onward (do not backfill earlier stages).

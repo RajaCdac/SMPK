@@ -119,12 +119,9 @@ function valuesFromMaster(master) {
   M1_KEYS.forEach((key) => {
     m1[`m1_${key}`] = numText(inputs[key]);
   });
-  if (blank(m1.m1_277_30) && blank(inputs["277_30"])) {
-    m1.m1_277_30 = numText(m.m1_family_pension_277);
-  }
-  if (blank(m1.m1_359_30) && blank(inputs["359_30"])) {
-    m1.m1_359_30 = numText(m.m1_family_pension_359);
-  }
+  // CR 02-11-2026 (emp 15068): no fallback to m1_family_pension_* here. On a
+  // P-only wage row that field is the employee pension, so the 30% box got the
+  // 50% amount. A 30% amount missing in the DB stays blank and must be typed.
   return {
     name: m.name || "",
     category: CLASS_OPTIONS.includes(cat) ? cat : "",
@@ -174,6 +171,21 @@ function validate(values, payStages) {
     const key = `m1_${f.key}`;
     if (blank(values[key])) {
       errors[key] = "Not in the database. Enter this amount from the file.";
+    }
+  });
+  // CR 02-11-2026 (emp 15068): family pension (30%) can never equal the
+  // employee / enhanced pension (50%) at the same CPI — block the save.
+  m1Fields(values).forEach((f) => {
+    if (!f.key.endsWith("_30")) return;
+    const key30 = `m1_${f.key}`;
+    const key50 = `m1_${f.key.replace("_30", "_50")}`;
+    if (errors[key30] || !(key50 in values) || blank(values[key50])) return;
+    if (!m1Fields(values).some((x) => `m1_${x.key}` === key50)) return;
+    if (Number(values[key30]) === Number(values[key50])) {
+      const cpi = f.key.split("_")[0];
+      errors[key30] =
+        `M1@${cpi} (30%) cannot be the same as M1@${cpi} (50%). ` +
+        "Enter the family pension amount from the file.";
     }
   });
   if (
@@ -483,6 +495,10 @@ export default function FamilyHeaderForm({
           this class / date)
         </div>
       ) : null}
+      {/* CR 06-11-2026 (emp 00334): scale / last pay taken from the family pension claim. */}
+      {!blank(master?.scale_note) ? (
+        <div className="form-text text-danger">{master.scale_note}</div>
+      ) : null}
     </div>
   );
 
@@ -549,14 +565,8 @@ export default function FamilyHeaderForm({
             <div className="row g-2 mb-3">
               {m1FieldList.map((f) => {
                 const key = `m1_${f.key}`;
-                const other = f.key.endsWith("_50")
-                  ? `m1_${f.key.replace("_50", "_30")}`
-                  : null;
-                const sameAs30 =
-                  other &&
-                  m1FieldList.some((x) => `m1_${x.key}` === other) &&
-                  !blank(values[key]) &&
-                  String(values[key]) === String(values[other]);
+                // CR 02-11-2026 (emp 15068): the old "Same as the 30%" hint is
+                // now a blocking error on the 30% box (see validate).
                 return (
                   <div key={key} className="col-6 col-md-3">
                     <label className="form-label small mb-1">{f.label} *</label>
@@ -571,11 +581,6 @@ export default function FamilyHeaderForm({
                       {f.key.endsWith("_50") ? "Employee / enhanced" : "Family"}:{" "}
                       {f.period}
                     </div>
-                    {sameAs30 ? (
-                      <div className="form-text text-danger">
-                        Same as the 30% amount. Check the 50% amount in the file.
-                      </div>
-                    ) : null}
                     {blank(initial[key]) && !errors[key] ? (
                       <div className="form-text text-danger">
                         Not in the database. Enter this amount from the file.

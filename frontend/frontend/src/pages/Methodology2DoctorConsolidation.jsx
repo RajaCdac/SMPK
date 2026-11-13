@@ -105,6 +105,8 @@ export default function Methodology2DoctorConsolidation() {
         m1_family_pension_277: data.m1_family_pension_277 ?? null,
         m1_family_pension_359: data.m1_family_pension_359 ?? null,
         m1_bunching: data.m1_bunching || null,
+        // CR 12-11-2026 (emp 46913): family (30%) M1 missing in the DB — asked.
+        family_m1_missing: data.family_m1_missing || [],
         date_of_birth: data.date_of_birth || data.dob || null,
         scale: data.scale || "",
         last_pay: data.last_pay ?? "",
@@ -173,6 +175,8 @@ export default function Methodology2DoctorConsolidation() {
           tqs_yr: master?.tqs_yr,
           tqs_month: master?.tqs_month,
           tqs_days: master?.tqs_days,
+          // CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+          retirement_type: master?.retirement_type,
         });
         setResult(data);
         setCalcError("");
@@ -182,7 +186,7 @@ export default function Methodology2DoctorConsolidation() {
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [category, retirementDate, scale, basic, npa, master?.tqs_yr, master?.tqs_month, master?.tqs_days]);
+  }, [category, retirementDate, scale, basic, npa, master?.tqs_yr, master?.tqs_month, master?.tqs_days, master?.retirement_type]);
 
   const class12Result = isClass12 ? result : null;
   const pensionSummary = !isClass12 && result ? result.pension || null : null;

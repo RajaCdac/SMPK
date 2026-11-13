@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     CalculateClass12View,
     CalculateRevisionView,
+    Class12DaSlabView,
     ConsolidationSnapshotView,
     EmployeeLookupView,
     GetClass12PayStagesView,
@@ -27,6 +28,7 @@ urlpatterns = [
     path("get-scales-class12/", GetClass12ScalesView.as_view()),
     path("get-pay-stages-class12/", GetClass12PayStagesView.as_view()),
     path("calculate-class12/", CalculateClass12View.as_view()),
+    path("class12-da-slab/", Class12DaSlabView.as_view()),
     path("get-scale-type/", ScaleTypeView.as_view()),
     path("employee/<str:emp_id>/", EmployeeLookupView.as_view()),
     path("consolidation/", ConsolidationSnapshotView.as_view()),

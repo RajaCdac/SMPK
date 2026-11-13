@@ -14,12 +14,15 @@ Each month uses the consolidation column that covers that month:
   monthly amount  = pension difference + old-age difference
   pension arrear  = monthly amount × months
   DA relief       = DA% × monthly amount × months
+The month in which enhanced family pension ends mid-month is paid by days
+(actual days of that month): enhanced diff × days up to the enhanced-upto
+date + family diff × remaining days, e.g. 980 × 12/30 + 588 × 18/30.
 """
 
 from __future__ import annotations
 
 from calendar import monthrange
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
 from M2_oldage_arrear.services.da_service import (
@@ -154,28 +157,22 @@ def _column_for(columns, cpi: int, kind: str, on_date: date | None = None):
 
 def _family_pension_diff(info: dict, cpi: int, picked):
     """
-    Family-pension difference for one CPI.
+    Family-pension difference for one CPI: the family column's M2 − M1.
 
-    If the wage header had an F row, the print column already has that
-    Methodology-1 amount. If it has no F row, the saved column repeated the
-    employee pension; the family amount is that employee pension × 0.6.
+    CR 12-11-2026 (emp 46913): the family M1 is never worked out from the
+    employee pension (it was employee × 0.6 when blank or equal). A blank
+    family M1 gives None, so the arrear stops for that employee; an M1 equal
+    to the employee pension is the family pension (42390) and is used as is.
     """
-    from methodology2.services.consolidation_service import (
-        family_m1_from_employee_pension,
-    )
+    from methodology2.services.consolidation_service import family_m1_problem
 
     m2 = _as_float(picked.get("m2")) if picked else None
     fam_m1 = _as_float(picked.get("m1")) if picked else None
-    emp_col = _column_for(info.get("columns"), cpi, "employee")
-    if emp_col is None:
-        emp_col = _column_for(info.get("columns"), cpi, "enhanced")
-    emp_m1 = _as_float(emp_col.get("m1")) if emp_col else None
-    copied_employee = emp_m1 is not None and (
-        fam_m1 is None or abs(fam_m1 - emp_m1) < 0.01
-    )
-    if copied_employee:
-        fam_m1 = family_m1_from_employee_pension(emp_m1)
     if fam_m1 is None or m2 is None:
+        return None
+    # Same as the employee / enhanced M1 at this CPI = copied employee pension
+    # (user choice): treated as missing, not paid as a negative difference.
+    if family_m1_problem(info.get("columns"), picked):
         return None
     return m2 - fam_m1
 
@@ -367,10 +364,19 @@ def resolve_consolidation(emp_cd: str) -> dict | None:
     if not met2 and not oa:
         return None
 
-    pension_obj = met2 or oa
-    row = _describe_consolidation(pension_obj)
-    if oa is not None and met2 is not None and not row.get("columns"):
-        row = _describe_consolidation(oa)
+    # CR 12-11-2026 (emp 46913): with both saved, use the one saved last (was
+    # always Methodology-2, even when the Old Age row was re-saved later).
+    def _saved_at(obj):
+        return getattr(obj, "updated_at", None) or getattr(obj, "created_at", None)
+
+    if met2 is not None and oa is not None:
+        m2_at, oa_at = _saved_at(met2), _saved_at(oa)
+        latest, other = (oa, met2) if (oa_at and (not m2_at or oa_at > m2_at)) else (met2, oa)
+    else:
+        latest, other = (met2 or oa), None
+    row = _describe_consolidation(latest)
+    if other is not None and not row.get("columns"):
+        row = _describe_consolidation(other)
     if oa is not None:
         dob = _dob_from_obj(oa)
         if dob:
@@ -406,6 +412,45 @@ def validate_arrear_period(from_month, from_year, to_month, to_year) -> str | No
     return None
 
 
+def _month_part(info: dict, cpi: str, kind: str, on_date: date, diff_277, diff_359) -> dict:
+    """Pension and old-age difference of one pension kind in force on on_date."""
+    picked = _column_for(info.get("columns"), int(cpi), kind, on_date)
+    diff = _as_float(picked.get("diff")) if picked else None
+    if kind == "family":
+        diff = _family_pension_diff(info, int(cpi), picked)
+        if diff is None:
+            # CR 12-11-2026 (emp 46913): no derived family M1 — re-save asks it.
+            return {
+                "error": (
+                    f"Family pension M1@{cpi} (30%) from {_month_label(on_date)} "
+                    "is not on the consolidation, or is the same as the "
+                    "employee pension. Re-save the consolidation with the "
+                    "family M1."
+                )
+            }
+    elif diff is None:
+        diff = diff_277 if cpi == "277" else diff_359
+    if diff is None:
+        return {
+            "error": (
+                f"{_KIND_LABEL.get(kind, 'Pension')} difference at {cpi} CPI "
+                f"is not on this consolidation for {_month_label(on_date)}."
+            )
+        }
+    # Stored old-age difference (M2 OA − M1 OA). Not diff × age %.
+    pct = (_as_float(picked.get("oldage_percent")) if picked else 0.0) or 0.0
+    oa = _as_float(picked.get("oa_diff")) if picked else None
+    return {"picked": picked, "diff": diff, "pct": pct, "oa": _money(oa or 0.0)}
+
+
+def _part_amounts(diff, oa, weight: float) -> tuple[float, float]:
+    """(pension + old-age, old-age) for a fraction of a month; 0 when the
+    benefit is negative (CR 03-11-2026 not payable)."""
+    if diff is None or diff < 0:
+        return 0.0, 0.0
+    return _money((diff + oa) * weight), _money(oa * weight)
+
+
 def calculate_consolidation_arrear(
     emp_cd: str,
     from_month: int,
@@ -438,35 +483,38 @@ def calculate_consolidation_arrear(
     while month_cursor <= last_m:
         cpi = _cpi_for_month(month_cursor, class12)
         kind = _pension_kind_on(info, month_cursor)
-        picked = _column_for(info.get("columns"), int(cpi), kind, month_cursor)
-        diff = _as_float(picked.get("diff")) if picked else None
-        if kind == "family":
-            diff = _family_pension_diff(info, int(cpi), picked)
-            if diff is None:
-                return {
-                    "error": (
-                        f"Family pension from {_month_label(month_cursor)} "
-                        f"needs the employee pension at {cpi} CPI "
-                        "so the family pension can be calculated."
-                    )
-                }
-        elif diff is None:
-            diff = diff_277 if cpi == "277" else diff_359
-        if diff is None:
-            return {
-                "error": (
-                    f"{_KIND_LABEL.get(kind, 'Pension')} difference at {cpi} CPI "
-                    f"is not on this consolidation for {_month_label(month_cursor)}."
-                )
-            }
-        # Stored old-age difference (M2 OA − M1 OA). Not diff × age %.
-        pct = _as_float(picked.get("oldage_percent")) if picked else 0.0
-        oa = _as_float(picked.get("oa_diff")) if picked else None
-        if oa is None:
-            oa = 0.0
-        pct = pct or 0.0
-        oa = _money(oa)
+        part = _month_part(info, cpi, kind, month_cursor, diff_277, diff_359)
+        if part.get("error"):
+            return part
+        picked = part["picked"]
+        diff = part["diff"]
+        pct = part["pct"]
+        oa = part["oa"]
         monthly = _money(diff + oa)
+        # CR 12-11-2026 (emp 45936): enhanced up to 12-09-2026 paid the whole of
+        # September at the enhanced rate. Split that month by days instead.
+        weight = 1.0
+        family_part = None
+        month_last = _month_end(month_cursor)
+        if kind == "enhanced" and _pension_kind_on(info, month_last) == "family":
+            enhanced_upto = _as_date(info.get("double_fpension_upto")) or _as_date(
+                info.get("rate_cutover")
+            )
+            if enhanced_upto and month_cursor <= enhanced_upto < month_last:
+                weight = enhanced_upto.day / month_last.day
+                family_day = enhanced_upto + timedelta(days=1)
+                family_part = _month_part(
+                    info, cpi, "family", family_day, diff_277, diff_359
+                )
+                if family_part.get("error"):
+                    return family_part
+        month_pen, month_oa = _part_amounts(diff, oa, weight)
+        if family_part:
+            fam_pen, fam_oa = _part_amounts(
+                family_part["diff"], family_part["oa"], 1.0 - weight
+            )
+            month_pen = _money(month_pen + fam_pen)
+            month_oa = _money(month_oa + fam_oa)
         da_pct = lookup_da_pct(class_grp, cpi, month_cursor)
         diff_r = _money(diff)
         m2_raw = _as_float(picked.get("m2")) if picked else None
@@ -498,6 +546,7 @@ def calculate_consolidation_arrear(
             "da_pct": da_pct,
             "from": month_cursor,
         }
+        month_entry = {"month": month_cursor.isoformat(), "amount": month_pen, "oa": month_oa}
         if (
             lines
             and _same_rate(lines[-1], bucket)
@@ -505,9 +554,15 @@ def calculate_consolidation_arrear(
         ):
             lines[-1]["to"] = month_cursor
             lines[-1]["months"] += 1
+            lines[-1]["pen_sum"] = _money(lines[-1]["pen_sum"] + month_pen)
+            lines[-1]["oa_sum"] = _money(lines[-1]["oa_sum"] + month_oa)
+            lines[-1]["month_amounts"].append(month_entry)
         else:
             bucket["to"] = month_cursor
             bucket["months"] = 1
+            bucket["pen_sum"] = month_pen
+            bucket["oa_sum"] = month_oa
+            bucket["month_amounts"] = [month_entry]
             lines.append(bucket)
         month_cursor = _add_month(month_cursor)
 
@@ -516,8 +571,19 @@ def calculate_consolidation_arrear(
     out_lines = []
     for line in lines:
         months = line["months"]
-        pen = _money(line["monthly_amount"] * months)
-        da = _money(line["monthly_amount"] * line["da_pct"] / 100.0 * months)
+        # CR 03-11-2026: M-I above M-II (negative benefit) is not paid — old-age,
+        # basic + old-age, DA, months and total are 0 for those months. The
+        # negative difference itself is still shown.
+        if line["pension_diff"] is not None and line["pension_diff"] < 0:
+            line["oldage_benefit"] = 0.0
+            line["monthly_amount"] = 0.0
+            line["not_payable"] = True
+            months = 0
+        # CR 12-11-2026: amounts are summed month by month (pen_sum) so a
+        # day-split change-over month is paid by days; full months are
+        # monthly amount × 1 as before, negative parts are 0.
+        pen = _money(line["pen_sum"])
+        da = _money(pen * line["da_pct"] / 100.0)
         total = _money(pen + da)
         pension_arrear = _money(pension_arrear + pen)
         da_relief = _money(da_relief + da)
@@ -541,6 +607,11 @@ def calculate_consolidation_arrear(
                 "pension_arrear": pen,
                 "da_relief": da,
                 "total": total,
+                "not_payable": bool(line.get("not_payable")),
+                # CR 12-11-2026: old-age paid in this line and per-month amounts
+                # (a day-split month is not old-age × months).
+                "oldage_arrear": _money(line["oa_sum"]),
+                "month_amounts": line["month_amounts"],
             }
         )
 

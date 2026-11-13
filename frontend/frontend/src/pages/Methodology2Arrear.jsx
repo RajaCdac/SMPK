@@ -342,7 +342,9 @@ export default function Methodology2Arrear() {
                     const pair = row.pair || {};
                     return (
                       <Fragment key={row.emp_cd}>
-                        <tr className={row.ok ? "" : "table-warning"}>
+                        {/* CR 12-11-2026: no consolidation / no arrear → red,
+                            amounts blank, cannot be ticked or exported. */}
+                        <tr className={row.ok ? "" : "table-danger"}>
                           <td>
                             <input
                               type="checkbox"
@@ -364,15 +366,28 @@ export default function Methodology2Arrear() {
                               {row.emp_cd}
                             </button>
                           </td>
-                          <td>{row.name || "—"}</td>
+                          <td>
+                            {row.name || "—"}
+                            {!row.ok && row.error ? (
+                              <div className="small text-danger">{row.error}</div>
+                            ) : null}
+                          </td>
                           <td>{row.class_label || "—"}</td>
-                          <td className="text-end">{money(pair.m1)}</td>
-                          <td className="text-end">{money(pair.m2)}</td>
-                          <td>{pair.beneficial || "—"}</td>
-                          <td className="text-end">{money(pair.benefit)}</td>
-                          <td className="text-end">{money(row.pension_arrear)}</td>
-                          <td className="text-end">{money(row.da_relief)}</td>
-                          <td className="text-end">{money(row.total)}</td>
+                          {row.ok ? (
+                            <>
+                              <td className="text-end">{money(pair.m1)}</td>
+                              <td className="text-end">{money(pair.m2)}</td>
+                              <td>{pair.beneficial || "—"}</td>
+                              <td className="text-end">{money(pair.benefit)}</td>
+                              <td className="text-end">{money(row.pension_arrear)}</td>
+                              <td className="text-end">{money(row.da_relief)}</td>
+                              <td className="text-end">{money(row.total)}</td>
+                            </>
+                          ) : (
+                            <>
+                              <td /><td /><td /><td /><td /><td /><td />
+                            </>
+                          )}
                         </tr>
                         {open ? (
                           <tr key={`${row.emp_cd}-detail`}>

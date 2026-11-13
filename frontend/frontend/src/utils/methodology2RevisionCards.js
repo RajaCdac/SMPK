@@ -105,19 +105,88 @@ function isClass12OpeningBasic(description) {
   );
 }
 
+// CR 12-11-2026: class 1/2 opening lines read like class 3/4
+// ("Basic Pay Over 126 CPI Points as on 01.01.2007"). CPI of each 1 January
+// class 1/2 stage; the final 01.01.2017 block stays "Basic Pay as on 01.01.2017"
+// like the class 3/4 final 01.01.2022 block.
+// CR 12-11-2026: 1987 stage is 686 CPI (user confirmed), not the 685 of the DA line.
+const CLASS12_STAGE_CPI = { 1987: "686", 1992: "1099", 1997: "1708", 2007: "126" };
+
+function class12OpeningLabel(description) {
+  const text = String(description || "").trim();
+  // CR 12-11-2026 (emp 21908): the first block's "Basic Pay in the existing
+  // scale (1992 revised pay scale)" reads the same CPI way.
+  const m = text.match(
+    /^Basic\s+Pay\s+(?:as\s+on\s+01\.01\.(\d{4})|in\s+the\s+existing\s+scale\s+\((\d{4})\s+revised\s+pay\s+scale\))$/i
+  );
+  const year = m ? m[1] || m[2] : null;
+  if (year && CLASS12_STAGE_CPI[year]) {
+    return `Basic Pay Over ${CLASS12_STAGE_CPI[year]} CPI Points as on 01.01.${year}`;
+  }
+  return text;
+}
+
+/** CR 12-11-2026: "Year 1992 (Revised Pay Scale)" → class 3/4 style
+ *  "Detailed Calculation Breakdown Year 1992 - CPI 1099" (same for 1987). */
+function class12CpiTitle(title) {
+  const text = String(title || "");
+  const m = text.match(/^Year\s+(\d{4})\s+\(Revised Pay Scale\)/i);
+  if (m && CLASS12_STAGE_CPI[m[1]]) {
+    return `Detailed Calculation Breakdown Year ${m[1]} - CPI ${CLASS12_STAGE_CPI[m[1]]}${text.slice(m[0].length)}`;
+  }
+  return text;
+}
+
+// CR 12-11-2026 (emp 21908): wording of saved class 1/2 lines, so reprints of
+// older consolidations read the same as new ones.
+const CLASS12_ROW_TEXT = {
+  "D.A (As per Slab based lookup)": "D.A (As per Slab)*",
+  "Fitment @ 20%": "Fitment @ 20% on Basic",
+};
+export const CLASS12_DA_SLAB_MARK = "As per Slab)*";
+
+function class12RowText(description) {
+  const text = String(description || "").trim();
+  return CLASS12_ROW_TEXT[text] || text;
+}
+
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+
+/** CR 12-11-2026: class 3/4 shows "Aggregate of A+B+C" before the rounded
+ *  notional pay; class 1/2 had no such row. */
+function withClass12Aggregate(rows) {
+  if (rows.some((r) => /^Aggregate\b/i.test(String(r.description || "")))) return rows;
+  const idx = rows.findIndex(
+    (r, i) => i >= 2 && /Rounded to the next 10/i.test(String(r.description || ""))
+  );
+  if (idx < 0) return rows;
+  const parts = rows.slice(0, idx);
+  const letters = parts.map((_, i) => String.fromCharCode(65 + i)).join("+");
+  const aggregate = {
+    description: `Aggregate of ${letters}`,
+    value: round2(parts.reduce((s, r) => s + (Number(r.value) || 0), 0)),
+  };
+  if (parts.some((r) => r.npa != null)) {
+    aggregate.pay = round2(parts.reduce((s, r) => s + (Number(r.pay) || 0), 0));
+    aggregate.npa = round2(parts.reduce((s, r) => s + (Number(r.npa) || 0), 0));
+  }
+  return [...parts, aggregate, ...rows.slice(idx)];
+}
+
 /**
  * Each class 1/2 scale block starts with that scale's basic
- * (e.g. Basic Pay as on 01.01.2007), then DA and fitment.
+ * (e.g. Basic Pay Over 126 CPI Points as on 01.01.2007), then DA, fitment
+ * and Aggregate of A+B+C.
  */
 export function ensureClass12OpeningBasic(blocks) {
   let previous = null;
   return (blocks || []).map((block) => {
     const year = class12BlockYear(block);
-    const rows = (block.rows || []).map((row) => ({ ...row }));
+    let rows = (block.rows || []).map((row) => ({ ...row }));
     if (rows.length) {
       const first = String(rows[0].description || "");
-      // First scale keeps "Basic Pay in the existing scale (YYYY …)".
-      // Later scales open with "Basic Pay as on 01.01.YYYY".
+      // Later scales open with the prior stage's basic; class12OpeningLabel
+      // turns it (and the first "existing scale" line) into the CPI wording.
       if (year && previous && !isClass12OpeningBasic(first)) {
         rows.unshift({
           description: `Basic Pay as on 01.01.${year}`,
@@ -125,6 +194,11 @@ export function ensureClass12OpeningBasic(blocks) {
           ...(previous.npa != null ? { pay: previous.pay, npa: previous.npa } : {}),
         });
       }
+      rows.forEach((row) => {
+        row.description = class12RowText(row.description);
+      });
+      rows[0].description = class12OpeningLabel(rows[0].description);
+      rows = withClass12Aggregate(rows);
       rows.forEach((row, idx) => {
         row.row = idx + 1;
         row.code = idx < 26 ? String.fromCharCode(65 + idx) : String(idx + 1);
@@ -132,6 +206,6 @@ export function ensureClass12OpeningBasic(blocks) {
       const last = rows[rows.length - 1];
       if (last?.value != null && last.value !== "") previous = last;
     }
-    return { ...block, rows };
+    return { ...block, title: class12CpiTitle(block.title), rows };
   });
 }

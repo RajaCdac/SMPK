@@ -144,6 +144,8 @@ class CalculateClass12View(APIView):
                 tqs_yr=request.data.get("tqs_yr"),
                 tqs_month=request.data.get("tqs_month"),
                 tqs_days=request.data.get("tqs_days"),
+                # CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+                retirement_type=request.data.get("retirement_type"),
             )
         except Exception as exc:
             return Response(
@@ -199,6 +201,8 @@ class CalculateRevisionView(APIView):
             tqs_yr=request.data.get("tqs_yr"),
             tqs_month=request.data.get("tqs_month"),
             tqs_days=request.data.get("tqs_days"),
+            # CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+            retirement_type=request.data.get("retirement_type"),
         )
 
         return Response({
@@ -208,6 +212,16 @@ class CalculateRevisionView(APIView):
             "category": category,
         })
     
+class Class12DaSlabView(APIView):
+    """CR 13-11-2026 (emp 21908): DA slab (1099 CPI) from class1_2.xlsx for the
+    print; the frontend used a fixed copy that went stale when the sheet changed."""
+
+    def get(self, request):
+        from methodology2.services.class1_2_service import class12_da_slab_rows
+
+        return Response({"rows": class12_da_slab_rows()})
+
+
 class ScaleTypeView(APIView):
 
     def get(self, request):
@@ -302,6 +316,18 @@ class EmployeeLookupView(APIView):
             data["m1_bunching"] = fetch_class12_m1_bunching(
                 emp_id, category=data.get("category")
             )
+            # CR 12-11-2026 (emp 46913): family (30%) M1 not in the database —
+            # the consolidation prompt asks for these before saving.
+            try:
+                from methodology2.services.consolidation_service import (
+                    family_m1_missing_for_lookup,
+                )
+
+                data["family_m1_missing"] = family_m1_missing_for_lookup(
+                    master, category=data.get("category")
+                )
+            except Exception:
+                data["family_m1_missing"] = []
             fill_employee_header_gaps(emp_id, data)
             return Response(data)
         except Exception as exc:

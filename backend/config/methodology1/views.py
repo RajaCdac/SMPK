@@ -192,6 +192,31 @@ class FamilyPensionCalculationView(APIView):
         return Response(result)
 
 
+class M1EmployeeFamilyCalculationView(APIView):
+    """
+    CR 06-11-2026: M2 "M1 calculation" — Methodology-1 employee pension (50%)
+    and family pension (30%) at 277 / 359 CPI. Class 3/4: chain on full pay.
+    """
+
+    def post(self, request):
+        from methodology1.services.m1_ep_fp_service import (
+            calculate_m1_employee_and_family,
+        )
+
+        data = request.data or {}
+        result = calculate_m1_employee_and_family(
+            separation_date=data.get("separation_date"),
+            category=data.get("category"),
+            pay=data.get("pay", data.get("last_pay")),
+            scale=data.get("scale"),
+            grade=data.get("grade"),
+            equiv_pay_at_base_cpi=data.get("equiv_pay_at_base_cpi"),
+        )
+        if result.get("error"):
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result)
+
+
 class EmployeeLookupView(APIView):
     """Fetch separation date, scale, and last pay from local DB by employee code."""
 

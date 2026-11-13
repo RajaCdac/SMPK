@@ -31,6 +31,7 @@ Example — age-80 WEF Aug 2024 (class 3/4):
 
 from __future__ import annotations
 
+import re
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_CEILING
 from typing import Any
@@ -342,6 +343,112 @@ def _build_cpi_columns(
             }
         )
     return cols
+
+
+# CR 02-11-2026 (emp 26089): death-split print columns used to drop old age.
+# Each column is now split by the age of the person drawing that pension.
+_OA_SPLIT_FIELDS = (
+    "oldage_percent",
+    "m2_base",
+    "oa_benefit_m2",
+    "oa_benefit_m1",
+    "oa_diff",
+    "payable_basic",
+    "oa_benefit",
+    "revised_total_basic",
+    "oldage_addl",
+)
+_NOTE_FROM = re.compile(r"\bfrom\s+(\S+)", re.I)
+_NOTE_UPTO = re.compile(r"\bup\s?to\s+(\S+)", re.I)
+
+
+def _note_label(note: str) -> str:
+    """'Employee pension up to 17/10/2024' -> 'Employee pension'."""
+    return re.split(r"\s+(?:from|up\s?to)\s+", note or "", maxsplit=1, flags=re.I)[0].strip()
+
+
+def _split_one_death_column(col: dict, dob: date | None) -> list[dict]:
+    if dob is None or "oldage_percent" in col:
+        return [col]
+    start = _as_date(col.get("period_from"))
+    end = _as_date(col.get("period_to"))
+    if start is None or wef_for_age(dob, 80) > (end or DISPLAY_HORIZON_END):
+        return [col]
+    try:
+        cpi = int(col.get("cpi") or 0)
+    except (TypeError, ValueError):
+        return [col]
+    segs = _build_cpi_columns(
+        dob=dob,
+        cpi=cpi,
+        year_label=str(col.get("year_label") or ""),
+        window_start=start,
+        window_end=end,
+        m2=_as_decimal(col.get("m2")),
+        m1=_as_decimal(col.get("m1")),
+        kind=str(col.get("kind") or ""),
+    )
+    if not segs:
+        return [col]
+
+    note = str(col.get("period_note") or "")
+    label = _note_label(note) or note
+    orig_from = _NOTE_FROM.search(note)
+    orig_upto = _NOTE_UPTO.search(note)
+    head = (col.get("header_lines") or [col.get("header") or ""])[0]
+    out = []
+    for i, seg in enumerate(segs):
+        pct = float(seg.get("oldage_percent") or 0)
+        first, last = i == 0, i == len(segs) - 1
+        if len(segs) == 1:
+            seg_note = note
+        else:
+            parts = [label]
+            if first:
+                if orig_from:
+                    parts.append(f"from {orig_from.group(1)}")
+            else:
+                parts.append(f"from {_month_label(_as_date(seg['period_from']))}")
+            if not last:
+                parts.append(f"upto {_month_label(_as_date(segs[i + 1]['period_from']) - timedelta(days=1))}")
+            elif orig_upto:
+                parts.append(f"up to {orig_upto.group(1)}")
+            seg_note = " ".join(p for p in parts if p)
+        if pct > 0:
+            seg_note = f"{seg_note} — Old age @{pct:g}%"
+        new = dict(col)
+        for k in _OA_SPLIT_FIELDS:
+            new[k] = seg.get(k)
+        new["key"] = f"{col.get('key') or cpi}_oa_{seg['period_from']}"
+        new["period_from"] = seg["period_from"]
+        new["period_to"] = seg["period_to"]
+        new["period_note"] = seg_note
+        new["header_lines"] = [head, seg_note]
+        new["header"] = f"{head} — {seg_note}"
+        new["oldage_dob"] = dob.isoformat()
+        out.append(new)
+    return out
+
+
+def apply_oldage_to_death_split_columns(
+    columns, *, employee_dob=None, family_dob=None
+) -> list[dict]:
+    """
+    Add old-age slabs to death-split columns (employee / enhanced / family).
+
+    Employee columns use the employee's date of birth (up to the date of
+    death). Enhanced and family columns use the family pensioner's date of
+    birth. A column already carrying old-age fields is left as it is.
+    """
+    emp_d = _as_date(employee_dob)
+    fam_d = _as_date(family_dob)
+    out: list[dict] = []
+    for col in columns or []:
+        if not isinstance(col, dict):
+            continue
+        dob = emp_d if col.get("kind") == "employee" else fam_d
+        out.extend(_split_one_death_column(col, dob))
+    return out
 
 
 def build_oldage_pension_comparison(

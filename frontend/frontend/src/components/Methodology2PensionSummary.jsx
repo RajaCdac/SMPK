@@ -7,6 +7,7 @@ import { ensureClass12OpeningBasic } from "../utils/methodology2RevisionCards";
 import { formatCardValue } from "../utils/methodology2RevisionCards";
 import { printMethodology2Consolidation } from "../utils/methodology2Print";
 import {
+  isPensionNotEligible,
   isProportionateReduced,
   proportionateNoteFromPension,
 } from "../utils/methodology2ProportionatePension";
@@ -93,8 +94,13 @@ function class12NotionalizeLastDescription(desc) {
 function class12RoundNote(desc) {
   const text = String(desc || "").trim();
   if (!text || /Rounded to the next 10/i.test(text)) return text;
-  if (/minimum basic/i.test(text)) return text;
+  // CR 12-11-2026: "(minimum / maximum of the scale)", "(fixed at the next stage of
+  // the scale)" replace "(minimum basic)" — scale fixation, not rounding.
+  if (/minimum basic|of the scale/i.test(text)) return text;
   if (/^Basic\s+Pay\s+as\s+on\s+01\.01\.2017$/i.test(text)) return text;
+  // CR 12-11-2026: opening "Basic Pay Over … CPI Points as on 01.01.YYYY" is the
+  // brought-forward basic, not a rounded line.
+  if (/^Basic\s+Pay\s+Over\b.*\bas\s+on\b/i.test(text)) return text;
   if (/Notional/i.test(text) || /Basic Pay Over/i.test(text)) {
     return `${text} (Rounded to the next 10 Rupees)`;
   }
@@ -255,7 +261,9 @@ export function buildClass12RevisionBlocks(
     const desc = String(row.description || "");
     const endsStage =
       /minimum basic/i.test(desc) ||
-      /Basic Pay Over/i.test(desc) ||
+      // CR 12-11-2026: anchored, else "Notional basic pay over 1708 CPI"
+      // ended the 1992 stage early and split it into two blocks.
+      /^Basic Pay Over/i.test(desc) ||
       (/Basic pay as on/i.test(desc) && !/existing scale/i.test(desc));
     if (endsStage) flush();
   });
@@ -405,6 +413,8 @@ export default function Methodology2PensionSummary({
       m2_family_pension_359: m2_359,
       m1_family_pension_277: m1_277,
       m1_family_pension_359: m1_359,
+      // CR 12-11-2026 (emp 46913): family (30%) M1 typed in the header prompt.
+      m1_inputs: master.m1_inputs || undefined,
       m1_bunching:
         isDoctor && !includeBunching ? null : master.m1_bunching || null,
       diff_family_pension_277:
@@ -521,7 +531,11 @@ export default function Methodology2PensionSummary({
         </div>
       ) : null}
       {isProportionateReduced(effectivePension) ? (
-        <div className="alert alert-warning py-2 px-3 mt-2 mb-0 small">
+        <div
+          className={`alert ${
+            isPensionNotEligible(effectivePension) ? "alert-danger fw-semibold" : "alert-warning"
+          } py-2 px-3 mt-2 mb-0 small`}
+        >
           {proportionateNoteFromPension(effectivePension)}
         </div>
       ) : null}

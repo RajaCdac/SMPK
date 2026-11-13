@@ -242,6 +242,23 @@ def get_class12_pay_stages(separation_date, grade):
     return generate_pay_stages(str(scale_string).strip())
 
 
+def class12_da_slab_rows() -> list[dict]:
+    """CR 12-11-2026 (emp 21908): DA slab (1099 CPI) printed under the
+    consolidation for the "D.A (As per Slab)*" line."""
+    df = load_class12_da1992_table()
+    out = []
+    for _, r in df.iterrows():
+        out.append(
+            {
+                "min": int(r["Min"]),
+                "max": int(r["Max"]),
+                "slab": float(r["Slab"]),
+                "rate_pct": round(float(r["Rate"]) * 100, 2),
+            }
+        )
+    return out
+
+
 def _da_slab_1992(basic):
     """1997 DA: max(basic * rate, slab) from DA1_1992 table."""
     df = load_class12_da1992_table()
@@ -258,39 +275,65 @@ def _fix_into_scale(scale_string, amount):
     return get_next_higher_stage(str(scale_string).strip(), amount)
 
 
+def _fixation_note(scale_string, amount):
+    """CR 12-11-2026: the label said "(minimum basic)" even when the aggregate
+    was fitted to a higher stage; say what the fixation actually did."""
+    from methodology2.services.scale_parser import generate_pay_stages
+
+    if not scale_string or str(scale_string) == "nan":
+        return "(scale not found, rounded to the next 10 Rupees)"
+    stages = generate_pay_stages(str(scale_string).strip())
+    if not stages:
+        return "(scale not found, rounded to the next 10 Rupees)"
+    if float(amount) <= stages[0]:
+        return "(minimum of the scale)"
+    if float(amount) > stages[-1]:
+        return "(maximum of the scale)"
+    return "(fixed at the next stage of the scale)"
+
+
 def _block_1987(rows, row, basic_1984):
     da = DA_1987_CONSTANT
     fitment = float(row.get(FITMENT_1987_COLUMN) or 0)
-    notional = round_up_to_10(basic_1984 + da + fitment)
+    # CR 12-11-2026: up to the 1992 stage the aggregate is not rounded to the
+    # next 10; it is fitted into the scale as it is.
+    notional = round2(basic_1984 + da + fitment)
     basic_1987 = _fix_into_scale(row.get(SCALE_COLUMNS["1987"]), notional)
     rows.append({"description": "D.A of Rs.838.35 at AICPI 685 as on 1.1.1987", "value": da})
     rows.append({"description": "Fitment", "value": fitment})
-    rows.append({"description": "Notional Pay as on 01.01.1987 (Rounded to the next 10 Rupees)", "value": notional})
-    rows.append({"description": "Basic pay as on 01.01.1987 (minimum basic)", "value": basic_1987})
+    rows.append({"description": "Aggregate of A+B+C", "value": notional})
+    note = _fixation_note(row.get(SCALE_COLUMNS["1987"]), notional)
+    rows.append({"description": f"Basic pay as on 01.01.1987 {note}", "value": basic_1987})
     return basic_1987
 
 
 def _block_1992(rows, row, basic_1987):
     da = DA_1992_CONSTANT
     fitment = round2(basic_1987 * 0.20)
-    notional = round_up_to_10(basic_1987 + da + fitment)
+    # CR 12-11-2026: aggregate not rounded to the next 10 (up to 1992 stage).
+    notional = round2(basic_1987 + da + fitment)
     basic_1992 = _fix_into_scale(row.get(SCALE_COLUMNS["1992"]), notional)
     rows.append({"description": "D.A as on 1.1.1992 at AICPI 1099", "value": da})
     rows.append({"description": "Fitment @ 20% on Basic pay", "value": fitment})
-    rows.append({"description": "Notional Pay as on 01.01.1992 (Rounded to the next 10 Rupees)", "value": notional})
-    rows.append({"description": "Basic pay as on 01.01.1992 (minimum basic)", "value": basic_1992})
+    rows.append({"description": "Aggregate of A+B+C", "value": notional})
+    note = _fixation_note(row.get(SCALE_COLUMNS["1992"]), notional)
+    rows.append({"description": f"Basic pay as on 01.01.1992 {note}", "value": basic_1992})
     return basic_1992
 
 
 def _block_1997(rows, row, basic_1992):
     da = _da_slab_1992(basic_1992)
     fitment = round2(basic_1992 * 0.20)
-    notional = round_up_to_10(basic_1992 + da + fitment)
+    # CR 12-11-2026: aggregate not rounded to the next 10 (1992 stage).
+    notional = round2(basic_1992 + da + fitment)
     basic_1997 = _fix_into_scale(row.get(SCALE_COLUMNS["1997"]), notional)
-    rows.append({"description": "D.A (As per Slab based lookup)", "value": da})
-    rows.append({"description": "Fitment @ 20%", "value": fitment})
-    rows.append({"description": "Notional basic pay over 1708 CPI (Rounded to the next 10 Rupees)", "value": notional})
-    rows.append({"description": "Basic pay as on 01.01.1997 (minimum basic)", "value": basic_1997})
+    # CR 12-11-2026 (emp 21908): "*" points to the DA slab table printed below
+    # the consolidation; fitment wording as the other stages.
+    rows.append({"description": "D.A (As per Slab)*", "value": da})
+    rows.append({"description": "Fitment @ 20% on Basic", "value": fitment})
+    rows.append({"description": "Aggregate of A+B+C", "value": notional})
+    note = _fixation_note(row.get(SCALE_COLUMNS["1997"]), notional)
+    rows.append({"description": f"Basic pay as on 01.01.1997 {note}", "value": basic_1997})
     return basic_1997
 
 
@@ -324,6 +367,7 @@ def calculate_class12(
     tqs_yr=None,
     tqs_month=None,
     tqs_days=None,
+    retirement_type=None,
 ):
     row = _get_scale_row(grade)
     if row is None:
@@ -379,6 +423,8 @@ def calculate_class12(
         tqs_yr=tqs_yr,
         tqs_month=tqs_month,
         tqs_days=tqs_days,
+        # CR 10-11-2026 (emp 45654): death in harness → TQS/10, not cut off.
+        retirement_type=retirement_type,
     )
 
     start_scale = row.get(SCALE_COLUMNS[start])

@@ -88,6 +88,99 @@ def _emp_key(emp_id):
     return str(emp_id or "").strip()[:5]
 
 
+def _lic_salary_roll_pattern(emp):
+    """
+    REGEXP for fi_pn_lic_master.SALARY_ROLL_NO of one EMP_CD.
+
+    Matches 47251, 47251A, 03424/K, 41676KDS, 27527/1, 001777 and, for a code
+    starting with 0, the 4-digit form (8407K = 08407).
+    CR 06-11-2026: 3-digit rolls such as 897K / 211K are other people, not
+    EMP_CD 00897 / 00211 — stripping every leading zero matched them wrongly.
+    """
+    emp = str(emp or "").strip().zfill(5)
+    forms = [f"0?{emp}"]
+    if emp.startswith("0"):
+        forms.append(emp[1:])
+    return rf"^({'|'.join(forms)})([^0-9]|$)"
+
+
+_NAME_NOISE = re.compile(r"\b(LATE|LT|MR|MRS|MISS|SMT|SM|SRI|SHRI|DR|MD|SK)\b\.?")
+
+
+def _norm_person_name(value) -> str:
+    text = _NAME_NOISE.sub(" ", str(value or "").upper())
+    return " ".join(re.sub(r"[^A-Z ]", " ", text).split())
+
+
+def _same_person(a, b) -> bool:
+    from difflib import SequenceMatcher
+
+    a, b = _norm_person_name(a), _norm_person_name(b)
+    if len(a) < 3 or len(b) < 3:
+        return False
+    if a == b or SequenceMatcher(None, a, b).ratio() >= 0.8:
+        return True
+    wa, wb = a.split(), b.split()
+    return len(wa) > 1 and len(wb) > 1 and wa[0] == wb[0] and wa[-1] == wb[-1]
+
+
+def _our_lic_identity(emp):
+    """
+    Roll nos, case nos and names this system holds for one EMP_CD.
+
+    CR 06-11-2026: fi_pn_lic_master.SALARY_ROLL_NO is not unique — Kolkata and
+    Haldia number employees separately (03316k = MUNNALAL, 03316 / 03316A =
+    KANAN KUMAR MANDAL of Haldia). An LIC row is taken as this employee's only
+    when its roll no / case no / name agrees with these.
+    """
+    rolls, cases, names = set(), set(), set()
+
+    def add(store, value, *, upper=True):
+        text = str(value or "").strip()
+        if text.endswith(".0"):
+            text = text[:-2]
+        if text:
+            store.add(text.upper() if upper else text)
+
+    queries = [
+        ("SELECT ROLL_NO, CASE_NO, EMP_NAME, PEN_NAME FROM {t} WHERE EMP_CD = %s",
+         ("fi_pn_wage_2017_hdr_third", "fi_pn_wage_2017_hdr_sec", "fi_pn_wage_2017_hdr_third_126",
+          "fi_pn_wage_2017_hdr_offi2", "fi_pn_wage_2022_hdr_third")),
+        ("SELECT FPENSION_ROLL_NO, CA_NUMBER, NULL, NULL FROM {t} WHERE EMP_CD = %s", ("fi_pn_mh_familypensioner",)),
+        ("SELECT NULL, CA_NUMBER, NAME, NULL FROM {t} WHERE EMP_CD = %s", ("fi_pn_mh_pensioner",)),
+        ("SELECT NULL, CA_NO, NULL, APPLICANT_NAME FROM {t} WHERE EMP_CD = %s", ("fi_pn_mh_fpen_caclaim",)),
+        ("SELECT NULL, NULL, CONCAT_WS(' ', FIRST_NAME, LAST_NAME), NULL FROM {t} WHERE EMP_CD = %s",
+         ("fi_xx_mh_emp_per",)),
+    ]
+    with connection.cursor() as cursor:
+        for sql, tables in queries:
+            for table in tables:
+                try:
+                    cursor.execute(sql.format(t=table), [emp])
+                    rows = cursor.fetchall()
+                except Exception:
+                    continue
+                for roll, case, emp_name, pen_name in rows:
+                    add(rolls, roll)
+                    add(cases, case)
+                    add(names, emp_name, upper=False)
+                    add(names, pen_name, upper=False)
+    return rolls, cases, names
+
+
+def _lic_row_is_ours(identity, pension_roll, case_no, emp_name, pensioner_name) -> bool:
+    rolls, cases, names = identity
+    roll = str(pension_roll or "").strip().upper()
+    case = str(case_no or "").strip()
+    if case.endswith(".0"):
+        case = case[:-2]
+    if roll and roll in rolls:
+        return True
+    if case and case in cases:
+        return True
+    return any(_same_person(n, emp_name) or _same_person(n, pensioner_name) for n in names)
+
+
 def _as_decimal(value):
     if value is None or value == "":
         return None
@@ -547,9 +640,15 @@ def _class12_round_note(desc: str) -> str:
     text = str(desc or "").strip()
     if not text or re.search(r"Rounded to the next 10", text, re.I):
         return text
-    if re.search(r"minimum basic", text, re.I):
+    # CR 12-11-2026: "(minimum / maximum of the scale)", "(fixed at the next
+    # stage of the scale)" replace "(minimum basic)" — scale fixation, not rounding.
+    if re.search(r"minimum basic|of the scale", text, re.I):
         return text
     if re.fullmatch(r"Basic\s+Pay\s+as\s+on\s+01\.01\.2017", text, re.I):
+        return text
+    # CR 12-11-2026: opening "Basic Pay Over … CPI Points as on 01.01.YYYY"
+    # is the brought-forward basic, not a rounded line.
+    if re.match(r"Basic\s+Pay\s+Over\b.*\bas\s+on\b", text, re.I):
         return text
     if re.search(r"Notional", text, re.I) or re.search(r"Basic Pay Over", text, re.I):
         return f"{text} (Rounded to the next 10 Rupees)"
@@ -642,7 +741,9 @@ def build_class12_revision_blocks(
         desc = str(row.get("description") or "")
         ends_stage = bool(
             re.search(r"minimum basic", desc, re.I)
-            or re.search(r"Basic Pay Over", desc, re.I)
+            # CR 12-11-2026: anchored, else "Notional basic pay over 1708 CPI"
+            # ended the 1992 stage early and split it into two blocks.
+            or re.match(r"Basic Pay Over", desc, re.I)
             or (
                 re.search(r"Basic pay as on", desc, re.I)
                 and "existing scale" not in desc.lower()
@@ -685,14 +786,99 @@ def _reletter_class12_rows(rows: list[dict]) -> list[dict]:
     return out
 
 
+# CR 12-11-2026: class 1/2 opening lines read like class 3/4
+# ("Basic Pay Over 126 CPI Points as on 01.01.2007"). CPI of each 1 January
+# class 1/2 stage; the final 01.01.2017 block stays "Basic Pay as on 01.01.2017"
+# like the class 3/4 final 01.01.2022 block.
+# CR 12-11-2026: 1987 stage is 686 CPI (user confirmed), not the 685 of the DA line.
+CLASS12_STAGE_CPI = {"1987": "686", "1992": "1099", "1997": "1708", "2007": "126"}
+
+
+def _class12_opening_label(description: str) -> str:
+    text = str(description or "").strip()
+    # CR 12-11-2026 (emp 21908): the first block's "Basic Pay in the existing
+    # scale (1992 revised pay scale)" reads the same CPI way.
+    match = re.fullmatch(
+        r"Basic\s+Pay\s+(?:as\s+on\s+01\.01\.(\d{4})"
+        r"|in\s+the\s+existing\s+scale\s+\((\d{4})\s+revised\s+pay\s+scale\))",
+        text,
+        re.I,
+    )
+    year = (match.group(1) or match.group(2)) if match else None
+    if year in CLASS12_STAGE_CPI:
+        return f"Basic Pay Over {CLASS12_STAGE_CPI[year]} CPI Points as on 01.01.{year}"
+    return text
+
+
+# CR 12-11-2026 (emp 21908): wording of saved class 1/2 lines, so reprints of
+# older consolidations read the same as new ones.
+CLASS12_ROW_TEXT = {
+    "D.A (As per Slab based lookup)": "D.A (As per Slab)*",
+    "Fitment @ 20%": "Fitment @ 20% on Basic",
+}
+CLASS12_DA_SLAB_MARK = "As per Slab)*"
+
+
+def _class12_row_text(description) -> str:
+    text = str(description or "").strip()
+    return CLASS12_ROW_TEXT.get(text, text)
+
+
+def _class12_cpi_title(title: str) -> str:
+    """CR 12-11-2026: 'Year 1992 (Revised Pay Scale)' → class 3/4 style
+    'Detailed Calculation Breakdown Year 1992 - CPI 1099' (same for 1987)."""
+    text = str(title or "")
+    match = re.match(r"Year\s+(\d{4})\s+\(Revised Pay Scale\)", text, re.I)
+    if match and match.group(1) in CLASS12_STAGE_CPI:
+        year = match.group(1)
+        return (
+            f"Detailed Calculation Breakdown Year {year} - CPI {CLASS12_STAGE_CPI[year]}"
+            + text[match.end():]
+        )
+    return text
+
+
+def _with_class12_aggregate(rows: list[dict]) -> list[dict]:
+    """CR 12-11-2026: class 3/4 shows 'Aggregate of A+B+C' before the rounded
+    notional pay; class 1/2 had no such row."""
+    from methodology2.services.rounding_helpers import round2
+
+    if any(re.match(r"Aggregate\b", str(r.get("description") or ""), re.I) for r in rows):
+        return rows
+    notional_idx = next(
+        (
+            idx
+            for idx, r in enumerate(rows)
+            if idx >= 2
+            and re.search(r"Rounded to the next 10", str(r.get("description") or ""), re.I)
+        ),
+        None,
+    )
+    if notional_idx is None:
+        return rows
+    parts = rows[:notional_idx]
+    try:
+        total = round2(sum(float(r.get("value") or 0) for r in parts))
+    except (TypeError, ValueError):
+        return rows
+    letters = "+".join(chr(ord("A") + i) for i in range(len(parts)))
+    aggregate = {"description": f"Aggregate of {letters}", "value": total}
+    if any(r.get("npa") is not None for r in parts):
+        aggregate["pay"] = round2(sum(float(r.get("pay") or 0) for r in parts))
+        aggregate["npa"] = round2(sum(float(r.get("npa") or 0) for r in parts))
+    return rows[:notional_idx] + [aggregate] + rows[notional_idx:]
+
+
 def ensure_class12_opening_basic(blocks) -> list:
     """
     Each class 1/2 scale block starts with that scale's basic, as class 3/4 does.
 
-    Example: Year 2007 - CPI 126 begins with 'Basic Pay as on 01.01.2007'
-    (the prior stage's basic), then DA and fitment.
+    Example: Year 2007 - CPI 126 begins with
+    'Basic Pay Over 126 CPI Points as on 01.01.2007' (the prior stage's basic),
+    then DA, fitment and 'Aggregate of A+B+C'.
     """
     previous_basic = None
+    previous_row = None
     normalized = []
     for block in blocks or []:
         if not isinstance(block, dict):
@@ -705,26 +891,34 @@ def ensure_class12_opening_basic(blocks) -> list:
         ]
         if rows:
             first = str(rows[0].get("description") or "")
-            # First scale keeps "Basic Pay in the existing scale (YYYY …)".
-            # Later scales open with "Basic Pay as on 01.01.YYYY".
+            # Later scales open with the prior stage's basic; _class12_opening_label
+            # turns it (and the first "existing scale" line) into the CPI wording.
             if (
                 year
                 and previous_basic is not None
                 and not _is_class12_opening_basic(first)
             ):
-                rows.insert(
-                    0,
-                    {
-                        "description": f"Basic Pay as on 01.01.{year}",
-                        "value": previous_basic,
-                    },
-                )
+                opening = {
+                    "description": f"Basic Pay as on 01.01.{year}",
+                    "value": previous_basic,
+                }
+                # Doctor consolidation: carry basic and NPA separately.
+                if previous_row and previous_row.get("npa") is not None:
+                    opening["pay"] = previous_row.get("pay")
+                    opening["npa"] = previous_row.get("npa")
+                rows.insert(0, opening)
+            for row in rows:
+                row["description"] = _class12_row_text(row.get("description"))
+            rows[0]["description"] = _class12_opening_label(rows[0].get("description"))
+            rows = _with_class12_aggregate(rows)
             rows = _reletter_class12_rows(rows)
             last_value = rows[-1].get("value")
             if last_value is not None and last_value != "":
                 previous_basic = last_value
+                previous_row = rows[-1]
         updated = dict(block)
         updated["rows"] = rows
+        updated["title"] = _class12_cpi_title(block.get("title"))
         normalized.append(updated)
     return normalized
 
@@ -926,6 +1120,71 @@ def m1_input_defaults(wage_info: dict, category=None) -> dict:
     return out
 
 
+FAMILY_M1_MISSING_MESSAGE = (
+    "Family pension M1@{cpi} (30%) is not in the database, or is the same as "
+    "the employee pension. Enter the family pension amount from the file "
+    "before saving."
+)
+
+
+def family_m1_problem(columns, col) -> str | None:
+    """CR 12-11-2026 (emp 46913): 'blank' when the family (30%) column has no
+    M1, 'same' when it equals the employee / enhanced (50%) M1 at that CPI
+    (a copied employee pension — user chose to treat it as missing)."""
+    m1 = _float_or_none(col.get("m1"))
+    if m1 is None:
+        return "blank"
+    for other in columns or []:
+        if not isinstance(other, dict) or other.get("kind") not in ("employee", "enhanced"):
+            continue
+        if str(other.get("cpi")) != str(col.get("cpi")):
+            continue
+        other_m1 = _float_or_none(other.get("m1"))
+        if other_m1 is not None and abs(other_m1 - m1) < 0.01:
+            return "same"
+    return None
+
+
+def missing_family_m1_keys(comparison) -> list[str]:
+    """CR 12-11-2026 (emp 46913): family (30%) columns whose Methodology-1 must
+    be typed (blank, or the employee pension copied in). M1 is never worked out
+    from the employee pension. Returns keys like "359_30" in column order.
+    """
+    columns = (comparison or {}).get("columns") or []
+    out = []
+    for col in columns:
+        if not isinstance(col, dict) or col.get("kind") != "family":
+            continue
+        if family_m1_problem(columns, col):
+            key = _m1_input_key(col)
+            if key and key not in out:
+                out.append(key)
+    return out
+
+
+def family_m1_missing_for_lookup(wage_info: dict, category=None) -> list[str]:
+    """Missing family M1 keys for the employee lookup (preview columns)."""
+    wage_info = wage_info or {}
+    preview = build_pension_comparison(
+        date_of_death=wage_info.get("date_of_death"),
+        wage_by_type=wage_info.get("wage_by_type") or {},
+        m2_emp_277=None,
+        m2_emp_359=None,
+        m2_fam_277=None,
+        m2_fam_359=None,
+        double_fpension_upto=wage_info.get("double_fpension_upto"),
+        enhanced_family_pension=wage_info.get("enhanced_family_pension"),
+        rate_cutover=wage_info.get("rate_cutover"),
+        die_in_harness=wage_info.get("die_in_harness"),
+        case_type=wage_info.get("case_type"),
+        category=category,
+    )
+    keys = missing_family_m1_keys(preview)
+    if _is_class12_category(category):
+        keys = [k for k in keys if not k.startswith("359")]
+    return keys
+
+
 def _pension_diff_for_store(comparison, cpi, *, is_employee, m2_emp, m2_fam, m1):
     """
     Difference stored on the consolidation row: M2 − Methodology-1.
@@ -1065,16 +1324,80 @@ def compute_enhanced_fpension_upto(
 
 
 def fetch_date_of_death(emp_id):
-    """DOD_EMP_PENSIONER from family pension claim (if any)."""
+    """Employee's date of death from the family pension claims (if any)."""
     ctx = fetch_family_pension_rate_context(emp_id)
     return ctx.get("date_of_death")
 
 
+# def fetch_family_pensioner_dob(emp_id):
+#     """Family pensioner DOB from fi_pn_md_fpen_appcn (latest active/detail row)."""
+#     emp = _emp_key(emp_id)
+#     if not emp:
+#         return None
+#     with connection.cursor() as cursor:
+#         cursor.execute(
+#             """
+#             SELECT a.DOB
+#             FROM fi_pn_md_fpen_appcn a
+#             INNER JOIN fi_pn_mh_fpen_caclaim c
+#               ON c.CLMCA_ID = a.CLMCA_ID
+#             WHERE c.EMP_CD = %s
+#               AND a.DOB IS NOT NULL
+#             ORDER BY c.APPCN_DATE DESC, c.CLMCA_ID DESC, a.SL_NO ASC
+#             LIMIT 1
+#             """,
+#             [emp],
+#         )
+#         row = cursor.fetchone()
+#     return _as_date(row[0]) if row else None
+
+
+##-- This has been changed to use the fi_pn_lic_master table for family pensioner DOB, as per CR 03-11-2026.--##
+
 def fetch_family_pensioner_dob(emp_id):
-    """Family pensioner DOB from fi_pn_md_fpen_appcn (latest active/detail row)."""
+    """
+    Family pensioner DOB for Methodology-2.
+    CR 03-11-2026: source is fi_pn_lic_master.DATE_OF_BIRTH where FAMILY_TYPE = 'F'
+    (P = employee). SALARY_ROLL_NO carries the EMP_CD with suffixes such as
+    03424/K, 10831K, 41676KDS, 27527/1, or 4 digits (8407K = 08407).
+    Only running (R) or stopped (S) F rows count, R first. Falls back to
+    fi_pn_md_fpen_appcn when the LIC master has no such row with a DOB.
+    CR 03-11-2026 (emp 42211): a closed (C) row is an earlier family
+    pensioner (widow died, pension moved to a KDS-paid daughter), so it is
+    not used.
+    """
     emp = _emp_key(emp_id)
     if not emp:
         return None
+    from django.db import connections
+    from methodology2.services.lic_bunching import _lic_db_alias
+    alias = _lic_db_alias()
+    if alias:
+        try:
+            with connections[alias].cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT DATE_OF_BIRTH, PENSION_ROLL_NO, CASE_NO, EMP_NAME, PENSIONER_NAME
+                    FROM fi_pn_lic_master
+                    WHERE UPPER(TRIM(FAMILY_TYPE)) = 'F'
+                      AND DATE_OF_BIRTH IS NOT NULL
+                      AND TRIM(SALARY_ROLL_NO) REGEXP %s
+                      AND UPPER(TRIM(PENSION_STATUS)) IN ('R', 'S')
+                    ORDER BY FIELD(UPPER(TRIM(PENSION_STATUS)), 'R', 'S'),
+                             DATE_MODIFIED DESC
+                    """,
+                    [_lic_salary_roll_pattern(emp)],
+                )
+                rows = cursor.fetchall()
+            if rows:
+                # CR 06-11-2026: same SALARY_ROLL_NO can be a Haldia pensioner;
+                # take only a row that is this employee's (roll / case / name).
+                identity = _our_lic_identity(emp)
+                for r in rows:
+                    if _lic_row_is_ours(identity, r[1], r[2], r[3], r[4]):
+                        return _as_date(r[0])
+        except Exception:
+            pass
     with connection.cursor() as cursor:
         cursor.execute(
             """
@@ -1091,6 +1414,56 @@ def fetch_family_pensioner_dob(emp_id):
         )
         row = cursor.fetchone()
     return _as_date(row[0]) if row else None
+
+
+def _lic_employee_death(emp):
+    """
+    CR 06-11-2026 (emp 47251): employee's date of death and enhanced-upto from
+    fi_pn_lic_master when there is no family pension claim (old LIC cases).
+
+    The header DOD is always the employee's death: the earliest EMP_DOD on the
+    F (family pensioner) rows. A later family pensioner's row (46945K: widow
+    died, pension to daughter) carries that pensioner's death in EMP_DOD, so
+    the earliest one is the employee's. The P row DATE_OF_DEATH is not used:
+    160 saved employee-pension cases (paid as living) have one there.
+    Returns (dod, enhance_upto) — either may be None.
+    """
+    from django.db import connections
+    from methodology2.services.lic_bunching import _lic_db_alias
+
+    alias = _lic_db_alias()
+    if not alias:
+        return None, None
+    try:
+        with connections[alias].cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT UPPER(TRIM(FAMILY_TYPE)), UPPER(TRIM(PENSION_STATUS)), DATE_OF_DEATH,
+                       EMP_DOD, ENHANCE_UPTO, PENSION_ROLL_NO, CASE_NO, EMP_NAME, PENSIONER_NAME
+                FROM fi_pn_lic_master
+                WHERE TRIM(SALARY_ROLL_NO) REGEXP %s
+                """,
+                [_lic_salary_roll_pattern(emp)],
+            )
+            rows = cursor.fetchall()
+    except Exception:
+        return None, None
+    if not any(r[0] == "F" and r[3] for r in rows):
+        return None, None
+    # Only rows that are this employee's (same roll / case no / name) — see _our_lic_identity.
+    identity = _our_lic_identity(emp)
+    ours = [r for r in rows if _lic_row_is_ours(identity, r[5], r[6], r[7], r[8])]
+    # Employee's own running P row with no death date → the employee is alive
+    # (01346: F row 01346/1 is another case under the same number).
+    if any(r[0] == "P" and r[1] == "R" and not r[2] for r in ours):
+        return None, None
+    f_rows = sorted(
+        ((_as_date(r[3]), _as_date(r[4])) for r in ours if r[0] == "F" and r[3]),
+        key=lambda x: x[0],
+    )
+    dod = f_rows[0][0] if f_rows else None
+    upto = next((u for d, u in f_rows if d == dod and u and dod and u > dod), None)
+    return dod, upto
 
 
 def fetch_family_pension_rate_context(emp_id, category=None) -> dict:
@@ -1118,18 +1491,40 @@ def fetch_family_pension_rate_context(emp_id, category=None) -> dict:
         return out
 
     with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT DOD_EMP_PENSIONER
-            FROM fi_pn_mh_fpen_caclaim
-            WHERE EMP_CD = %s
-              AND DOD_EMP_PENSIONER IS NOT NULL
-            ORDER BY APPCN_DATE DESC, CLMCA_ID DESC
-            LIMIT 1
-            """,
-            [emp],
-        )
-        row = cursor.fetchone()
+        # CR 05-11-2026 (emp 46945): the employee's date of death. A later claim
+        # (pension passed from the widow to a daughter / son) carries the previous
+        # family pensioner's death in DOD_EMP_PENSIONER, and the employee's death
+        # in EMP_DOD. So take EMP_DOD of the latest claim, else DOD_EMP_PENSIONER
+        # of the first claim (the employee's own death claim).
+        row = None
+        try:
+            cursor.execute(
+                """
+                SELECT EMP_DOD
+                FROM fi_pn_mh_fpen_caclaim
+                WHERE EMP_CD = %s
+                  AND EMP_DOD IS NOT NULL
+                ORDER BY APPCN_DATE DESC, CLMCA_ID DESC
+                LIMIT 1
+                """,
+                [emp],
+            )
+            row = cursor.fetchone()
+        except Exception:
+            row = None
+        if not row:
+            cursor.execute(
+                """
+                SELECT DOD_EMP_PENSIONER
+                FROM fi_pn_mh_fpen_caclaim
+                WHERE EMP_CD = %s
+                  AND DOD_EMP_PENSIONER IS NOT NULL
+                ORDER BY APPCN_DATE ASC, CLMCA_ID ASC
+                LIMIT 1
+                """,
+                [emp],
+            )
+            row = cursor.fetchone()
         out["date_of_death"] = _as_date(row[0]) if row else None
 
         cursor.execute(
@@ -1193,6 +1588,22 @@ def fetch_family_pension_rate_context(emp_id, category=None) -> dict:
             )
             row = cursor.fetchone()
             out["retirement_date"] = _as_date(row[0]) if row else None
+
+    # CR 06-11-2026 (emp 47251): no family pension claim (old LIC case) — take the
+    # employee's DOD from the LIC master, else the separation date when the
+    # employee died in service (DT / DH). Never a later family pensioner's death.
+    if out["date_of_death"] is None or out["double_fpension_upto_db"] is None:
+        lic_dod, lic_upto = _lic_employee_death(emp)
+        if out["date_of_death"] is None:
+            out["date_of_death"] = lic_dod
+            if (
+                out["date_of_death"] is None
+                and out["separation_type"] in _DIH_SEP_TYPES
+                and out["retirement_date"]
+            ):
+                out["date_of_death"] = out["retirement_date"]
+        if out["double_fpension_upto_db"] is None and lic_upto and lic_dod == out["date_of_death"]:
+            out["double_fpension_upto_db"] = lic_upto
 
     out["die_in_harness"] = _is_die_in_harness(
         out["separation_type"], out["date_of_death"], out["retirement_date"]
@@ -1747,7 +2158,13 @@ def build_pension_comparison(
             #   is family; primary M1 is OLD_BASIC / REV_BASIC on the F row
             #   (SINGLE would wrongly swap 12197→4536 on print for cases
             #   like emp 47344). Never invent M1 from m2_* snapshots.
-            prefer_single = not cutover_before_277
+            # CR 10-11-2026 (emp 45089): the single columns hold the 30% only
+            # beside an enhanced (50%) basic. With no enhanced period after
+            # death the F-row basic is already the 30% family pension; the
+            # single columns can be stale pre-revision figures (45089: 2022
+            # OLD_SINGLE 4314 = unrevised 126 CPI single, REV_SINGLE 14750 =
+            # minimum) — use OLD_BASIC 11600 / REV_BASIC 16362 instead.
+            prefer_single = not cutover_before_277 and enhanced
 
             def _pick_family_m1(row):
                 if not row:
@@ -2316,6 +2733,100 @@ def fill_employee_header_gaps(emp_id, data: dict) -> dict:
         if emp_dob and fp_dob and emp_dob == fp_dob:
             data["date_of_birth"] = None
             data["dob"] = None
+    fill_scale_pay_from_claim(emp, data)
+    return data
+
+
+CLAIM_SCALE_NOTE = (
+    "Pay scale / last pay not found in the salary (wage) records — filled from "
+    "the family pension claim (fi_pn_mh_fpen_caclaim){claim}. Please check and "
+    "correct if wrong."
+)
+
+
+def fill_scale_pay_from_claim(emp_id, data: dict) -> dict:
+    """
+    CR 06-11-2026 (emp 00334): scale and last pay not in the salary records
+    (retired long ago) — take SCALE_CD and LAST_BASIC_AT_RET from the latest
+    family pension claim. The form shows data["scale_note"] under the scale so
+    the user checks it; values already found are never replaced.
+    """
+    emp = str(emp_id or "").strip()[:5]
+    if not emp or not isinstance(data, dict):
+        return data
+    need_scale = not str(data.get("scale") or "").strip()
+    need_pay = data.get("last_pay") in (None, "")
+    if not need_scale and not need_pay:
+        return data
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT CLMCA_ID, SCALE_CD, LAST_BASIC_AT_RET
+                FROM fi_pn_mh_fpen_caclaim
+                WHERE EMP_CD = %s
+                  AND (TRIM(SCALE_CD) <> '' OR LAST_BASIC_AT_RET IS NOT NULL)
+                ORDER BY APPCN_DATE DESC, CLMCA_ID DESC
+                """,
+                [emp],
+            )
+            claims = cursor.fetchall()
+            scale_cd = next((str(r[1]).strip() for r in claims if r[1] and str(r[1]).strip()), "")
+            basic = next((r[2] for r in claims if r[2] is not None), None)
+            claim_id = next((r[0] for r in claims if (r[1] and str(r[1]).strip()) or r[2] is not None), "")
+            scale_desc = ""
+            if scale_cd:
+                cursor.execute(
+                    "SELECT SCALE_DESC FROM fi_pm_mh_payscale WHERE TRIM(SCALE_CD) = %s LIMIT 1",
+                    [scale_cd],
+                )
+                row = cursor.fetchone()
+                scale_desc = str(row[0] or "").strip() if row else ""
+    except Exception:
+        return data
+    if not scale_cd and basic is None:
+        return data
+
+    sep = data.get("separation_date") or data.get("retirement_date")
+    category = str(data.get("category") or "").strip()
+    filled = False
+    try:
+        if category in ("1", "2"):
+            from methodology2.services.oracle_employee_service import _match_class12_grade_and_pay
+
+            grade, pay = _match_class12_grade_and_pay(sep, basic, oracle_scale_desc=scale_desc or None)
+            if need_scale and grade:
+                data["scale"] = grade
+                filled = True
+            if need_pay and (pay is not None or basic is not None):
+                data["last_pay"] = int(float(pay if pay is not None else basic))
+                filled = True
+        else:
+            from methodology2.services.oracle_employee_service import resolve_last_pay, resolve_scale_string
+
+            scale = data.get("scale") or ""
+            if need_scale:
+                scale = resolve_scale_string(scale_cd or None, sep, scale_desc=scale_desc or None) or ""
+                if scale:
+                    data["scale"] = scale
+                    filled = True
+            if need_pay and basic is not None:
+                data["last_pay"] = resolve_last_pay(scale, basic) if scale else int(float(basic))
+                filled = True
+    except Exception:
+        pass
+    if need_scale and not data.get("scale") and (scale_desc or scale_cd):
+        # Not in this class / date scale list — show it so the user can pick.
+        data["scale_display"] = scale_desc or scale_cd
+        filled = True
+    if filled:
+        data["scale_source"] = "family_pension_claim"
+        data["claim_scale_cd"] = scale_cd
+        data["claim_scale_desc"] = scale_desc
+        data["claim_last_basic"] = float(basic) if basic is not None else None
+        data["scale_note"] = CLAIM_SCALE_NOTE.format(claim=f", claim {claim_id}" if claim_id else "")
+        if str(data.get("warning") or "").startswith("No pay scale is on file"):
+            data["warning"] = data["scale_note"]
     return data
 
 
@@ -2551,7 +3062,27 @@ def save_consolidation_snapshot(payload):
     if not isinstance(m1_inputs, dict):
         m1_inputs = None
     if m1_inputs:
+        # CR 02-11-2026 (emp 15068): family (30%) M1 equal to the employee /
+        # enhanced (50%) M1 at the same CPI is the employee pension typed twice.
+        for cpi in ("277", "359"):
+            v50 = _float_or_none(m1_inputs.get(f"{cpi}_50"))
+            v30 = _float_or_none(m1_inputs.get(f"{cpi}_30"))
+            if v50 is not None and v30 is not None and v50 == v30:
+                return {
+                    "error": (
+                        f"M1@{cpi} (30%) cannot be the same as M1@{cpi} (50%). "
+                        "Enter the family pension amount from the file."
+                    )
+                }
         apply_m1_inputs(comparison, m1_inputs)
+    # CR 12-11-2026 (emp 46913): a family (30%) column with no M1 was saved
+    # blank and the arrear then derived it as employee × 30/50. Ask instead.
+    missing_fm1 = missing_family_m1_keys(comparison)
+    if missing_fm1:
+        return {
+            "error": FAMILY_M1_MISSING_MESSAGE.format(cpi=missing_fm1[0].split("_")[0]),
+            "family_m1_missing": missing_fm1,
+        }
 
     family_pensioner_dob = _as_date(
         payload.get("family_pensioner_dob")

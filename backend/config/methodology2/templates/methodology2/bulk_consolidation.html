@@ -179,6 +179,25 @@
       white-space: normal;
       padding: 1px 3px;
     }
+    /* CR 13-11-2026: DA slab reference table, 30% of the page. */
+    .m2-consol-print__slab-table {
+      border-collapse: collapse;
+      margin: 0;
+    }
+    .m2-consol-print__slab-table th,
+    .m2-consol-print__slab-table td {
+      border: 1px solid #333;
+      padding: 1px 3px;
+      font-size: 9.5px;
+      white-space: nowrap;
+    }
+    .m2-consol-print__slab-table th {
+      background: #eee;
+      text-align: center;
+    }
+    .m2-consol-print__slab-table td.amt {
+      text-align: center;
+    }
     /* Blank band above labels for handwritten signature */
     .m2-consol-print__footer {
       width: 100%;
@@ -409,6 +428,18 @@
           </table>
         </td>
       </tr>
+    </table>
+    {% endif %}
+
+    {% comment %}CR 12-11-2026 (emp 21908): slab for "D.A (As per Slab)*".{% endcomment %}
+    {% if da_slab_rows %}
+    <div class="m2-consol-print__fp-title" style="text-align: left;">* D.A. Slab (1099 CPI)</div>
+    {% comment %}CR 13-11-2026: own class + width attribute — xhtml2pdf ignored the inline 30% next to the fp-table 100% rule.{% endcomment %}
+    <table class="m2-consol-print__slab-table" width="30%">
+      <tr><th>Basic Pay (Rs.)</th><th>Rate</th><th>Sub to Min (Rs.)</th></tr>
+      {% for r in da_slab_rows %}
+      <tr><td>{{ r.range }}</td><td class="amt">{{ r.rate }}</td><td class="amt">{{ r.slab }}</td></tr>
+      {% endfor %}
     </table>
     {% endif %}
 

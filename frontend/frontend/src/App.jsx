@@ -23,6 +23,8 @@ import Methodology2OldAgeManualEntry from "./pages/Methodology2OldAgeManualEntry
 import Methodology2FamilyPensionConsolidation from "./pages/Methodology2FamilyPensionConsolidation";
 import Methodology2DoctorConsolidation from "./pages/Methodology2DoctorConsolidation";
 import Methodology2FamilyPensionReport from "./pages/Methodology2FamilyPensionReport";
+// CR 06-11-2026: M2 "M1 calculation" (Methodology-1 employee + family pension).
+import Methodology2M1Calculation from "./pages/Methodology2M1Calculation";
 import Methodology2ConsolidationReport from "./pages/Methodology2ConsolidationReport";
 import Methodology2Macp from "./pages/Methodology2Macp";
 import Methodology2Arrear from "./pages/Methodology2Arrear";
@@ -134,6 +136,10 @@ function App() {
                 path="methodology2-arrear"
                 element={<Methodology2Arrear />}
               />
+              <Route
+                path="methodology2-m1-calculation"
+                element={<Methodology2M1Calculation />}
+              />
               <Route path="*" element={<Navigate to={M2_OA_HOME} replace />} />
             </>
           ) : (
@@ -243,6 +249,10 @@ function App() {
                 <Route
                   path="methodology2-oldage-arrear/macp"
                   element={<Methodology2Macp />}
+                />
+                <Route
+                  path="methodology2-m1-calculation"
+                  element={<Methodology2M1Calculation />}
                 />
               </Route>
 

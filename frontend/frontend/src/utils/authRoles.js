@@ -265,6 +265,8 @@ const M2_USER_NAV = [
     end: true,
   },
   { to: "/dashboard/methodology2-arrear", label: "Arrear Calculation", end: true },
+  // CR 06-11-2026: Methodology-1 employee + family pension for M2 users.
+  { to: "/dashboard/methodology2-m1-calculation", label: "M1 calculation", end: true },
 ];
 
 const FAMILY_PENSION_NAV = [
@@ -392,6 +394,7 @@ const M2_OA_ONLY_NAV = [
     end: true,
   },
   { to: "/dashboard/methodology2-arrear", label: "Arrear Calculation", end: true },
+  { to: "/dashboard/methodology2-m1-calculation", label: "M1 calculation", end: true },
 ];
 
 export function getNavItemsForUser(user = getStoredUser()) {

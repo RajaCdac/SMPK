@@ -8,6 +8,7 @@ from .views import (
     GetEquivalentScalesView,
     GetPayStagesView,
     GetScalesView,
+    M1EmployeeFamilyCalculationView,
     ScaleTypeView,
 )
 
@@ -19,6 +20,8 @@ urlpatterns = [
     path("calculate-revision/", CalculateRevisionView.as_view()),
     path("cpi-277-359/", Cpi277And359View.as_view()),
     path("family_pension_calculation/", FamilyPensionCalculationView.as_view()),
+    # CR 06-11-2026: M2 "M1 calculation" (employee + family pension).
+    path("m1-calculation/", M1EmployeeFamilyCalculationView.as_view()),
     path("get-scale-type/", ScaleTypeView.as_view()),
     path("employee/<str:emp_id>/", EmployeeLookupView.as_view()),
 ]

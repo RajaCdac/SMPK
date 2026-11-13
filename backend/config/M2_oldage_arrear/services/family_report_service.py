@@ -163,13 +163,26 @@ def _payment_values(emp: str) -> tuple[list, str]:
     basic_by_block = [0.0] * len(PAYMENT_BLOCKS)
     months_total = 0
     for line in calc.get("lines") or []:
+        # CR 03-11-2026: months with a negative benefit are not paid or counted.
+        if line.get("not_payable"):
+            continue
+        # CR 12-11-2026: per-month amounts carry the day-split change-over
+        # month (enhanced → family); older results fall back to the monthly rate.
+        per_month = {
+            str(m.get("month"))[:10]: m for m in (line.get("month_amounts") or [])
+        }
         cursor = date.fromisoformat(str(line["from_iso"])[:10])
         last = date.fromisoformat(str(line["to_iso"])[:10])
         while cursor <= last:
+            entry = per_month.get(cursor.isoformat())
             for index, (_, first, final) in enumerate(PAYMENT_BLOCKS):
                 if first <= cursor <= final:
-                    oa_by_block[index] += float(line.get("oldage_benefit") or 0)
-                    basic_by_block[index] += float(line.get("monthly_amount") or 0)
+                    if entry is not None:
+                        oa_by_block[index] += float(entry.get("oa") or 0)
+                        basic_by_block[index] += float(entry.get("amount") or 0)
+                    else:
+                        oa_by_block[index] += float(line.get("oldage_benefit") or 0)
+                        basic_by_block[index] += float(line.get("monthly_amount") or 0)
             months_total += 1
             cursor = date(cursor.year + (cursor.month == 12), cursor.month % 12 + 1, 1)
     values = [_money(v) for v in oa_by_block] + [_money(v) for v in basic_by_block]
